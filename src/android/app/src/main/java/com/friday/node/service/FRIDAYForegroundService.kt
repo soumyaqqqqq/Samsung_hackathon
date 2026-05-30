@@ -7,13 +7,11 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.friday.node.data.remote.WebSocketManager
-import com.nirvik.friday.utils.DiscoveryManager
-import com.friday.node.MainActivity
+import com.friday.node.utils.DiscoveryManager
 
 class FRIDAYForegroundService : Service() {
 
     private val CHANNEL_ID = "FRIDAY_SERVICE_CHANNEL"
-    private var wsManager: WebSocketManager? = null
     private lateinit var discoveryManager: DiscoveryManager
 
     override fun onCreate() {
@@ -25,10 +23,9 @@ class FRIDAYForegroundService : Service() {
             // Stop scanning once found to save battery
             discoveryManager.stopSearching()
 
-            // Initialize and spin up your WebSocket pipeline instantly
+            // Initialize the WebSocket connection via Singleton
             val targetUrl = "ws://$ipAddress:$port/ws/android"
-            wsManager = WebSocketManager(targetUrl)
-            wsManager?.connect()
+            WebSocketManager.getInstance().connect(targetUrl)
         }
     }
 
@@ -46,7 +43,6 @@ class FRIDAYForegroundService : Service() {
         return START_STICKY
     }
 
-
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val serviceChannel = NotificationChannel(
@@ -55,12 +51,13 @@ class FRIDAYForegroundService : Service() {
                 NotificationManager.IMPORTANCE_LOW
             )
             val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(serviceChannel)
+            manager?.createNotificationChannel(serviceChannel)
         }
     }
+
     override fun onDestroy() {
         discoveryManager.stopSearching()
-        wsManager?.disconnect()
+        WebSocketManager.getInstance().disconnect()
         super.onDestroy()
     }
 
