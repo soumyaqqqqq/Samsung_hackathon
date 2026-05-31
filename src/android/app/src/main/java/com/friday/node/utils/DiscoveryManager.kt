@@ -1,4 +1,4 @@
-package com.nirvik.friday.utils
+package com.friday.node.utils
 
 import android.content.Context
 import android.net.nsd.NsdManager
@@ -9,9 +9,15 @@ class DiscoveryManager(
     context: Context,
     private val onHubFound: (ipAddress: String, port: Int) -> Unit
 ) {
-    private val nsdManager = context.getSystemService(Context.NSD_SERVICE_SERVICE) as NsdManager
+    private val nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
     private val SERVICE_TYPE = "_friday_hub._tcp."
     private var isDiscovering = false
+
+    companion object {
+        private var resolvedHubIp: String? = null
+
+        fun getResolvedHubIp(): String? = resolvedHubIp
+    }
 
     private val discoveryListener = object : NsdManager.DiscoveryListener {
         override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
@@ -37,7 +43,6 @@ class DiscoveryManager(
         override fun onServiceFound(serviceInfo: NsdServiceInfo) {
             Log.d("FRIDAY_NSD", "Service found: ${serviceInfo.serviceName}")
             if (serviceInfo.serviceType == SERVICE_TYPE) {
-                // Resolve the service to get actual IP and Port details
                 nsdManager.resolveService(serviceInfo, object : NsdManager.ResolveListener {
                     override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
                         Log.e("FRIDAY_NSD", "Resolve failed: Error code $errorCode")
@@ -47,6 +52,7 @@ class DiscoveryManager(
                         Log.d("FRIDAY_NSD", "Resolve Succeeded. IP: ${resolvedServiceInfo.host.hostAddress}")
                         val ip = resolvedServiceInfo.host.hostAddress ?: return
                         val port = resolvedServiceInfo.port
+                        resolvedHubIp = ip
                         onHubFound(ip, port)
                     }
                 })
@@ -55,6 +61,9 @@ class DiscoveryManager(
 
         override fun onServiceLost(serviceInfo: NsdServiceInfo) {
             Log.e("FRIDAY_NSD", "Service lost: ${serviceInfo.serviceName}")
+            if (serviceInfo.host?.hostAddress == resolvedHubIp) {
+                resolvedHubIp = null
+            }
         }
     }
 
