@@ -36,6 +36,13 @@ class FRIDAYAccessibilityService : AccessibilityService() {
 
                 Log.d(TAG, "Window switched to focus app: $currentPackage")
                 WebSocketManager.getInstance().sendEvent(contextPacket.toString())
+
+                // Local broadcast for UI update
+                val localIntent = android.content.Intent("com.friday.node.APP_SWITCH_DETECTED").apply {
+                    putExtra("package_name", currentPackage)
+                    putExtra("timestamp", System.currentTimeMillis())
+                }
+                sendBroadcast(localIntent)
             }
 
             // 2. Capture Content Changes to calculate Typing Cadence (without collecting raw keystrokes)
@@ -64,6 +71,13 @@ class FRIDAYAccessibilityService : AccessibilityService() {
 
                     Log.d(TAG, "Streaming evaluated typing speed cadence delta: $averageCadenceMs ms")
                     WebSocketManager.getInstance().sendEvent(cadencePacket.toString())
+
+                    // Local broadcast for UI update
+                    val localIntent = android.content.Intent("com.friday.node.TYPING_CADENCE_DETECTED").apply {
+                        putExtra("average_delay_ms", averageCadenceMs)
+                        putExtra("timestamp", currentTimestamp)
+                    }
+                    sendBroadcast(localIntent)
 
                     // Reset interval variables
                     keyCount = 0

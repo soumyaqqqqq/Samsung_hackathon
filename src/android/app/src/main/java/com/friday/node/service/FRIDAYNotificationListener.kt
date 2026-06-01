@@ -48,21 +48,17 @@ class FRIDAYNotificationListener : NotificationListenerService() {
             }
             put("timestamp", timestamp)
         }
+        // 3. Send event via WebSocketManager (it will stream or cache offline automatically)
+        WebSocketManager.getInstance().sendEvent(contextPacket.toString())
 
-        // 3. Extract dynamically resolved IP details via DiscoveryManager
-        val activeHubIp = DiscoveryManager.getResolvedHubIp() // Assumes your DiscoveryManager stores the discovered host safely
-
-        if (activeHubIp != null) {
-            Log.d(TAG, "Streaming intercepted alert from $packageName directly to Compute Hub -> $activeHubIp")
-
-            // Pushes raw context event over the established dynamically routed WebSocket pipe
-            WebSocketManager.getInstance().sendEvent(contextPacket.toString())
-        } else {
-            Log.w(TAG, "Compute Hub IP not yet discovered by mDNS. Buffering notification locally to Room/SQLite database.")
-
-            // TODO: Call your Room persistence manager to write this packet down so it flushes upon reconnection pass
-            // LocalDatabaseBuffer.getInstance().queueEvent(contextPacket.toString())
+        // 4. Local broadcast for UI update
+        val localIntent = android.content.Intent("com.friday.node.NOTIFICATION_INTERCEPTED").apply {
+            putExtra("package_name", packageName)
+            putExtra("title", title)
+            putExtra("content", text)
+            putExtra("timestamp", timestamp)
         }
+        sendBroadcast(localIntent)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {

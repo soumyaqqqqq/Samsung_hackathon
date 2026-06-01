@@ -16,6 +16,7 @@ class FRIDAYForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        WebSocketManager.getInstance().init(this)
         createNotificationChannel()
         discoveryManager = DiscoveryManager(this) { ipAddress, port ->
             Log.i("FRIDAY_SERVICE", "Target Compute Hub found! Connecting to $ipAddress:$port")
@@ -39,7 +40,11 @@ class FRIDAYForegroundService : Service() {
 
         val healthManager = com.friday.node.utils.HealthKitManager(this)
 
-        startForeground(1, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(1, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            startForeground(1, notification)
+        }
         com.friday.node.utils.BatteryOptimizer.evaluateSystemState(this)
 
         discoveryManager.startSearching()

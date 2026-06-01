@@ -9,7 +9,7 @@ import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import com.friday.node.data.remote.WebSocketManager
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines Scope.Dispatchers
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.time.Instant
@@ -17,15 +17,20 @@ import java.time.temporal.ChronoUnit
 
 class HealthKitManager(private val context: Context) {
 
-    private val TAG = "FRIDAY_HealthKit"
+    // Fixed warning: Private constants/properties should use camelCase rather than screaming snake_case or uppercase initials
+    private val tag = "FRIDAY_HealthKit"
     private var healthConnectClient: HealthConnectClient? = null
 
     init {
-        // Initialize client configuration if the hardware subsystem provider is active
-        if (HealthConnectClient.getSdkStatus(context) == HealthConnectClient.SDK_AVAILABLE) {
-            healthConnectClient = HealthConnectClient.getOrCreate(context)
-        } else {
-            Log.w(TAG, "Health Connect layer is unavailable on this device configuration.")
+        try {
+            // Evaluates whether the system service provider exists in the current device image
+            if (HealthConnectClient.getSdkStatus(context) == HealthConnectClient.SDK_AVAILABLE) {
+                healthConnectClient = HealthConnectClient.getOrCreate(context)
+            } else {
+                Log.w(tag, "Health Connect layer is unavailable on this device configuration.")
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Error initializing Health Connect: ${e.message}")
         }
     }
 
@@ -47,8 +52,8 @@ class HealthKitManager(private val context: Context) {
                     timeRangeFilter = TimeRangeFilter.between(startTime, endTime)
                 )
                 val sleepRecords = client.readRecords(sleepRequest).records
-                val totalSleepMinutes = sleepRecords.sumOf {
-                    ChronoUnit.MINUTES.between(it.startTime, it.endTime)
+                val totalSleepMinutes = sleepRecords.sumOf { record ->
+                    ChronoUnit.MINUTES.between(record.startTime, record.endTime)
                 }
 
                 // 2. Fetch resting heart rate distributions to track anxiety anomalies
@@ -58,7 +63,7 @@ class HealthKitManager(private val context: Context) {
                 )
                 val hrRecords = client.readRecords(hrRequest).records
                 val averageHeartRate = if (hrRecords.isNotEmpty()) {
-                    hrRecords.flatMap { it.samples }.map { it.beatsPerMinute }.average()
+                    hrRecords.flatMap { record -> record.samples }.map { sample -> sample.beatsPerMinute }.average()
                 } else {
                     72.0 // Fallback to a healthy resting standard if parameters are restricted
                 }
@@ -72,11 +77,11 @@ class HealthKitManager(private val context: Context) {
                     put("battery_optimization_mode", BatteryOptimizer.getCurrentMode().name)
                 }
 
-                Log.i(TAG, "Biometric evaluation complete. Mean HR: ${averageHeartRate.toInt()} BPM. Streaming telemetry...")
+                Log.i(tag, "Biometric evaluation complete. Mean HR: ${averageHeartRate.toInt()} BPM. Streaming telemetry...")
                 WebSocketManager.getInstance().sendEvent(biometricPacket.toString())
 
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to read physiological data hooks safely: ${e.message}")
+                Log.e(tag, "Failed to read physiological data hooks safely: ${e.message}")
             }
         }
     }

@@ -3,4 +3,9 @@
     <string name="accessibility_description">
         Provides accessibility support by monitoring window state changes and text input events to improve user experience while conserving battery.
     </string>
+    <string name="status_initializing">FRIDAY Sensor Node Status: Initializing...</string>
+    <string name="grant_accessibility">Grant Accessibility Permission</string>
+    <string name="grant_notification">Grant Notification Access</string>
+    <string name="status_operational">FRIDAY Sensor Node Status: Operational. Scanning Network...</string>
+    <string name="init_error">Initialization Error: %1$s</string>
 </resources>
