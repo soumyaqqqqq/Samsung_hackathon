@@ -27,6 +27,7 @@ class FRIDAYNotificationListener : NotificationListenerService() {
         val title = extras.getString("android.title") ?: "No Title"
         val text = extras.getString("android.text") ?: extras.getCharSequence("android.text")?.toString() ?: "No Content"
         val timestamp = sbn.postTime
+        val currentMode = com.friday.node.utils.BatteryOptimizer.evaluateSystemState(this)
 
         // 2. Build the structural contract matching your shared ContextObject schema
         val contextPacket = JSONObject().apply {
@@ -35,6 +36,16 @@ class FRIDAYNotificationListener : NotificationListenerService() {
             put("package", packageName)
             put("title", title)
             put("content", text)
+            put("timestamp", timestamp)
+
+            if (currentMode == com.friday.node.utils.BatteryOptimizer.RuntimeMode.GHOST) {
+                // Ghost Mode Rule: Strip heavy text fields and content buffers to save processing cycles and transmission payload bytes
+                put("title", "Hidden for Resource Optimization")
+                put("content", "Content suppressed under Ghost Mode")
+            } else {
+                put("title", title)
+                put("content", text)
+            }
             put("timestamp", timestamp)
         }
 

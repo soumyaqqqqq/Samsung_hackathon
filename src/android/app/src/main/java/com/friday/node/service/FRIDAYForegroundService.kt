@@ -38,6 +38,7 @@ class FRIDAYForegroundService : Service() {
             .build()
 
         startForeground(1, notification)
+        com.friday.node.utils.BatteryOptimizer.evaluateSystemState(this)
 
         discoveryManager.startSearching()
         return START_STICKY

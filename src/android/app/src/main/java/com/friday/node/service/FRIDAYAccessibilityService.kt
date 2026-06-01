@@ -1,20 +1,28 @@
 package com.friday.node.service
 
-import android.view.accessibility.AccessibilityEvent
+import android.accessibilityservice.AccessibilityService
 import android.util.Log
+import android.view.accessibility.AccessibilityEvent
 import com.friday.node.data.remote.WebSocketManager
+import com.friday.node.utils.BatteryOptimizer
 import org.json.JSONObject
 
-class FRIDAYAccessibilityService : android.accessibility.AccessibilityService() {
+class FRIDAYAccessibilityService : AccessibilityService() {
 
     private val TAG = "FRIDAY_Accessibility"
 
     // Tracking parameters for typing cadence metrics
     private var lastTypeTimestamp = 0L
     private var keyCount = 0
-    private var totalDelatTime = 0L
+    private var totalDeltaTime = 0L
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        // Check our localized optimizer before running operations
+        if (BatteryOptimizer.getCurrentMode() == BatteryOptimizer.RuntimeMode.GHOST) {
+            // Ghost Mode Rule: Accessibility processing is disabled to protect battery life
+            return
+        }
+
         when (event.eventType) {
             // 1. Capture App Switching and Window Focus shifts
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
@@ -39,14 +47,14 @@ class FRIDAYAccessibilityService : android.accessibility.AccessibilityService() 
                     // Only process consecutive character interactions within a normal threshold (2 seconds)
                     if (gap in 10..2000) {
                         keyCount++
-                        totalDelatTime += gap
+                        totalDeltaTime += gap
                     }
                 }
                 lastTypeTimestamp = currentTimestamp
 
                 // Every 10 keystrokes, calculate typing speed indicators and stream to Compute Hub
                 if (keyCount >= 10) {
-                    val averageCadenceMs = totalDelatTime / keyCount
+                    val averageCadenceMs = if (keyCount > 0) totalDeltaTime / keyCount else 0
 
                     val cadencePacket = JSONObject().apply {
                         put("type", "typing_metrics")
@@ -59,7 +67,7 @@ class FRIDAYAccessibilityService : android.accessibility.AccessibilityService() 
 
                     // Reset interval variables
                     keyCount = 0
-                    totalDelatTime = 0L
+                    totalDeltaTime = 0L
                 }
             }
         }
