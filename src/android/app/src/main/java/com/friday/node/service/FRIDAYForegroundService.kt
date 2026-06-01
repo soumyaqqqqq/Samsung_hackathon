@@ -37,10 +37,13 @@ class FRIDAYForegroundService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
+        val healthManager = com.friday.node.utils.HealthKitManager(this)
+
         startForeground(1, notification)
         com.friday.node.utils.BatteryOptimizer.evaluateSystemState(this)
 
         discoveryManager.startSearching()
+        healthManager.sampleBiometricBaseline()
         return START_STICKY
     }
 
