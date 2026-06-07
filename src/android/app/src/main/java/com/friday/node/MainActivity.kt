@@ -43,7 +43,17 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -271,7 +281,7 @@ class MainActivity : ComponentActivity() {
                     }
                 )
             },
-            containerColor = ColorBackground,
+            containerColor = MaterialTheme.colorScheme.background,
             modifier = Modifier.fillMaxSize()
         ) { innerPadding ->
             Box(
@@ -302,8 +312,8 @@ class MainActivity : ComponentActivity() {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color.White)
-                .border(width = 1.dp, color = Color(0x0D000000))
+                .background(MaterialTheme.colorScheme.surface)
+                .border(width = 1.dp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
                 .padding(bottom = 8.dp, top = 8.dp)
         ) {
             Row(
@@ -321,7 +331,7 @@ class MainActivity : ComponentActivity() {
                     Icon(
                         imageVector = Icons.Default.Home,
                         contentDescription = "Home",
-                        tint = if (activeTab == 0) Color.Black else Color.Gray,
+                        tint = if (activeTab == 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.height(4.dp))
@@ -330,7 +340,7 @@ class MainActivity : ComponentActivity() {
                         fontSize = 9.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        color = if (activeTab == 0) Color.Black else Color.Gray
+                        color = if (activeTab == 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                     )
                 }
 
@@ -344,7 +354,7 @@ class MainActivity : ComponentActivity() {
                     Icon(
                         imageVector = Icons.Default.Favorite,
                         contentDescription = "Insights",
-                        tint = if (activeTab == 1) Color.Black else Color.Gray,
+                        tint = if (activeTab == 1) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.height(4.dp))
@@ -353,7 +363,7 @@ class MainActivity : ComponentActivity() {
                         fontSize = 9.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        color = if (activeTab == 1) Color.Black else Color.Gray
+                        color = if (activeTab == 1) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                     )
                 }
 
@@ -370,7 +380,7 @@ class MainActivity : ComponentActivity() {
                     Icon(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = "Timeline",
-                        tint = if (activeTab == 2) Color.Black else Color.Gray,
+                        tint = if (activeTab == 2) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.height(4.dp))
@@ -379,7 +389,7 @@ class MainActivity : ComponentActivity() {
                         fontSize = 9.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        color = if (activeTab == 2) Color.Black else Color.Gray
+                        color = if (activeTab == 2) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                     )
                 }
 
@@ -393,7 +403,7 @@ class MainActivity : ComponentActivity() {
                     Icon(
                         imageVector = Icons.Default.Settings,
                         contentDescription = "Settings",
-                        tint = if (activeTab == 3) Color.Black else Color.Gray,
+                        tint = if (activeTab == 3) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.height(4.dp))
@@ -402,7 +412,7 @@ class MainActivity : ComponentActivity() {
                         fontSize = 9.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        color = if (activeTab == 3) Color.Black else Color.Gray
+                        color = if (activeTab == 3) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                     )
                 }
             }
@@ -422,11 +432,11 @@ class MainActivity : ComponentActivity() {
                         .border(2.dp, ColorBlockLime, RoundedCornerShape(16.dp)),
                     contentPadding = PaddingValues(0.dp)
                 ) {
-                    Text(
-                        text = "✦",
-                        fontSize = 24.sp,
-                        color = ColorBlockLime,
-                        fontWeight = FontWeight.Bold
+                    Icon(
+                        imageVector = Icons.Default.Star,
+                        contentDescription = "AI Assistant",
+                        tint = ColorBlockLime,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
@@ -438,7 +448,7 @@ class MainActivity : ComponentActivity() {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .background(ColorBackground)
+                .background(MaterialTheme.colorScheme.background)
                 .padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
@@ -641,7 +651,7 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 Button(
-                                    onClick = {},
+                                    onClick = { /* Action placeholder */ },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
                                     shape = RoundedCornerShape(9999.dp),
                                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
@@ -675,7 +685,7 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 Button(
-                                    onClick = {},
+                                    onClick = { /* Action placeholder */ },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
                                     shape = RoundedCornerShape(9999.dp),
                                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
@@ -689,7 +699,7 @@ class MainActivity : ComponentActivity() {
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Button(
-                            onClick = {},
+                            onClick = { /* Action placeholder */ },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                             shape = RoundedCornerShape(9999.dp),
                             modifier = Modifier
@@ -859,14 +869,14 @@ class MainActivity : ComponentActivity() {
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Button(
-                                onClick = {},
+                                onClick = { /* TODO: Repeat focus setup */ },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
                                 shape = RoundedCornerShape(9999.dp)
                             ) {
                                 Text("Repeat Setup", color = Color.White)
                             }
                             Button(
-                                onClick = {},
+                                onClick = { /* TODO: Dismiss memory moment */ },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                                 shape = RoundedCornerShape(9999.dp),
                                 modifier = Modifier.border(1.dp, Color.Black, RoundedCornerShape(9999.dp))
@@ -900,11 +910,11 @@ class MainActivity : ComponentActivity() {
                         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             // Row 1: Focused App
                             Row(verticalAlignment = Alignment.Top) {
-                                Text(
-                                    text = "✦",
-                                    color = ColorBlockLime,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
+                                Icon(
+                                    imageVector = Icons.Default.Star,
+                                    contentDescription = null,
+                                    tint = ColorBlockLime,
+                                    modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column {
@@ -924,11 +934,11 @@ class MainActivity : ComponentActivity() {
 
                             // Row 2: Last Notification
                             Row(verticalAlignment = Alignment.Top) {
-                                Text(
-                                    text = "✦",
-                                    color = ColorBlockLime,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
+                                Icon(
+                                    imageVector = Icons.Default.Star,
+                                    contentDescription = null,
+                                    tint = ColorBlockLime,
+                                    modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column {
@@ -950,11 +960,11 @@ class MainActivity : ComponentActivity() {
 
                             // Row 3: Event Count
                             Row(verticalAlignment = Alignment.Top) {
-                                Text(
-                                    text = "✦",
-                                    color = ColorBlockLime,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
+                                Icon(
+                                    imageVector = Icons.Default.Star,
+                                    contentDescription = null,
+                                    tint = ColorBlockLime,
+                                    modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column {
@@ -1105,7 +1115,7 @@ class MainActivity : ComponentActivity() {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .background(ColorBackground)
+                .background(MaterialTheme.colorScheme.background)
                 .padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
@@ -1229,7 +1239,7 @@ class MainActivity : ComponentActivity() {
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("🧠", fontSize = 18.sp)
+                                Icon(imageVector = Icons.Default.Favorite, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "EMOTION AGENT",
@@ -1277,7 +1287,7 @@ class MainActivity : ComponentActivity() {
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("🔋", fontSize = 18.sp)
+                                Icon(imageVector = Icons.Default.Build, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "BURNOUT AGENT",
@@ -1312,7 +1322,7 @@ class MainActivity : ComponentActivity() {
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("💬", fontSize = 18.sp)
+                                Icon(imageVector = Icons.Default.Info, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "SOCIAL AGENT",
@@ -1424,7 +1434,7 @@ class MainActivity : ComponentActivity() {
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(
-                        onClick = {},
+                        onClick = { /* Action placeholder */ },
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
                         shape = RoundedCornerShape(9999.dp),
                         modifier = Modifier.weight(1f)
@@ -1432,7 +1442,7 @@ class MainActivity : ComponentActivity() {
                         Text("Start Focus", color = Color.White, fontSize = 11.sp)
                     }
                     Button(
-                        onClick = {},
+                        onClick = { /* Action placeholder */ },
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                         shape = RoundedCornerShape(9999.dp),
                         modifier = Modifier
@@ -1442,7 +1452,7 @@ class MainActivity : ComponentActivity() {
                         Text("Reduce Interrupt", color = Color.Black, fontSize = 11.sp)
                     }
                     Button(
-                        onClick = {},
+                        onClick = { /* Action placeholder */ },
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                         shape = RoundedCornerShape(9999.dp),
                         modifier = Modifier
@@ -1546,7 +1556,7 @@ class MainActivity : ComponentActivity() {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .background(ColorBackground)
+                .background(MaterialTheme.colorScheme.background)
                 .padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
@@ -1639,8 +1649,8 @@ class MainActivity : ComponentActivity() {
                     )
 
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        DeviceContinuityRow(icon = "📱", name = "Galaxy Phone", active = "Active: 4h 12m")
-                        DeviceContinuityRow(icon = "💻", name = "Work Laptop", active = "Active: 8h 45m")
+                        DeviceContinuityRow(icon = "phone", name = "Galaxy Phone", active = "Active: 4h 12m")
+                        DeviceContinuityRow(icon = "laptop", name = "Work Laptop", active = "Active: 8h 45m")
                     }
                 }
             }
@@ -1709,7 +1719,7 @@ class MainActivity : ComponentActivity() {
                                     .padding(16.dp),
                                 verticalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("🔕", fontSize = 20.sp)
+                                Icon(imageVector = Icons.Default.NotificationsOff, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
                                 Column {
                                     Text("Filtered", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.Black)
                                     Text("34 suppressed distractions.", fontSize = 11.sp, color = Color.Gray)
@@ -1731,7 +1741,7 @@ class MainActivity : ComponentActivity() {
                                     .padding(16.dp),
                                 verticalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("✦", fontSize = 20.sp, color = Color.Black)
+                                Icon(imageVector = Icons.Default.Star, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
                                 Column {
                                     Text("Focus Rec", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.Black)
                                     Text("Optimal window at 9:00 PM.", fontSize = 11.sp, color = Color.Gray)
@@ -1749,7 +1759,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.padding(24.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("⚠️", fontSize = 20.sp)
+                            Icon(imageVector = Icons.Default.Warning, contentDescription = null, tint = Color(0xFF991B1B), modifier = Modifier.size(20.dp))
                             Text("Fatigue Predicted", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF991B1B))
                             Text("Sleep cycle correction needed. Rest suggested before 11:30 PM.", fontSize = 13.sp, color = Color(0xFF7F1D1D))
                         }
@@ -1779,7 +1789,7 @@ class MainActivity : ComponentActivity() {
                     .background(ColorBackground, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text(text = icon, fontSize = 18.sp)
+                Icon(imageVector = if (icon == "phone") Icons.Default.Phone else Icons.Default.Build, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column {
@@ -1811,7 +1821,7 @@ class MainActivity : ComponentActivity() {
                 contentAlignment = Alignment.Center
             ) {
                 if (isDone) {
-                    Text("✓", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
                 }
             }
             Spacer(modifier = Modifier.width(16.dp))
@@ -1837,7 +1847,7 @@ class MainActivity : ComponentActivity() {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .background(ColorBackground)
+                .background(MaterialTheme.colorScheme.background)
                 .padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
@@ -1937,7 +1947,7 @@ class MainActivity : ComponentActivity() {
                         Spacer(modifier = Modifier.height(8.dp))
 
                         Button(
-                            onClick = {},
+                            onClick = { /* Action placeholder */ },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.White),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -2083,7 +2093,7 @@ class MainActivity : ComponentActivity() {
 
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
-                                onClick = {},
+                                onClick = { /* Action placeholder */ },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth()
@@ -2091,7 +2101,7 @@ class MainActivity : ComponentActivity() {
                                 Text("View Memories", color = Color.White)
                             }
                             Button(
-                                onClick = {},
+                                onClick = { /* Action placeholder */ },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.White),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth()
@@ -2136,7 +2146,7 @@ class MainActivity : ComponentActivity() {
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("📱", fontSize = 18.sp)
+                                    Icon(imageVector = Icons.Default.Phone, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Text("Galaxy S26", color = Color.White, fontWeight = FontWeight.Bold)
                                 }
@@ -2156,7 +2166,7 @@ class MainActivity : ComponentActivity() {
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("💻", fontSize = 18.sp)
+                                    Icon(imageVector = Icons.Default.Build, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Text("Work Laptop", color = Color.White, fontWeight = FontWeight.Bold)
                                 }
@@ -2171,7 +2181,7 @@ class MainActivity : ComponentActivity() {
                         }
 
                         Button(
-                            onClick = {},
+                            onClick = { /* Action placeholder */ },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.White),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -2342,7 +2352,7 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Button(
-                            onClick = {},
+                            onClick = { /* Action placeholder */ },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.White),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -2351,7 +2361,7 @@ class MainActivity : ComponentActivity() {
                         }
 
                         Button(
-                            onClick = {},
+                            onClick = { /* Action placeholder */ },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.White),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -2406,7 +2416,7 @@ class MainActivity : ComponentActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFFF9F9F9).copy(alpha = 0.96f))
+                .background(MaterialTheme.colorScheme.background.copy(alpha = 0.96f))
                 .clickable { /* Block clicks */ }
         ) {
             Column(
@@ -2528,7 +2538,7 @@ class MainActivity : ComponentActivity() {
                                 .border(2.dp, ColorBlockLime, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("🧠", fontSize = 24.sp)
+                            Icon(imageVector = Icons.Default.Favorite, contentDescription = null, tint = ColorBlockLime, modifier = Modifier.size(24.dp))
                         }
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
@@ -2552,10 +2562,10 @@ class MainActivity : ComponentActivity() {
 
                 // Action suggestions
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OverlayActionButton(text = "Silence Everything", icon = "🔕")
-                    OverlayActionButton(text = "Prepare Evening Brief", icon = "✦")
-                    OverlayActionButton(text = "Check Node Connectivity", icon = "🔗")
-                    OverlayActionButton(text = "Explain Current Stress", icon = "📊")
+                    OverlayActionButton(text = "Silence Everything")
+                    OverlayActionButton(text = "Prepare Evening Brief")
+                    OverlayActionButton(text = "Check Node Connectivity")
+                    OverlayActionButton(text = "Explain Current Stress")
                 }
 
                 Spacer(modifier = Modifier.height(40.dp))
@@ -2575,21 +2585,35 @@ class MainActivity : ComponentActivity() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(text = text, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-            Text(text = icon, fontSize = 18.sp)
+            Icon(imageVector = if (icon == "phone") Icons.Default.Phone else Icons.Default.Build, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
         }
     }
 
-    // Custom Editorial Light/Navy theme definition
+    // Custom Editorial Light/Navy theme with auto dark mode
     @Composable
     fun FridayTheme(content: @Composable () -> Unit) {
-        val colorScheme = lightColorScheme(
-            primary = Color.Black,
-            background = ColorBackground,
-            surface = Color.White,
-            onBackground = Color.Black,
-            onSurface = Color.Black,
-            error = Color(0xFFEF4444)
-        )
+        val darkTheme = isSystemInDarkTheme()
+        val colorScheme = if (darkTheme) {
+            darkColorScheme(
+                primary = Color.White,
+                background = Color(0xFF121212),
+                surface = Color(0xFF1E1E1E),
+                onBackground = Color(0xFFF1F1F1),
+                onSurface = Color(0xFFF1F1F1),
+                error = Color(0xFFEF4444),
+                surfaceVariant = Color(0xFF2A2A2A),
+                onSurfaceVariant = Color(0xFFB0B0B0)
+            )
+        } else {
+            lightColorScheme(
+                primary = Color.Black,
+                background = ColorBackground,
+                surface = Color.White,
+                onBackground = Color.Black,
+                onSurface = Color.Black,
+                error = Color(0xFFEF4444)
+            )
+        }
         MaterialTheme(
             colorScheme = colorScheme,
             content = content
