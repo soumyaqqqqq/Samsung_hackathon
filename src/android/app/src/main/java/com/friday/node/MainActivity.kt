@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.text.TextUtils
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -48,7 +49,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Build
@@ -71,6 +71,10 @@ import org.json.JSONObject
 class MainActivity : ComponentActivity() {
 
     private val TAG = "FRIDAY_MainActivity"
+
+    private fun showToast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
     
     // Live UI State variables using Compose states
     private var connectionStatus = mutableStateOf("Searching for Hub...")
@@ -651,13 +655,13 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 Button(
-                                    onClick = { /* Action placeholder */ },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
+                                    onClick = { showToast("Opening Database Schema task...") },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
                                     shape = RoundedCornerShape(9999.dp),
                                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                                     modifier = Modifier.height(32.dp)
                                 ) {
-                                    Text("Action", fontSize = 11.sp, color = Color.White)
+                                    Text("Action", fontSize = 11.sp, color = MaterialTheme.colorScheme.surface)
                                 }
                             }
 
@@ -685,13 +689,13 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 Button(
-                                    onClick = { /* Action placeholder */ },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
+                                    onClick = { showToast("Opening Database Schema task...") },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
                                     shape = RoundedCornerShape(9999.dp),
                                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                                     modifier = Modifier.height(32.dp)
                                 ) {
-                                    Text("Action", fontSize = 11.sp, color = Color.White)
+                                    Text("Action", fontSize = 11.sp, color = MaterialTheme.colorScheme.surface)
                                 }
                             }
                         }
@@ -699,14 +703,14 @@ class MainActivity : ComponentActivity() {
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Button(
-                            onClick = { /* Action placeholder */ },
+                            onClick = { showToast("Prioritizing tasks automatically...") },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                             shape = RoundedCornerShape(9999.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .border(1.dp, Color.Black, RoundedCornerShape(9999.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
                         ) {
-                            Text("Prioritize Automatically", color = Color.Black, fontWeight = FontWeight.Bold)
+                            Text("Prioritize Automatically", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -1434,7 +1438,7 @@ class MainActivity : ComponentActivity() {
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(
-                        onClick = { /* Action placeholder */ },
+                        onClick = { showToast("Action triggered!") },
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
                         shape = RoundedCornerShape(9999.dp),
                         modifier = Modifier.weight(1f)
@@ -1442,7 +1446,7 @@ class MainActivity : ComponentActivity() {
                         Text("Start Focus", color = Color.White, fontSize = 11.sp)
                     }
                     Button(
-                        onClick = { /* Action placeholder */ },
+                        onClick = { showToast("Action triggered!") },
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                         shape = RoundedCornerShape(9999.dp),
                         modifier = Modifier
@@ -1452,7 +1456,7 @@ class MainActivity : ComponentActivity() {
                         Text("Reduce Interrupt", color = Color.Black, fontSize = 11.sp)
                     }
                     Button(
-                        onClick = { /* Action placeholder */ },
+                        onClick = { showToast("Action triggered!") },
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                         shape = RoundedCornerShape(9999.dp),
                         modifier = Modifier
@@ -1719,7 +1723,7 @@ class MainActivity : ComponentActivity() {
                                     .padding(16.dp),
                                 verticalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Icon(imageVector = Icons.Default.NotificationsOff, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                                Icon(imageVector = Icons.Default.Notifications, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
                                 Column {
                                     Text("Filtered", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.Black)
                                     Text("34 suppressed distractions.", fontSize = 11.sp, color = Color.Gray)
@@ -1947,12 +1951,12 @@ class MainActivity : ComponentActivity() {
                         Spacer(modifier = Modifier.height(8.dp))
 
                         Button(
-                            onClick = { /* Action placeholder */ },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                            onClick = { showToast("Opening permission manager...") },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
                             shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
                         ) {
-                            Text("Manage Permissions", color = Color.Black, fontWeight = FontWeight.Bold)
+                            Text("Manage Permissions", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -2093,7 +2097,7 @@ class MainActivity : ComponentActivity() {
 
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
-                                onClick = { /* Action placeholder */ },
+                                onClick = { showToast("Loading memories database...") },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth()
@@ -2101,7 +2105,7 @@ class MainActivity : ComponentActivity() {
                                 Text("View Memories", color = Color.White)
                             }
                             Button(
-                                onClick = { /* Action placeholder */ },
+                                onClick = { showToast("Select a memory to forget...") },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.White),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth()
@@ -2181,7 +2185,7 @@ class MainActivity : ComponentActivity() {
                         }
 
                         Button(
-                            onClick = { /* Action placeholder */ },
+                            onClick = { showToast("Opening device discovery...") },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.White),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -2352,7 +2356,7 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Button(
-                            onClick = { /* Action placeholder */ },
+                            onClick = { showToast("Disconnecting all synced nodes...") },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.White),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -2361,7 +2365,7 @@ class MainActivity : ComponentActivity() {
                         }
 
                         Button(
-                            onClick = { /* Action placeholder */ },
+                            onClick = { showToast("All memory storage cleared.") },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.White),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -2393,9 +2397,9 @@ class MainActivity : ComponentActivity() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = label, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                Text(text = label, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 if (subtitle != null) {
-                    Text(text = subtitle, fontSize = 11.sp, color = Color.Black.copy(alpha = 0.6f))
+                    Text(text = subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                 }
             }
             Switch(
@@ -2574,18 +2578,19 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun OverlayActionButton(text: String, icon: String) {
+    fun OverlayActionButton(text: String) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color.White, RoundedCornerShape(9999.dp))
-                .border(1.dp, Color(0x0D000000), RoundedCornerShape(9999.dp))
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(9999.dp))
+                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(9999.dp))
+                .clickable { /* Action placeholder */ }
                 .padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = text, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-            Icon(imageVector = if (icon == "phone") Icons.Default.Phone else Icons.Default.Build, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+            Text(text = text, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
         }
     }
 
