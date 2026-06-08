@@ -66,6 +66,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.ui.res.stringResource
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
@@ -88,6 +92,17 @@ class MainActivity : ComponentActivity() {
     private var lastNotification = mutableStateOf("No notifications yet")
     private var wellbeingPrompt = mutableStateOf("Ambient tracking active. System stable.")
     private var isGhostMode = mutableStateOf(false)
+    
+    // Dynamic user profile and metrics
+    private var userName = mutableStateOf("")
+    private var userRole = mutableStateOf("")
+    private var productivityPercentage = mutableStateOf("87%")
+    private var peakFocusTime = mutableStateOf("9:15 PM")
+    private var stressSpikeTime = mutableStateOf("7:10 PM")
+    private var focusPercentage = mutableStateOf("84%")
+    private var focusImprovementPercent = mutableStateOf("24%")
+    private var confidencePercentage = mutableStateOf("87%")
+    private var memoryMatchPercentage = mutableStateOf("87%")
     
     // Manual Settings configs
     private var hubIp = mutableStateOf("")
@@ -154,6 +169,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
+        // Initialize dynamic profile strings from resources
+        userName.value = getString(R.string.default_user_name)
+        userRole.value = getString(R.string.default_user_role)
+        
         // 1. Initialize WebSocket context binding
         WebSocketManager.getInstance().init(this)
 
@@ -209,6 +228,26 @@ class MainActivity : ComponentActivity() {
         unregisterReceiver(telemetryReceiver)
     }
 
+    private fun getDynamicGreeting(name: String): String {
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val greetingRes = when (hour) {
+            in 0..11 -> R.string.greeting_morning
+            in 12..16 -> R.string.greeting_afternoon
+            in 17..21 -> R.string.greeting_evening
+            else -> R.string.greeting_night
+        }
+        return getString(greetingRes, name)
+    }
+
+    private fun getDynamicDate(): String {
+        return try {
+            val sdf = SimpleDateFormat("EEEE,\nMMMM d, yyyy", Locale.getDefault())
+            sdf.format(Date())
+        } catch (e: Exception) {
+            "Wednesday,\nJune 4, 2026"
+        }
+    }
+
     private fun checkPermissionsState() {
         isAccessibilityGranted.value = isAccessibilityServiceEnabled(
             this,
@@ -257,14 +296,16 @@ class MainActivity : ComponentActivity() {
     }
 
     // Color tokens matching the Figma Marketing Design System
-    val ColorBlockLime = Color(0xFFD6FF3D)
-    val ColorBlockLilac = Color(0xFFC6BFFF)
-    val ColorBlockCream = Color(0xFFFFF9E3)
-    val ColorBlockMint = Color(0xFFB2FFD6)
-    val ColorBlockPink = Color(0xFFFFB8EB)
-    val ColorBlockCoral = Color(0xFFFF8C70)
-    val ColorBlockNavy = Color(0xFF10162F)
-    val ColorBackground = Color(0xFFF9F9F9)
+    var isDarkThemeGlobal by mutableStateOf(false)
+
+    val ColorBlockLime get() = if (isDarkThemeGlobal) Color(0xFF2A3600) else Color(0xFFD6FF3D)
+    val ColorBlockLilac get() = if (isDarkThemeGlobal) Color(0xFF1B1437) else Color(0xFFC6BFFF)
+    val ColorBlockCream get() = if (isDarkThemeGlobal) Color(0xFF252216) else Color(0xFFFFF9E3)
+    val ColorBlockMint get() = if (isDarkThemeGlobal) Color(0xFF092416) else Color(0xFFB2FFD6)
+    val ColorBlockPink get() = if (isDarkThemeGlobal) Color(0xFF321028) else Color(0xFFFFB8EB)
+    val ColorBlockCoral get() = if (isDarkThemeGlobal) Color(0xFF3E120A) else Color(0xFFFF8C70)
+    val ColorBlockNavy get() = if (isDarkThemeGlobal) Color(0xFF0C1022) else Color(0xFF10162F)
+    val ColorBackground get() = if (isDarkThemeGlobal) Color(0xFF121212) else Color(0xFFF9F9F9)
 
     // Compose Core UI Layout
     @Composable
@@ -429,7 +470,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 Button(
                     onClick = onSparkClicked,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .size(56.dp)
@@ -470,18 +511,18 @@ class MainActivity : ComponentActivity() {
                         fontSize = 26.sp,
                         fontFamily = FontFamily.SansSerif,
                         fontWeight = FontWeight.Black,
-                        color = Color.Black
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                     Box(
                         modifier = Modifier
                             .size(40.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFFE2E2E2)),
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "N",
-                            color = Color.Black,
+                            text = if (userName.value.isNotEmpty()) userName.value.take(1) else "U",
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp
                         )
@@ -494,15 +535,15 @@ class MainActivity : ComponentActivity() {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color.White, RoundedCornerShape(12.dp))
-                        .border(1.dp, Color(0x0D000000), RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
                         .padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
                         Text(
-                            text = "NODE CONNECTION",
+                            text = stringResource(R.string.title_node_connection),
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             color = Color.Gray,
@@ -513,7 +554,7 @@ class MainActivity : ComponentActivity() {
                             text = connectionStatus.value,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.Black
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                     Box(
@@ -529,13 +570,13 @@ class MainActivity : ComponentActivity() {
             item {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = "Good Evening Nirvik",
+                        text = getDynamicGreeting(userName.value),
                         fontSize = 40.sp,
                         fontFamily = FontFamily.SansSerif,
                         fontWeight = FontWeight.W300,
                         letterSpacing = (-0.96).sp,
                         lineHeight = 44.sp,
-                        color = Color.Black
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
@@ -543,7 +584,7 @@ class MainActivity : ComponentActivity() {
                         fontSize = 18.sp,
                         fontFamily = FontFamily.SansSerif,
                         fontWeight = FontWeight.W300,
-                        color = Color(0xFF4C4546)
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                     )
                 }
             }
@@ -560,11 +601,11 @@ class MainActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Text(
-                            text = "COGNITIVE LOAD",
+                            text = stringResource(R.string.title_cognitive_pulse),
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            color = Color.Black.copy(alpha = 0.6f)
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
 
                         Row(
@@ -578,13 +619,13 @@ class MainActivity : ComponentActivity() {
                                     fontSize = 18.sp,
                                     fontFamily = FontFamily.SansSerif,
                                     fontWeight = FontWeight.Normal,
-                                    color = Color.Black
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
                                     text = if (isGhostMode.value) "Ghost mode active. Telemetry simplified." else "High-fidelity telemetry streaming.",
                                     fontSize = 12.sp,
-                                    color = Color.Black.copy(alpha = 0.6f)
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
                             }
 
@@ -597,7 +638,7 @@ class MainActivity : ComponentActivity() {
                                 CircularProgressIndicator(
                                     progress = { stressScore.value / 100f },
                                     modifier = Modifier.fillMaxSize(),
-                                    color = Color.Black,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     strokeWidth = 10.dp,
                                     trackColor = Color.Black.copy(alpha = 0.1f)
                                 )
@@ -605,7 +646,7 @@ class MainActivity : ComponentActivity() {
                                     text = "${stressScore.value}%",
                                     fontSize = 22.sp,
                                     fontWeight = FontWeight.Black,
-                                    color = Color.Black
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                         }
@@ -625,11 +666,11 @@ class MainActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Text(
-                            text = "WHAT NEEDS ATTENTION",
+                            text = stringResource(R.string.title_what_needs_attention),
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            color = Color.Black.copy(alpha = 0.6f)
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
 
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -644,14 +685,14 @@ class MainActivity : ComponentActivity() {
                                         fontFamily = FontFamily.Monospace,
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.Black.copy(alpha = 0.4f)
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                                     )
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Text(
                                         text = "Database Schema Final",
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.Black
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                                 Button(
@@ -661,11 +702,11 @@ class MainActivity : ComponentActivity() {
                                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                                     modifier = Modifier.height(32.dp)
                                 ) {
-                                    Text("Action", fontSize = 11.sp, color = MaterialTheme.colorScheme.surface)
+                                    Text(stringResource(R.string.btn_action), fontSize = 11.sp, color = MaterialTheme.colorScheme.surface)
                                 }
                             }
 
-                            HorizontalDivider(color = Color.Black.copy(alpha = 0.05f))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -678,14 +719,14 @@ class MainActivity : ComponentActivity() {
                                         fontFamily = FontFamily.Monospace,
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.Black.copy(alpha = 0.4f)
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                                     )
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Text(
                                         text = "Professor Smith Meeting",
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.Black
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                                 Button(
@@ -695,7 +736,7 @@ class MainActivity : ComponentActivity() {
                                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                                     modifier = Modifier.height(32.dp)
                                 ) {
-                                    Text("Action", fontSize = 11.sp, color = MaterialTheme.colorScheme.surface)
+                                    Text(stringResource(R.string.btn_action), fontSize = 11.sp, color = MaterialTheme.colorScheme.surface)
                                 }
                             }
                         }
@@ -710,7 +751,7 @@ class MainActivity : ComponentActivity() {
                                 .fillMaxWidth()
                                 .border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
                         ) {
-                            Text("Prioritize Automatically", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.btn_prioritize_automatically), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -737,24 +778,24 @@ class MainActivity : ComponentActivity() {
                                 verticalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = "MESSAGES",
+                                    text = stringResource(R.string.title_messages),
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.Black.copy(alpha = 0.6f)
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
                                 Column {
                                     Text(
                                         text = "${notificationsCount.value}",
                                         fontSize = 32.sp,
                                         fontWeight = FontWeight.Black,
-                                        color = Color.Black
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = "TOTAL INTERCEPTED",
+                                        text = stringResource(R.string.title_total_intercepted),
                                         fontSize = 10.sp,
                                         fontFamily = FontFamily.Monospace,
-                                        color = Color.Black.copy(alpha = 0.6f)
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
                                 }
                             }
@@ -764,7 +805,7 @@ class MainActivity : ComponentActivity() {
                     item {
                         Card(
                             shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFFEEEEEE)),
+                            colors = CardDefaults.cardColors(containerColor = if (isDarkThemeGlobal) Color(0xFF1E1E1E) else Color(0xFFEEEEEE)),
                             modifier = Modifier
                                 .width(180.dp)
                                 .height(140.dp)
@@ -776,24 +817,24 @@ class MainActivity : ComponentActivity() {
                                 verticalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = "FOCUS TIME",
+                                    text = stringResource(R.string.title_focus_time),
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.Black.copy(alpha = 0.6f)
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
                                 Column {
                                     Text(
                                         text = "4h 32m",
                                         fontSize = 28.sp,
                                         fontWeight = FontWeight.Black,
-                                        color = Color.Black
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = "+12% VS AVERAGE",
+                                        text = "+${focusImprovementPercent.value} VS AVERAGE",
                                         fontSize = 10.sp,
                                         fontFamily = FontFamily.Monospace,
-                                        color = Color.Black.copy(alpha = 0.6f)
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
                                 }
                             }
@@ -819,20 +860,20 @@ class MainActivity : ComponentActivity() {
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.Black.copy(alpha = 0.6f)
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
                                 Column {
                                     Text(
                                         text = "Exam Week",
                                         fontSize = 20.sp,
                                         fontWeight = FontWeight.Black,
-                                        color = Color.Black
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
                                         text = "Match: May 2023",
                                         fontSize = 10.sp,
                                         fontFamily = FontFamily.Monospace,
-                                        color = Color.Black.copy(alpha = 0.6f)
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
                                 }
                             }
@@ -845,7 +886,7 @@ class MainActivity : ComponentActivity() {
             item {
                 Card(
                     shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFEEEEEE)),
+                    colors = CardDefaults.cardColors(containerColor = if (isDarkThemeGlobal) Color(0xFF1E1E1E) else Color(0xFFEEEEEE)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -857,24 +898,24 @@ class MainActivity : ComponentActivity() {
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            color = Color.Black.copy(alpha = 0.6f)
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
                         Text(
                             text = "VIT Library",
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.Black
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = "You typically activate 'Deep Focus' mode here. Repeat setup?",
                             fontSize = 14.sp,
-                            color = Color.Black.copy(alpha = 0.8f)
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Button(
                                 onClick = { /* TODO: Repeat focus setup */ },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
                                 shape = RoundedCornerShape(9999.dp)
                             ) {
                                 Text("Repeat Setup", color = Color.White)
@@ -883,9 +924,9 @@ class MainActivity : ComponentActivity() {
                                 onClick = { /* TODO: Dismiss memory moment */ },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                                 shape = RoundedCornerShape(9999.dp),
-                                modifier = Modifier.border(1.dp, Color.Black, RoundedCornerShape(9999.dp))
+                                modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
                             ) {
-                                Text("Dismiss", color = Color.Black)
+                                Text("Dismiss", color = MaterialTheme.colorScheme.onSurface)
                             }
                         }
                     }
@@ -1133,25 +1174,25 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Column(modifier = Modifier.padding(24.dp)) {
                         Text(
-                            text = "CURRENT STATUS",
+                            text = stringResource(R.string.title_current_status),
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            color = Color.Black.copy(alpha = 0.6f)
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "MINDSPACE",
+                            text = stringResource(R.string.title_mindspace),
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Black,
-                            color = Color.Black
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "Calm but busy",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Normal,
-                            color = Color.Black
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
@@ -1164,7 +1205,7 @@ class MainActivity : ComponentActivity() {
                     fontSize = 18.sp,
                     fontFamily = FontFamily.SansSerif,
                     fontWeight = FontWeight.W300,
-                    color = Color(0xFF4C4546)
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
             }
 
@@ -1180,7 +1221,7 @@ class MainActivity : ComponentActivity() {
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "COGNITIVE RISK RADAR",
+                            text = stringResource(R.string.title_cognitive_risk_radar),
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
@@ -1202,20 +1243,20 @@ class MainActivity : ComponentActivity() {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "CURRENT STATE",
+                        text = stringResource(R.string.title_current_state),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         color = Color.Gray
                     )
-                    HorizontalDivider(color = Color.Black.copy(alpha = 0.05f))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         BiometricMetricItem(label = "Stress", value = "${stressScore.value}%", subtitle = "Elevated")
-                        BiometricMetricItem(label = "Focus", value = "84%", subtitle = "High Perf")
+                        BiometricMetricItem(label = "Focus", value = focusPercentage.value, subtitle = "High Perf")
                         BiometricMetricItem(label = "Cadence", value = "${averageTypingCadenceMs.value}ms", subtitle = "Typing Speed")
                     }
                     Spacer(modifier = Modifier.height(8.dp))
@@ -1246,35 +1287,35 @@ class MainActivity : ComponentActivity() {
                                 Icon(imageVector = Icons.Default.Favorite, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "EMOTION AGENT",
+                                    text = stringResource(R.string.title_emotion_agent),
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.Black.copy(alpha = 0.6f)
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
                             }
                             Text(
                                 text = "Focused & Confident",
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.Black
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = "Stable typing rhythms and low application switching detected.",
                                 fontSize = 14.sp,
-                                color = Color.Black.copy(alpha = 0.8f)
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                             )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("87%", fontSize = 24.sp, fontWeight = FontWeight.Black)
+                                Text(confidencePercentage.value, fontSize = 24.sp, fontWeight = FontWeight.Black)
                                 Text(
-                                    text = "CONFIDENCE SCORE",
+                                    text = stringResource(R.string.title_confidence_score),
                                     fontSize = 9.sp,
                                     fontFamily = FontFamily.Monospace,
-                                    color = Color.Black.copy(alpha = 0.6f)
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
                             }
                         }
@@ -1294,23 +1335,23 @@ class MainActivity : ComponentActivity() {
                                 Icon(imageVector = Icons.Default.Build, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "BURNOUT AGENT",
+                                    text = stringResource(R.string.title_burnout_agent),
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.Black.copy(alpha = 0.6f)
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
                             }
                             Text(
                                 text = "Risk: Low",
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.Black
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = "Normal sleep cycles, consistent output, and language neutrality.",
                                 fontSize = 14.sp,
-                                color = Color.Black.copy(alpha = 0.8f)
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                             )
                         }
                     }
@@ -1329,23 +1370,23 @@ class MainActivity : ComponentActivity() {
                                 Icon(imageVector = Icons.Default.Info, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "SOCIAL AGENT",
+                                    text = stringResource(R.string.title_social_agent),
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.Black.copy(alpha = 0.6f)
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
                             }
                             Text(
                                 text = "Risk: Moderate",
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.Black
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = "High messaging volume and impending team project deadlines.",
                                 fontSize = 14.sp,
-                                color = Color.Black.copy(alpha = 0.8f)
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                             )
                         }
                     }
@@ -1356,7 +1397,7 @@ class MainActivity : ComponentActivity() {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(
-                        text = "WHY? (SIGNALS)",
+                        text = stringResource(R.string.title_why_signals),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
@@ -1377,14 +1418,14 @@ class MainActivity : ComponentActivity() {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Card(
                         shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, Color.Black, RoundedCornerShape(24.dp))
+                            .border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(24.dp))
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
                             Text(
-                                text = "BEHAVIORAL ANOMALY",
+                                text = stringResource(R.string.title_behavioral_anomaly),
                                 fontSize = 11.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
@@ -1395,19 +1436,19 @@ class MainActivity : ComponentActivity() {
                                 text = "Pattern Analysis: 12% deviation from standard Thursday baseline.",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.Black
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
 
                     Card(
                         shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFEEEEEE)),
+                        colors = CardDefaults.cardColors(containerColor = if (isDarkThemeGlobal) Color(0xFF1E1E1E) else Color(0xFFEEEEEE)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
                             Text(
-                                text = "MEMORY CORRELATION",
+                                text = stringResource(R.string.title_memory_correlation),
                                 fontSize = 11.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
@@ -1415,10 +1456,10 @@ class MainActivity : ComponentActivity() {
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Similar Past Events: 87% Match to Mid-Semester Week (March 2026).",
+                                text = "Similar Past Events: ${memoryMatchPercentage.value} Match to Mid-Semester Week (March 2026).",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.Black
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
@@ -1439,11 +1480,11 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Button(
                         onClick = { showToast("Action triggered!") },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
                         shape = RoundedCornerShape(9999.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Start Focus", color = Color.White, fontSize = 11.sp)
+                        Text("Start Focus", color = MaterialTheme.colorScheme.surface, fontSize = 11.sp)
                     }
                     Button(
                         onClick = { showToast("Action triggered!") },
@@ -1451,9 +1492,9 @@ class MainActivity : ComponentActivity() {
                         shape = RoundedCornerShape(9999.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .border(1.dp, Color.Black, RoundedCornerShape(9999.dp))
+                            .border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
                     ) {
-                        Text("Reduce Interrupt", color = Color.Black, fontSize = 11.sp)
+                        Text("Reduce Interrupt", color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp)
                     }
                     Button(
                         onClick = { showToast("Action triggered!") },
@@ -1461,9 +1502,9 @@ class MainActivity : ComponentActivity() {
                         shape = RoundedCornerShape(9999.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .border(1.dp, Color.Black, RoundedCornerShape(9999.dp))
+                            .border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
                     ) {
-                        Text("Explain Stress", color = Color.Black, fontSize = 11.sp)
+                        Text("Explain Stress", color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp)
                     }
                 }
             }
@@ -1489,12 +1530,12 @@ class MainActivity : ComponentActivity() {
                 text = value,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Black,
-                color = Color.Black
+                color = MaterialTheme.colorScheme.onBackground
             )
             Text(
                 text = subtitle,
                 fontSize = 11.sp,
-                color = Color.Black
+                color = MaterialTheme.colorScheme.onBackground
             )
         }
     }
@@ -1507,7 +1548,7 @@ class MainActivity : ComponentActivity() {
                 .padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(text = label, fontSize = 14.sp, color = Color.Black)
+            Text(text = label, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
             Text(
                 text = value,
                 fontSize = 16.sp,
@@ -1515,7 +1556,7 @@ class MainActivity : ComponentActivity() {
                 color = if (isAlert) Color(0xFFEF4444) else Color.Black
             )
         }
-        HorizontalDivider(color = Color.Black.copy(alpha = 0.05f))
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
     }
 
     @Composable
@@ -1531,7 +1572,7 @@ class MainActivity : ComponentActivity() {
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
-                    color = Color.Black.copy(alpha = 0.6f)
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
                 Spacer(modifier = Modifier.height(24.dp))
                 Row(
@@ -1568,21 +1609,21 @@ class MainActivity : ComponentActivity() {
             item {
                 Spacer(modifier = Modifier.height(24.dp))
                 Text(
-                    text = "LIFE TIMELINE",
+                    text = stringResource(R.string.title_life_timeline),
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
                     color = Color.Gray,
                     fontWeight = FontWeight.Bold
                 )
-                HorizontalDivider(color = Color.Black.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 4.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 4.dp))
                 Text(
-                    text = "Wednesday,\nJune 4, 2026",
+                    text = getDynamicDate(),
                     fontSize = 40.sp,
                     fontFamily = FontFamily.SansSerif,
                     fontWeight = FontWeight.W300,
                     letterSpacing = (-0.96).sp,
                     lineHeight = 44.sp,
-                    color = Color.Black
+                    color = MaterialTheme.colorScheme.onBackground
                 )
             }
 
@@ -1594,15 +1635,15 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Column {
                         Text("PRODUCTIVITY", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.Gray, fontWeight = FontWeight.Bold)
-                        Text("87%", fontSize = 28.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                        Text(productivityPercentage.value, fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
                     }
                     Column {
                         Text("PEAK FOCUS", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.Gray, fontWeight = FontWeight.Bold)
-                        Text("9:15 PM", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                        Text(peakFocusTime.value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     }
                     Column {
                         Text("STRESS SPIKE", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.Gray, fontWeight = FontWeight.Bold)
-                        Text("7:10 PM", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                        Text(stressSpikeTime.value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
             }
@@ -1616,7 +1657,7 @@ class MainActivity : ComponentActivity() {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "TODAY'S STORY",
+                        text = stringResource(R.string.title_today_story),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         color = Color.Gray,
@@ -1627,11 +1668,11 @@ class MainActivity : ComponentActivity() {
                         fontSize = 20.sp,
                         fontFamily = FontFamily.SansSerif,
                         fontWeight = FontWeight.W300,
-                        color = Color.Black,
+                        color = MaterialTheme.colorScheme.onSurface,
                         lineHeight = 28.sp
                     )
                     Text(
-                        text = "The afternoon dipped during the 3:00 PM sync, where minor stress levels were detected. Evening brought a resurgence of energy, peaking at 9:15 PM, where your problem-solving efficiency was 24% higher than the monthly average.",
+                        text = "The afternoon dipped during the 3:00 PM sync, where minor stress levels were detected. Evening brought a resurgence of energy, peaking at ${peakFocusTime.value}, where your problem-solving efficiency was ${focusImprovementPercent.value} higher than the monthly average.",
                         fontSize = 16.sp,
                         fontFamily = FontFamily.SansSerif,
                         fontWeight = FontWeight.W300,
@@ -1645,7 +1686,7 @@ class MainActivity : ComponentActivity() {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(
-                        text = "DEVICE CONTINUITY",
+                        text = stringResource(R.string.title_device_continuity),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         color = Color.Gray,
@@ -1663,7 +1704,7 @@ class MainActivity : ComponentActivity() {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(
-                        text = "TASK JOURNEY",
+                        text = stringResource(R.string.title_task_journey),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         color = Color.Gray,
@@ -1672,17 +1713,17 @@ class MainActivity : ComponentActivity() {
 
                     Card(
                         shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, Color(0x0D000000), RoundedCornerShape(24.dp))
+                            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
                     ) {
                         Column(modifier = Modifier.padding(24.dp)) {
                             Text(
                                 text = "Database Assignment",
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.Black
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.height(16.dp))
 
@@ -1698,7 +1739,7 @@ class MainActivity : ComponentActivity() {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(
-                        text = "FRIDAY ACTIONS",
+                        text = stringResource(R.string.title_friday_actions),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         color = Color.Gray,
@@ -1711,11 +1752,11 @@ class MainActivity : ComponentActivity() {
                     ) {
                         Card(
                             shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             modifier = Modifier
                                 .weight(1f)
                                 .height(160.dp)
-                                .border(1.dp, Color(0x0D000000), RoundedCornerShape(24.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
                         ) {
                             Column(
                                 modifier = Modifier
@@ -1725,7 +1766,7 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 Icon(imageVector = Icons.Default.Notifications, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
                                 Column {
-                                    Text("Filtered", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                    Text("Filtered", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                     Text("34 suppressed distractions.", fontSize = 11.sp, color = Color.Gray)
                                 }
                             }
@@ -1733,11 +1774,11 @@ class MainActivity : ComponentActivity() {
 
                         Card(
                             shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             modifier = Modifier
                                 .weight(1f)
                                 .height(160.dp)
-                                .border(1.dp, Color(0x0D000000), RoundedCornerShape(24.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
                         ) {
                             Column(
                                 modifier = Modifier
@@ -1747,7 +1788,7 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 Icon(imageVector = Icons.Default.Star, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
                                 Column {
-                                    Text("Focus Rec", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                    Text("Focus Rec", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                     Text("Optimal window at 9:00 PM.", fontSize = 11.sp, color = Color.Gray)
                                 }
                             }
@@ -1756,16 +1797,16 @@ class MainActivity : ComponentActivity() {
 
                     Card(
                         shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFEE2E2)),
+                        colors = CardDefaults.cardColors(containerColor = if (isDarkThemeGlobal) Color(0xFF4C0505) else Color(0xFFFEE2E2)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
                             modifier = Modifier.padding(24.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(imageVector = Icons.Default.Warning, contentDescription = null, tint = Color(0xFF991B1B), modifier = Modifier.size(20.dp))
-                            Text("Fatigue Predicted", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF991B1B))
-                            Text("Sleep cycle correction needed. Rest suggested before 11:30 PM.", fontSize = 13.sp, color = Color(0xFF7F1D1D))
+                            Icon(imageVector = Icons.Default.Warning, contentDescription = null, tint = if (isDarkThemeGlobal) Color(0xFFFCA5A5) else Color(0xFF991B1B), modifier = Modifier.size(20.dp))
+                            Text("Fatigue Predicted", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = if (isDarkThemeGlobal) Color(0xFFFCA5A5) else Color(0xFF991B1B))
+                            Text("Sleep cycle correction needed. Rest suggested before 11:30 PM.", fontSize = 13.sp, color = if (isDarkThemeGlobal) Color(0xFFFECACA) else Color(0xFF7F1D1D))
                         }
                     }
                 }
@@ -1782,8 +1823,8 @@ class MainActivity : ComponentActivity() {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color.White, RoundedCornerShape(12.dp))
-                .border(1.dp, Color(0x0D000000), RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
+                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1797,7 +1838,7 @@ class MainActivity : ComponentActivity() {
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column {
-                Text(text = name, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                Text(text = name, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 Text(text = active, fontSize = 12.sp, color = Color.Gray)
             }
         }
@@ -1817,7 +1858,7 @@ class MainActivity : ComponentActivity() {
                     .clip(CircleShape)
                     .background(
                         when {
-                            isDone -> Color.Black
+                            isDone -> MaterialTheme.colorScheme.onSurface
                             isCurrent -> ColorBlockLime
                             else -> Color.LightGray
                         }
@@ -1825,7 +1866,7 @@ class MainActivity : ComponentActivity() {
                 contentAlignment = Alignment.Center
             ) {
                 if (isDone) {
-                    Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
+                    Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.surface, modifier = Modifier.size(12.dp))
                 }
             }
             Spacer(modifier = Modifier.width(16.dp))
@@ -1834,7 +1875,7 @@ class MainActivity : ComponentActivity() {
                     text = title,
                     fontSize = 14.sp,
                     fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                    color = Color.Black
+                    color = MaterialTheme.colorScheme.onBackground
                 )
                 Text(
                     text = status,
@@ -1859,20 +1900,20 @@ class MainActivity : ComponentActivity() {
             item {
                 Spacer(modifier = Modifier.height(24.dp))
                 Text(
-                    text = "TRUST CENTER",
+                    text = stringResource(R.string.title_trust_center),
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
                     color = Color.Gray,
                     fontWeight = FontWeight.Bold
                 )
-                HorizontalDivider(color = Color.Black.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 4.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 4.dp))
                 Text(
                     text = "Settings",
                     fontSize = 40.sp,
                     fontFamily = FontFamily.SansSerif,
                     fontWeight = FontWeight.Black,
                     letterSpacing = (-0.96).sp,
-                    color = Color.Black
+                    color = MaterialTheme.colorScheme.onBackground
                 )
                 Text(
                     text = "Manage privacy, devices and personalization.",
@@ -1886,8 +1927,8 @@ class MainActivity : ComponentActivity() {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color.White, RoundedCornerShape(24.dp))
-                        .border(1.dp, Color(0x0D000000), RoundedCornerShape(24.dp))
+                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(24.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
                         .padding(24.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1899,7 +1940,7 @@ class MainActivity : ComponentActivity() {
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "N",
+                            text = if (userName.value.isNotEmpty()) userName.value.take(1) else "U",
                             color = Color.White,
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Black
@@ -1908,13 +1949,13 @@ class MainActivity : ComponentActivity() {
                     Spacer(modifier = Modifier.width(16.dp))
                     Column {
                         Text(
-                            text = "Nirvik Goswami",
+                            text = userName.value,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.Black
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Student Mode • Galaxy Ecosystem",
+                            text = userRole.value,
                             fontSize = 12.sp,
                             color = Color.Gray
                         )
@@ -1934,29 +1975,29 @@ class MainActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Text(
-                            text = "PRIVACY & DATA",
+                            text = stringResource(R.string.title_privacy_data),
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Black,
-                            color = Color.Black
+                            color = MaterialTheme.colorScheme.onSurface
                         )
 
                         var dataProcessing by remember { mutableStateOf(true) }
                         var cloudBackup by remember { mutableStateOf(true) }
                         var dataEncryption by remember { mutableStateOf(true) }
 
-                        ToggleRow(label = "Data Processing", subtitle = "Mostly On Device", checked = dataProcessing, onCheckedChange = { dataProcessing = it })
-                        ToggleRow(label = "Cloud Backup", checked = cloudBackup, onCheckedChange = { cloudBackup = it })
-                        ToggleRow(label = "Data Encryption", checked = dataEncryption, onCheckedChange = { dataEncryption = it })
+                        ToggleRow(label = stringResource(R.string.hint_data_processing), subtitle = stringResource(R.string.hint_mostly_on_device), checked = dataProcessing, onCheckedChange = { dataProcessing = it })
+                        ToggleRow(label = stringResource(R.string.hint_cloud_backup), checked = cloudBackup, onCheckedChange = { cloudBackup = it })
+                        ToggleRow(label = stringResource(R.string.hint_data_encryption), checked = dataEncryption, onCheckedChange = { dataEncryption = it })
 
                         Spacer(modifier = Modifier.height(8.dp))
 
                         Button(
-                            onClick = { showToast("Opening permission manager...") },
+                            onClick = { showToast(getString(R.string.msg_open_permission_manager)) },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
                         ) {
-                            Text("Manage Permissions", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.btn_manage_permissions), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -1966,17 +2007,17 @@ class MainActivity : ComponentActivity() {
             item {
                 Card(
                     shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, Color(0x0D000000), RoundedCornerShape(24.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
                 ) {
                     Column(
                         modifier = Modifier.padding(24.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Text(
-                            text = "SYSTEM PERMISSIONS",
+                            text = stringResource(R.string.title_system_permissions),
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
@@ -1990,7 +2031,7 @@ class MainActivity : ComponentActivity() {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Accessibility Service", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                Text("Accessibility Service", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                 Text("For active application context switches", fontSize = 11.sp, color = Color.Gray)
                             }
                             Button(
@@ -2005,7 +2046,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        HorizontalDivider(color = Color.Black.copy(alpha = 0.05f))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
 
                         // Notification Listener
                         Row(
@@ -2014,7 +2055,7 @@ class MainActivity : ComponentActivity() {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Notification Listener", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                Text("Notification Listener", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                 Text("For intercepting notifications", fontSize = 11.sp, color = Color.Gray)
                             }
                             Button(
@@ -2031,14 +2072,14 @@ class MainActivity : ComponentActivity() {
 
                         // Post Notifications (Android 13+)
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            HorizontalDivider(color = Color.Black.copy(alpha = 0.05f))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("Post Notifications", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                    Text("Post Notifications", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                     Text("Foreground sensing alert channel", fontSize = 11.sp, color = Color.Gray)
                                 }
                                 Button(
@@ -2071,10 +2112,10 @@ class MainActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Text(
-                            text = "MEMORY",
+                            text = stringResource(R.string.title_memory),
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Black,
-                            color = Color.Black
+                            color = MaterialTheme.colorScheme.onSurface
                         )
 
                         Row(
@@ -2082,35 +2123,35 @@ class MainActivity : ComponentActivity() {
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Column {
-                                Text("146", fontSize = 28.sp, fontWeight = FontWeight.Black, color = Color.Black)
-                                Text("STORED", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = Color.Black.copy(alpha = 0.6f))
+                                Text("146", fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+                                Text("STORED", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                             }
                             Column {
-                                Text("24", fontSize = 28.sp, fontWeight = FontWeight.Black, color = Color.Black)
-                                Text("EVENTS", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = Color.Black.copy(alpha = 0.6f))
+                                Text("24", fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+                                Text("EVENTS", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                             }
                             Column {
-                                Text("43 MB", fontSize = 28.sp, fontWeight = FontWeight.Black, color = Color.Black)
-                                Text("SIZE", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = Color.Black.copy(alpha = 0.6f))
+                                Text("43 MB", fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+                                Text("SIZE", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                             }
                         }
 
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
-                                onClick = { showToast("Loading memories database...") },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
+                                onClick = { showToast(getString(R.string.btn_view_memories)) },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("View Memories", color = Color.White)
+                                Text(stringResource(R.string.btn_view_memories), color = MaterialTheme.colorScheme.surface)
                             }
                             Button(
-                                onClick = { showToast("Select a memory to forget...") },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                                onClick = { showToast(getString(R.string.btn_forget_memory)) },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("Forget Specific Memory", color = Color.Black)
+                                Text(stringResource(R.string.btn_forget_memory), color = MaterialTheme.colorScheme.onSurface)
                             }
                         }
                     }
@@ -2130,7 +2171,7 @@ class MainActivity : ComponentActivity() {
                     ) {
                         Column {
                             Text(
-                                text = "DEVICES",
+                                text = stringResource(R.string.title_devices),
                                 fontSize = 32.sp,
                                 fontWeight = FontWeight.Black,
                                 color = Color.White
@@ -2185,12 +2226,12 @@ class MainActivity : ComponentActivity() {
                         }
 
                         Button(
-                            onClick = { showToast("Opening device discovery...") },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                            onClick = { showToast(getString(R.string.btn_manage_devices)) },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Manage Devices", color = Color.Black, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.btn_manage_devices), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -2200,17 +2241,17 @@ class MainActivity : ComponentActivity() {
             item {
                 Card(
                     shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, Color(0x0D000000), RoundedCornerShape(24.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
                 ) {
                     Column(
                         modifier = Modifier.padding(24.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Text(
-                            text = "HUB OVERRIDE IP CONFIG",
+                            text = stringResource(R.string.title_hub_override_ip_config),
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
@@ -2227,9 +2268,9 @@ class MainActivity : ComponentActivity() {
                                 label = { Text("Hub IP Address", color = Color.Gray, fontSize = 12.sp) },
                                 singleLine = true,
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = Color.Black,
-                                    unfocusedTextColor = Color.Black,
-                                    focusedBorderColor = Color.Black,
+                                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    focusedBorderColor = MaterialTheme.colorScheme.onSurface,
                                     unfocusedBorderColor = Color.LightGray
                                 ),
                                 modifier = Modifier.weight(2f)
@@ -2240,9 +2281,9 @@ class MainActivity : ComponentActivity() {
                                 label = { Text("Port", color = Color.Gray, fontSize = 12.sp) },
                                 singleLine = true,
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = Color.Black,
-                                    unfocusedTextColor = Color.Black,
-                                    focusedBorderColor = Color.Black,
+                                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    focusedBorderColor = MaterialTheme.colorScheme.onSurface,
                                     unfocusedBorderColor = Color.LightGray
                                 ),
                                 modifier = Modifier.weight(1f)
@@ -2256,11 +2297,11 @@ class MainActivity : ComponentActivity() {
                                     WebSocketManager.getInstance().connect(url)
                                 }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Connect Manually", color = Color.White)
+                            Text(stringResource(R.string.btn_connect_manually), color = MaterialTheme.colorScheme.surface)
                         }
                     }
                 }
@@ -2270,17 +2311,17 @@ class MainActivity : ComponentActivity() {
             item {
                 Card(
                     shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, Color(0x0D000000), RoundedCornerShape(24.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
                 ) {
                     Column(
                         modifier = Modifier.padding(24.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Text(
-                            text = "ASSISTANCE STYLE",
+                            text = stringResource(R.string.title_assistance_style),
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
@@ -2299,10 +2340,10 @@ class MainActivity : ComponentActivity() {
                                 RadioButton(
                                     selected = assistanceStyle == "Quiet",
                                     onClick = { assistanceStyle = "Quiet" },
-                                    colors = RadioButtonDefaults.colors(selectedColor = Color.Black)
+                                    colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.onSurface)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Quiet", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                Text("Quiet", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                             }
                             Row(
                                 modifier = Modifier
@@ -2313,10 +2354,10 @@ class MainActivity : ComponentActivity() {
                                 RadioButton(
                                     selected = assistanceStyle == "Balanced",
                                     onClick = { assistanceStyle = "Balanced" },
-                                    colors = RadioButtonDefaults.colors(selectedColor = Color.Black)
+                                    colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.onSurface)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Balanced", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                Text("Balanced", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                             }
                             Row(
                                 modifier = Modifier
@@ -2327,10 +2368,10 @@ class MainActivity : ComponentActivity() {
                                 RadioButton(
                                     selected = assistanceStyle == "Proactive",
                                     onClick = { assistanceStyle = "Proactive" },
-                                    colors = RadioButtonDefaults.colors(selectedColor = Color.Black)
+                                    colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.onSurface)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Proactive", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                Text("Proactive", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                             }
                         }
                     }
@@ -2341,7 +2382,7 @@ class MainActivity : ComponentActivity() {
             item {
                 Card(
                     shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFEE2E2)),
+                    colors = CardDefaults.cardColors(containerColor = if (isDarkThemeGlobal) Color(0xFF4C0505) else Color(0xFFFEE2E2)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -2349,28 +2390,28 @@ class MainActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Text(
-                            text = "Danger Zone",
+                            text = stringResource(R.string.title_danger_zone),
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Black,
-                            color = Color(0xFF7F1D1D)
+                            color = if (isDarkThemeGlobal) Color(0xFFFECACA) else Color(0xFF7F1D1D)
                         )
 
                         Button(
-                            onClick = { showToast("Disconnecting all synced nodes...") },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                            onClick = { showToast(getString(R.string.btn_disconnect_devices)) },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Disconnect Devices", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.btn_disconnect_devices), color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
                         }
 
                         Button(
-                            onClick = { showToast("All memory storage cleared.") },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                            onClick = { showToast(getString(R.string.btn_clear_memories)) },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Clear Memories", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.btn_clear_memories), color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -2407,7 +2448,7 @@ class MainActivity : ComponentActivity() {
                 onCheckedChange = onCheckedChange,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = Color.White,
-                    checkedTrackColor = Color.Black,
+                    checkedTrackColor = MaterialTheme.colorScheme.onSurface,
                     uncheckedThumbColor = Color.Gray,
                     uncheckedTrackColor = Color.LightGray
                 )
@@ -2440,12 +2481,12 @@ class MainActivity : ComponentActivity() {
                         onClick = onClose,
                         modifier = Modifier
                             .size(40.dp)
-                            .background(Color.Black.copy(alpha = 0.05f), CircleShape)
+                            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), CircleShape)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close",
-                            tint = Color.Black
+                            tint = MaterialTheme.colorScheme.onBackground
                         )
                     }
                 }
@@ -2465,7 +2506,7 @@ class MainActivity : ComponentActivity() {
                         text = "STATUS: ACTIVE LISTENING",
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
-                        color = Color.Black,
+                        color = MaterialTheme.colorScheme.onBackground,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -2479,7 +2520,7 @@ class MainActivity : ComponentActivity() {
                     fontWeight = FontWeight.W300,
                     letterSpacing = (-0.96).sp,
                     lineHeight = 48.sp,
-                    color = Color.Black
+                    color = MaterialTheme.colorScheme.onBackground
                 )
 
                 Spacer(modifier = Modifier.height(40.dp))
@@ -2492,11 +2533,11 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Column(modifier = Modifier.padding(24.dp)) {
                         Text(
-                            text = "COGNITIVE PULSE",
+                            text = stringResource(R.string.title_cognitive_pulse),
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            color = Color.Black.copy(alpha = 0.6f)
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Row(verticalAlignment = Alignment.Bottom) {
@@ -2504,14 +2545,14 @@ class MainActivity : ComponentActivity() {
                                 text = "84%",
                                 fontSize = 48.sp,
                                 fontWeight = FontWeight.Black,
-                                color = Color.Black
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "Focus",
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.Black.copy(alpha = 0.6f),
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                                 modifier = Modifier.padding(bottom = 8.dp)
                             )
                         }
@@ -2519,7 +2560,7 @@ class MainActivity : ComponentActivity() {
                         Text(
                             text = "Your flow state is peak right now. I've silenced all non-critical nodes and optimized your workspace luminance for deep focus.",
                             fontSize = 15.sp,
-                            color = Color.Black
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
@@ -2566,7 +2607,7 @@ class MainActivity : ComponentActivity() {
 
                 // Action suggestions
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OverlayActionButton(text = "Silence Everything")
+                    OverlayActionButton(text = stringResource(R.string.btn_silence_all))
                     OverlayActionButton(text = "Prepare Evening Brief")
                     OverlayActionButton(text = "Check Node Connectivity")
                     OverlayActionButton(text = "Explain Current Stress")
@@ -2598,6 +2639,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun FridayTheme(content: @Composable () -> Unit) {
         val darkTheme = isSystemInDarkTheme()
+        isDarkThemeGlobal = darkTheme
         val colorScheme = if (darkTheme) {
             darkColorScheme(
                 primary = Color.White,
