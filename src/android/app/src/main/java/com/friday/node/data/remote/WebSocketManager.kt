@@ -50,6 +50,10 @@ class WebSocketManager private constructor() {
 
     fun isConnected(): Boolean = isConnected
 
+    fun getServerHttpUrl(): String? {
+        return serverUrl?.replace("ws://", "http://")?.replace("wss://", "https://")?.replace("/ws/android", "")
+    }
+
     fun connect(url: String) {
         this.serverUrl = url
         disconnect()

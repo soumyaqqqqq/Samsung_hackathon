@@ -17,6 +17,11 @@ class FRIDAYAccessibilityService : AccessibilityService() {
     private var totalDeltaTime = 0L
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        val configManager = com.friday.node.config.OnboardingConfigManager(this)
+        if (!configManager.isModuleEnabled("Accessibility & Touch")) {
+            return
+        }
+
         // Check our localized optimizer before running operations
         if (BatteryOptimizer.getCurrentMode() == BatteryOptimizer.RuntimeMode.GHOST) {
             // Ghost Mode Rule: Accessibility processing is disabled to protect battery life

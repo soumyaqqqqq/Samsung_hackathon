@@ -62,6 +62,11 @@ import com.friday.node.data.remote.WebSocketManager
 import com.friday.node.service.FRIDAYForegroundService
 import com.friday.node.utils.DiscoveryManager
 import com.friday.node.utils.LocalFallbackEngine
+import com.friday.node.config.OnboardingConfigManager
+import com.friday.node.data.remote.OnboardingService
+import com.friday.node.onboarding.viewmodel.OnboardingViewModel
+import com.friday.node.onboarding.viewmodel.OnboardingViewModelFactory
+import com.friday.node.onboarding.ui.screens.OnboardingScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -166,27 +171,39 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        
-        // Initialize dynamic profile strings from resources
-        userName.value = getString(R.string.default_user_name)
-        userRole.value = getString(R.string.default_user_role)
-        
-        // 1. Initialize WebSocket context binding
-        WebSocketManager.getInstance().init(this)
-
-        // 2. Request POST_NOTIFICATIONS runtime permission on Android 13+
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
-        }
-
-        // 3. Kick off services and discovery scans
+    private fun startFridayServices(fromOnboarding: Boolean = false) {
         try {
-            val serviceIntent = Intent(this, FRIDAYForegroundService::class.java)
+            val serviceIntent = Intent(this, FRIDAYForegroundService::class.java).apply {
+                putExtra("from_onboarding", fromOnboarding)
+            }
             startForegroundService(serviceIntent)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to launch foreground service: ${e.message}")
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        
+        // 1. Initialize WebSocket context binding
+        WebSocketManager.getInstance().init(this)
+        
+        val configManager = OnboardingConfigManager(this)
+        val isOnboardingComplete = configManager.isOnboardingComplete()
+
+        // Initialize dynamic profile strings from resources / preferences
+        val savedName = configManager.getUserName()
+        userName.value = if (savedName.isNotEmpty()) savedName else getString(R.string.default_user_name)
+        userRole.value = getString(R.string.default_user_role)
+
+        // 2. Request POST_NOTIFICATIONS runtime permission on Android 13+ (only if already onboarded)
+        if (isOnboardingComplete && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+        }
+
+        // 3. Kick off services and discovery scans (only if onboarding is complete)
+        if (isOnboardingComplete) {
+            startFridayServices()
         }
 
         // 4. Poll database buffer count reactively
@@ -200,8 +217,29 @@ class MainActivity : ComponentActivity() {
 
         // 5. Draw the Compose user interface
         setContent {
+            val showOnboarding = remember { mutableStateOf(!isOnboardingComplete) }
             FridayTheme {
-                MainContainer()
+                if (showOnboarding.value) {
+                    val onboardingService = OnboardingService(this@MainActivity, configManager)
+                    val factory = OnboardingViewModelFactory(configManager, onboardingService)
+                    val onboardingViewModel = androidx.lifecycle.ViewModelProvider(this@MainActivity, factory)[OnboardingViewModel::class.java]
+                    val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "android_node"
+                    
+                    OnboardingScreen(
+                        viewModel = onboardingViewModel,
+                        deviceId = deviceId,
+                        onOnboardingFinished = {
+                            val newSavedName = configManager.getUserName()
+                            if (newSavedName.isNotEmpty()) {
+                                userName.value = newSavedName
+                            }
+                            showOnboarding.value = false
+                            startFridayServices(fromOnboarding = true)
+                        }
+                    )
+                } else {
+                    MainContainer()
+                }
             }
         }
     }

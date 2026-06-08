@@ -31,6 +31,11 @@ class FRIDAYForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val fromOnboarding = intent?.getBooleanExtra("from_onboarding", false) ?: false
+        if (fromOnboarding) {
+            Log.i("FRIDAY_SERVICE", "Sensing Node started from onboarding completion. Loading active configuration.")
+        }
+
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("FRIDAY")
             .setContentText("Ambient Senses Active")
@@ -47,8 +52,14 @@ class FRIDAYForegroundService : Service() {
         }
         com.friday.node.utils.BatteryOptimizer.evaluateSystemState(this)
 
-        discoveryManager.startSearching()
-        healthManager.sampleBiometricBaseline()
+        val configManager = com.friday.node.config.OnboardingConfigManager(this)
+        if (configManager.isModuleEnabled("Location & Environment")) {
+            Log.i("FRIDAY_SERVICE", "Location & Environment telemetry module enabled. Starting discovery & health baseline.")
+            discoveryManager.startSearching()
+            healthManager.sampleBiometricBaseline()
+        } else {
+            Log.i("FRIDAY_SERVICE", "Location & Environment telemetry module disabled. Skipping discovery scan.")
+        }
         return START_STICKY
     }
 

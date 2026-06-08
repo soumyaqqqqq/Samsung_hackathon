@@ -17,6 +17,11 @@ class FRIDAYNotificationListener : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        val configManager = com.friday.node.config.OnboardingConfigManager(this)
+        if (!configManager.isModuleEnabled("Notification & Activity")) {
+            return
+        }
+
         // 1. Defensively check and bypass ongoing or system-level persistent notifications to optimize bandwidth
         if (sbn.isOngoing || (sbn.notification.flags and android.app.Notification.FLAG_FOREGROUND_SERVICE) != 0) {
             return
