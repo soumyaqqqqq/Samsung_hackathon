@@ -16,6 +16,7 @@ class FRIDAYForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        WebSocketManager.getInstance().init(this)
         createNotificationChannel()
         discoveryManager = DiscoveryManager(this) { ipAddress, port ->
             Log.i("FRIDAY_SERVICE", "Target Compute Hub found! Connecting to $ipAddress:$port")
@@ -30,6 +31,11 @@ class FRIDAYForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val fromOnboarding = intent?.getBooleanExtra("from_onboarding", false) ?: false
+        if (fromOnboarding) {
+            Log.i("FRIDAY_SERVICE", "Sensing Node started from onboarding completion. Loading active configuration.")
+        }
+
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("FRIDAY")
             .setContentText("Ambient Senses Active")
@@ -37,9 +43,23 @@ class FRIDAYForegroundService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-        startForeground(1, notification)
+        val healthManager = com.friday.node.utils.HealthKitManager(this)
 
-        discoveryManager.startSearching()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(1, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            startForeground(1, notification)
+        }
+        com.friday.node.utils.BatteryOptimizer.evaluateSystemState(this)
+
+        val configManager = com.friday.node.config.OnboardingConfigManager(this)
+        if (configManager.isModuleEnabled("Location & Environment")) {
+            Log.i("FRIDAY_SERVICE", "Location & Environment telemetry module enabled. Starting discovery & health baseline.")
+            discoveryManager.startSearching()
+            healthManager.sampleBiometricBaseline()
+        } else {
+            Log.i("FRIDAY_SERVICE", "Location & Environment telemetry module disabled. Skipping discovery scan.")
+        }
         return START_STICKY
     }
 

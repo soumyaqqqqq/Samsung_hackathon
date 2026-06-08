@@ -3,4 +3,74 @@
     <string name="accessibility_description">
         Provides accessibility support by monitoring window state changes and text input events to improve user experience while conserving battery.
     </string>
+    <string name="status_initializing">FRIDAY Sensor Node Status: Initializing...</string>
+    <string name="grant_accessibility">Grant Accessibility Permission</string>
+    <string name="grant_notification">Grant Notification Access</string>
+    <string name="status_operational">FRIDAY Sensor Node Status: Operational. Scanning Network...</string>
+    <string name="init_error">Initialization Error: %1$s</string>
+
+    <!-- Welcome / Greeting -->
+    <string name="default_user_name">Nirvik Goswami</string>
+    <string name="default_user_role">Student Mode • Galaxy Ecosystem</string>
+    <string name="greeting_morning">Good Morning %1$s</string>
+    <string name="greeting_afternoon">Good Afternoon %1$s</string>
+    <string name="greeting_evening">Good Evening %1$s</string>
+    <string name="greeting_night">Good Night %1$s</string>
+
+    <!-- Headings & Section Titles -->
+    <string name="title_trust_center">TRUST CENTER</string>
+    <string name="title_privacy_data">PRIVACY &amp; DATA</string>
+    <string name="title_system_permissions">SYSTEM PERMISSIONS</string>
+    <string name="title_device_continuity">DEVICE CONTINUITY</string>
+    <string name="title_why_signals">WHY? (SIGNALS)</string>
+    <string name="title_friday_actions">FRIDAY ACTIONS</string>
+    <string name="title_task_journey">TASK JOURNEY</string>
+    <string name="title_cognitive_pulse">COGNITIVE PULSE</string>
+    <string name="title_what_needs_attention">WHAT NEEDS ATTENTION</string>
+    <string name="title_current_status">CURRENT STATUS</string>
+    <string name="title_cognitive_risk_radar">COGNITIVE RISK RADAR</string>
+    <string name="title_current_state">CURRENT STATE</string>
+    <string name="title_behavioral_anomaly">BEHAVIORAL ANOMALY</string>
+    <string name="title_memory_correlation">MEMORY CORRELATION</string>
+    <string name="title_life_timeline">LIFE TIMELINE</string>
+    <string name="title_today_story">TODAY\'S STORY</string>
+    <string name="title_devices">DEVICES</string>
+    <string name="title_hub_override_ip_config">HUB OVERRIDE IP CONFIG</string>
+    <string name="title_assistance_style">ASSISTANCE STYLE</string>
+    <string name="title_danger_zone">Danger Zone</string>
+    <string name="title_memory">MEMORY</string>
+    <string name="title_node_connection">NODE CONNECTION</string>
+    <string name="title_messages">MESSAGES</string>
+    <string name="title_total_intercepted">TOTAL INTERCEPTED</string>
+    <string name="title_focus_time">FOCUS TIME</string>
+    <string name="title_mindspace">MINDSPACE</string>
+    <string name="title_emotion_agent">EMOTION AGENT</string>
+    <string name="title_burnout_agent">BURNOUT AGENT</string>
+    <string name="title_social_agent">SOCIAL AGENT</string>
+    <string name="title_confidence_score">CONFIDENCE SCORE</string>
+
+    <!-- Buttons -->
+    <string name="btn_manage_permissions">Manage Permissions</string>
+    <string name="btn_start_focus">Start Focus</string>
+    <string name="btn_reduce_interrupt">Reduce Interrupt</string>
+    <string name="btn_explain_stress">Explain Stress</string>
+    <string name="btn_view_memories">View Memories</string>
+    <string name="btn_forget_memory">Forget Specific Memory</string>
+    <string name="btn_silence_all">Silence Everything</string>
+    <string name="btn_prioritize_automatically">Prioritize Automatically</string>
+    <string name="btn_connect_manually">Connect Manually</string>
+    <string name="btn_disconnect_devices">Disconnect Devices</string>
+    <string name="btn_clear_memories">Clear Memories</string>
+    <string name="btn_manage_devices">Manage Devices</string>
+    <string name="btn_action">Action</string>
+
+    <!-- Hints & Subtitles -->
+    <string name="hint_data_processing">Data Processing</string>
+    <string name="hint_cloud_backup">Cloud Backup</string>
+    <string name="hint_data_encryption">Data Encryption</string>
+    <string name="hint_mostly_on_device">Mostly On Device</string>
+
+    <!-- Dialogs & Toasts -->
+    <string name="msg_open_permission_manager">Opening permission manager...</string>
+    <string name="msg_action_triggered">Action triggered!</string>
 </resources>
