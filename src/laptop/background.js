@@ -1,5 +1,7 @@
+importScripts('config.js');
+
 let socket = null;
-const BACKEND_WS_URL = "ws://localhost:8000/ws/laptop";
+const BACKEND_WS_URL = FRIDAY_CONFIG.wsUrl;
 
 function broadcastConnectionState(isConnected) {
     chrome.tabs.query({}, (tabs) => {
@@ -67,5 +69,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     if (message.action === "send_to_backend" && socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify(message.data));
+    }
+    if (message.action === "fetch_telemetry_data") {
+        fetch(FRIDAY_CONFIG.telemetryUrl)
+            .then(res => {
+                if (!res.ok) throw new Error("HTTP error " + res.status);
+                return res.json();
+            })
+            .then(data => {
+                sendResponse({ success: true, data: data });
+            })
+            .catch(err => {
+                sendResponse({ success: false, error: err.message });
+            });
+        return true;
     }
 });

@@ -4,17 +4,19 @@ let sidebarElement = null;
 let handleElement = null;
 let shieldBanner = null;
 
-// Global state holding telemetry metrics
 const FRIDAY_STATE = {
     isConnected: false,
-    stressScore: 68,
+    stressScore: null,
     activeTab: 'sense',
     isOpen: false,
-    focusEfficiency: 88,
+    focusEfficiency: null,
     mediaHandoff: null
 };
 
-// Inline SVG Icon Provider for full offline compatibility and CSP-bypass
+let backendData = null;
+let fetchError = null;
+let refreshInterval = null;
+
 function getIconSvg(name, size = 20) {
     const paths = {
         close: '<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>',
@@ -39,7 +41,6 @@ function getIconSvg(name, size = 20) {
     return `<svg class="friday-svg-icon icon-${name}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor" style="display: inline-block; vertical-align: middle; flex-shrink: 0;">${path}</svg>`;
 }
 
-// Initialize the extension Shadow DOM overlay
 function initShadowDOM() {
     if (document.getElementById("friday-extension-host")) return;
 
@@ -49,7 +50,6 @@ function initShadowDOM() {
 
     shadowRoot = containerDiv.attachShadow({ mode: "closed" });
 
-    // Inject Google Fonts link in host head for global font availability (fallback)
     if (!document.querySelector("link[href*='fonts.googleapis.com/css2']")) {
         const fontLink = document.createElement("link");
         fontLink.rel = "stylesheet";
@@ -57,17 +57,14 @@ function initShadowDOM() {
         document.head.appendChild(fontLink);
     }
 
-    // Inject stylesheet
     const link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = chrome.runtime.getURL("styles.css");
     shadowRoot.appendChild(link);
 
-    // Build core interface layers
     createToggleHandle();
     createSidebar();
 
-    // Check initial connection status with background script
     chrome.runtime.sendMessage({ action: "get_connection_status" }, (response) => {
         if (chrome.runtime.lastError) {
             console.log("[FRIDAY Content] Connection to background script not established yet.");
@@ -80,7 +77,6 @@ function initShadowDOM() {
     });
 }
 
-// Create the floating edge toggle handle on the right screen border
 function createToggleHandle() {
     handleElement = document.createElement("div");
     handleElement.className = "friday-toggle-handle disconnected";
@@ -92,7 +88,6 @@ function createToggleHandle() {
     shadowRoot.appendChild(handleElement);
 }
 
-// Create the slide-out sidebar container
 function createSidebar() {
     sidebarElement = document.createElement("div");
     sidebarElement.className = "friday-sidebar";
@@ -123,13 +118,11 @@ function createSidebar() {
         </div>
         
         <div class="friday-content-pane" id="friday-content-pane">
-            <!-- Dynamically populated panel content goes here -->
         </div>
     `;
 
     shadowRoot.appendChild(sidebarElement);
 
-    // Event hooks
     shadowRoot.getElementById("friday-close-sidebar").onclick = () => toggleSidebar(false);
 
     const senseTabBtn = shadowRoot.getElementById("tab-btn-sense");
@@ -138,11 +131,31 @@ function createSidebar() {
     senseTabBtn.onclick = () => switchTab('sense');
     continuityTabBtn.onclick = () => switchTab('continuity');
 
-    // Render initial tab content
     switchTab('sense');
 }
 
-// Toggle sidebar visibility
+function loadBackendData(callback) {
+    chrome.runtime.sendMessage({ action: "fetch_telemetry_data" }, (response) => {
+        if (chrome.runtime.lastError) {
+            fetchError = "404 error:Server blasted";
+            backendData = null;
+            if (callback) callback();
+            return;
+        }
+        if (response && response.success && response.data && Object.keys(response.data).length > 0) {
+            backendData = response.data;
+            fetchError = null;
+            if (backendData.stressScore !== undefined) FRIDAY_STATE.stressScore = backendData.stressScore;
+            if (backendData.focusEfficiency !== undefined) FRIDAY_STATE.focusEfficiency = backendData.focusEfficiency;
+            if (backendData.mediaHandoff !== undefined) FRIDAY_STATE.mediaHandoff = backendData.mediaHandoff;
+        } else {
+            fetchError = "404 error:Server blasted";
+            backendData = null;
+        }
+        if (callback) callback();
+    });
+}
+
 function toggleSidebar(forceOpen) {
     const shouldOpen = forceOpen !== undefined ? forceOpen : !FRIDAY_STATE.isOpen;
     FRIDAY_STATE.isOpen = shouldOpen;
@@ -150,15 +163,33 @@ function toggleSidebar(forceOpen) {
     if (shouldOpen) {
         sidebarElement.classList.add("open");
         handleElement.style.right = "400px";
-        // Refresh tab content to load latest telemetry stats
         switchTab(FRIDAY_STATE.activeTab);
+
+        if (refreshInterval) clearInterval(refreshInterval);
+        refreshInterval = setInterval(() => {
+            if (FRIDAY_STATE.isOpen) {
+                loadBackendData(() => {
+                    const contentPane = shadowRoot.getElementById("friday-content-pane");
+                    if (!contentPane) return;
+                    if (FRIDAY_STATE.activeTab === 'sense') {
+                        contentPane.innerHTML = renderSensePane();
+                    } else {
+                        contentPane.innerHTML = renderContinuityPane();
+                        setupContinuityHooks();
+                    }
+                });
+            }
+        }, 5000);
     } else {
         sidebarElement.classList.remove("open");
         handleElement.style.right = "0";
+        if (refreshInterval) {
+            clearInterval(refreshInterval);
+            refreshInterval = null;
+        }
     }
 }
 
-// Update UI elements based on WebSocket status
 function updateConnectionUI(isConnected) {
     FRIDAY_STATE.isConnected = isConnected;
 
@@ -178,40 +209,114 @@ function updateConnectionUI(isConnected) {
     }
 }
 
-// Switch active tabs inside the sidebar panel
 function switchTab(tabName) {
     FRIDAY_STATE.activeTab = tabName;
     const contentPane = shadowRoot.getElementById("friday-content-pane");
     if (!contentPane) return;
 
-    // Reset button active classes
     const senseTabBtn = shadowRoot.getElementById("tab-btn-sense");
     const continuityTabBtn = shadowRoot.getElementById("tab-btn-continuity");
 
     if (tabName === 'sense') {
         senseTabBtn.classList.add("active");
         continuityTabBtn.classList.remove("active");
-        contentPane.innerHTML = renderSensePane();
     } else {
         senseTabBtn.classList.remove("active");
         continuityTabBtn.classList.add("active");
-        contentPane.innerHTML = renderContinuityPane();
-        setupContinuityHooks();
     }
+
+    contentPane.innerHTML = `
+        <div style="display:flex; justify-content:center; align-items:center; height:150px; font-family:var(--font-mono); font-size:12px; color:var(--color-secondary);">
+            Synchronizing ambient telemetry...
+        </div>
+    `;
+
+    loadBackendData(() => {
+        if (FRIDAY_STATE.activeTab !== tabName) return;
+        if (tabName === 'sense') {
+            contentPane.innerHTML = renderSensePane();
+        } else {
+            contentPane.innerHTML = renderContinuityPane();
+            setupContinuityHooks();
+        }
+    });
 }
 
-// HTML Renderer for SENSE tab (telemetry, stress, cognitive, active tasks)
+function renderErrorPane(message) {
+    return `
+        <div class="friday-card-block bg-pink" style="border: 2px dashed var(--color-error); text-align: center; padding: 32px 20px;">
+            <div style="font-size: 48px; margin-bottom: 16px; color: var(--color-error); display: flex; justify-content: center; align-items: center;">
+                ${getIconSvg("pending", 48)}
+            </div>
+            <div class="friday-card-title" style="color: var(--color-error); font-size: 20px; font-weight: 900; word-break: break-all;">${message}</div>
+            <p class="friday-card-body" style="margin-bottom: 0; opacity: 0.8; text-align: center;">
+                The telemetry hub could not be reached. Ambient sync streams are offline.
+            </p>
+        </div>
+    `;
+}
+
 function renderSensePane() {
-    const stressState = FRIDAY_STATE.stressScore >= 70 ? "High Burnout" : "Balanced";
-    const stressClass = FRIDAY_STATE.stressScore >= 70 ? "bg-navy" : "bg-mint";
+    if (fetchError || !backendData) {
+        return renderErrorPane(fetchError || "404 error:Server blasted");
+    }
+
+    const stressScore = backendData.stressScore !== undefined ? backendData.stressScore : 0;
+    const stressState = stressScore >= 70 ? "High Burnout" : "Balanced";
+    const stressClass = stressScore >= 70 ? "bg-navy" : "bg-mint";
+
+    const focusEfficiency = backendData.focusEfficiency !== undefined ? backendData.focusEfficiency : 0;
+
+    let activeTaskHTML = "";
+    if (backendData.activeTask) {
+        const t = backendData.activeTask;
+        const total = t.totalSegments || 5;
+        const active = t.activeSegments || 0;
+        let segmentsHTML = "";
+        for (let i = 0; i < total; i++) {
+            const activeClass = i < active ? "active" : "";
+            segmentsHTML += `<div class="friday-segment ${activeClass}"></div>`;
+        }
+
+        let checklistHTML = "";
+        if (t.checklist && t.checklist.length > 0) {
+            checklistHTML = `
+                <div class="friday-checklist">
+                    ${t.checklist.map(item => `
+                        <div class="friday-check-item ${item.completed ? 'checked' : ''}">
+                            ${getIconSvg(item.completed ? "check_circle" : "pending", 16)}
+                            <span>${item.name}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        activeTaskHTML = `
+            <div class="friday-card-block bg-lilac">
+                <span class="friday-card-eyebrow">Active Task Pipeline</span>
+                <div class="friday-card-title" style="font-size: 18px; display: flex; align-items: center; justify-content: space-between;">
+                    <span>${t.title || ''}</span>
+                    ${getIconSvg("alt_route", 20)}
+                </div>
+                <div style="display: flex; justify-content: space-between; margin: 12px 0 6px 0; font-family: var(--font-mono); font-size: 10px;">
+                    <span style="color: rgba(0,0,0,0.6);">${t.completionPct || 0}% Complete</span>
+                    <span style="font-weight: 700;">${t.timeLeft || ''}</span>
+                </div>
+                <div class="friday-segments-track">
+                    ${segmentsHTML}
+                </div>
+                ${checklistHTML}
+            </div>
+        `;
+    }
 
     return `
-        <!-- Emotional State telemetry block -->
         <div class="friday-card-block ${stressClass}">
             <span class="friday-card-eyebrow">Emotional State</span>
             <div class="friday-metric-row">
                 <div class="friday-metric-value-container">
-                    <span class="friday-metric-value" id="current-stress-val">${FRIDAY_STATE.stressScore}</span>
+                    <span class="friday-metric-value" id="current-stress-val">${stressScore}</span>
                     <span class="friday-metric-scale">/100</span>
                 </div>
                 <div class="friday-state-badge">${stressState}</div>
@@ -224,13 +329,12 @@ function renderSensePane() {
                     <div class="friday-graph-bar" style="height: 60%"></div>
                     <div class="friday-graph-bar" style="height: 55%"></div>
                     <div class="friday-graph-bar" style="height: 80%"></div>
-                    <div class="friday-graph-bar active" style="height: ${FRIDAY_STATE.stressScore}%"></div>
+                    <div class="friday-graph-bar active" style="height: ${stressScore}%"></div>
                     <div class="friday-graph-bar" style="height: 70%"></div>
                 </div>
             </div>
         </div>
 
-        <!-- Cognitive Load stats block -->
         <div class="friday-card-block bg-mint">
             <span class="friday-card-eyebrow">Cognitive Load</span>
             <div class="friday-card-title" style="font-size: 16px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
@@ -244,51 +348,24 @@ function renderSensePane() {
             <span class="friday-graph-label" style="display: block; margin-bottom: 6px;">Focus Efficiency</span>
             <div class="friday-progress-container">
                 <div class="friday-progress-track">
-                    <div class="friday-progress-fill" style="width: ${FRIDAY_STATE.focusEfficiency}%"></div>
+                    <div class="friday-progress-fill" style="width: ${focusEfficiency}%"></div>
                 </div>
-                <span class="friday-progress-pct">${FRIDAY_STATE.focusEfficiency}%</span>
+                <span class="friday-progress-pct">${focusEfficiency}%</span>
             </div>
         </div>
 
-        <!-- Task Pipeline block -->
-        <div class="friday-card-block bg-lilac">
-            <span class="friday-card-eyebrow">Active Task Pipeline</span>
-            <div class="friday-card-title" style="font-size: 18px; display: flex; align-items: center; justify-content: space-between;">
-                <span>Assignment 3</span>
-                ${getIconSvg("alt_route", 20)}
-            </div>
-            <div style="display: flex; justify-content: space-between; margin: 12px 0 6px 0; font-family: var(--font-mono); font-size: 10px;">
-                <span style="color: rgba(0,0,0,0.6);">60% Complete</span>
-                <span style="font-weight: 700;">2h 15m left</span>
-            </div>
-            <div class="friday-segments-track">
-                <div class="friday-segment active"></div>
-                <div class="friday-segment active"></div>
-                <div class="friday-segment active"></div>
-                <div class="friday-segment"></div>
-                <div class="friday-segment"></div>
-            </div>
-            
-            <div class="friday-checklist">
-                <div class="friday-check-item checked">
-                    ${getIconSvg("check_circle", 16)}
-                    <span>Research Phase</span>
-                </div>
-                <div class="friday-check-item">
-                    ${getIconSvg("pending", 16)}
-                    <span style="font-weight: 600;">Drafting Architecture</span>
-                </div>
-            </div>
-        </div>
+        ${activeTaskHTML}
     `;
 }
 
-// HTML Renderer for CONTINUITY tab (recent files, browser tabs, media workflows)
 function renderContinuityPane() {
-    let mediaHandoffHTML = "";
+    if (fetchError || !backendData) {
+        return renderErrorPane(fetchError || "404 error:Server blasted");
+    }
 
-    // Dynamically show media resume flow if a handoff trigger exists
-    if (FRIDAY_STATE.mediaHandoff) {
+    let mediaHandoffHTML = "";
+    if (backendData.mediaHandoff) {
+        const m = backendData.mediaHandoff;
         mediaHandoffHTML = `
             <div class="friday-card-block bg-coral" style="border: 1px solid rgba(0,0,0,0.06); margin-bottom: 8px;">
                 <span class="friday-card-eyebrow" style="color: rgba(0,0,0,0.7); display: flex; align-items: center; gap: 6px;">
@@ -297,7 +374,7 @@ function renderContinuityPane() {
                 </span>
                 <div class="friday-card-title" style="font-size: 16px;">Active YouTube Session</div>
                 <p class="friday-card-body" style="font-size: 12px; margin-bottom: 16px;">
-                    Pick up watching on timestamp ${Math.floor(FRIDAY_STATE.mediaHandoff.playback_timestamp_seconds / 60)}m.
+                    Pick up watching on timestamp ${Math.floor(m.playback_timestamp_seconds / 60)}m.
                 </p>
                 <button class="friday-pill-btn primary" id="sidebar-resume-youtube" style="width: 100%; height: 38px;">
                     Resume Workstream
@@ -306,115 +383,118 @@ function renderContinuityPane() {
         `;
     }
 
+    let activeReadingHTML = "";
+    if (backendData.activeReading) {
+        const r = backendData.activeReading;
+        activeReadingHTML = `
+            <div class="friday-card-block bg-cream">
+                <span class="friday-card-eyebrow">Active Reading</span>
+                <div class="friday-card-title">${r.title || ''}</div>
+                <p class="friday-card-body">
+                    ${r.timeLabel || ''}
+                </p>
+                <div class="friday-progress-container" style="margin-bottom: 20px;">
+                    <div class="friday-progress-track">
+                        <div class="friday-progress-fill" style="width: ${r.completionPct || 0}%"></div>
+                    </div>
+                    <span class="friday-progress-pct" style="font-size: 13px;">${r.completionPct || 0}%</span>
+                </div>
+                <button class="friday-pill-btn primary" id="btn-continue-hub">
+                    <span>Continue in Hub</span>
+                    ${getIconSvg("arrow_forward", 16)}
+                </button>
+            </div>
+        `;
+    }
+
+    let pendingStatesHTML = "";
+    if (backendData.pendingStates && backendData.pendingStates.length > 0) {
+        const items = backendData.pendingStates;
+        pendingStatesHTML = `
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <span class="friday-graph-label">Pending States</span>
+                    <span class="friday-conn-label" style="text-transform: none;">${items.length} items</span>
+                </div>
+                <div class="friday-bookmarks-list">
+                    ${items.map((item, idx) => `
+                        <div class="friday-bookmark-card ${idx % 2 === 0 ? 'bg-mint' : 'bg-coral'}">
+                            <div class="friday-bookmark-left">
+                                ${getIconSvg(item.type || "drafts", 20)}
+                                <div class="friday-bookmark-details">
+                                    <span class="friday-bookmark-name">${item.name || ''}</span>
+                                    <span class="friday-bookmark-status">${item.status || ''}</span>
+                                </div>
+                            </div>
+                            <button class="friday-bookmark-btn" id="resume-bookmark-${idx}">RESUME</button>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    let recentAppsHTML = "";
+    if (backendData.recentApps && backendData.recentApps.length > 0) {
+        const apps = backendData.recentApps;
+        recentAppsHTML = `
+            <div>
+                <span class="friday-graph-label" style="display: block; margin-bottom: 12px;">Recent Apps</span>
+                <div class="friday-apps-grid">
+                    ${apps.map(app => `
+                        <div class="friday-app-card">
+                            <div class="friday-app-icon-container" style="color: ${app.color || '#000000'};">
+                                ${getIconSvg(app.icon || "category", 24)}
+                            </div>
+                            <div>
+                                <span class="friday-app-name">${app.name || ''}</span>
+                                <span class="friday-app-time" style="display: block; margin-top: 2px;">${app.time || ''}</span>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    let recentTabsHTML = "";
+    if (backendData.recentTabs && backendData.recentTabs.length > 0) {
+        const tabs = backendData.recentTabs;
+        recentTabsHTML = `
+            <div>
+                <span class="friday-graph-label" style="display: block; margin-bottom: 12px;">Recent Tabs</span>
+                <div class="friday-tabs-list">
+                    ${tabs.map(tab => `
+                        <a class="friday-tab-card" href="${tab.link || '#'}" target="_blank">
+                            ${getIconSvg("language", 18)}
+                            <div class="friday-tab-card-content">
+                                <span class="friday-tab-title">${tab.title || ''}</span>
+                                <span class="friday-tab-url">${tab.url || ''}</span>
+                            </div>
+                            ${getIconSvg("open_in_new", 14)}
+                        </a>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
     return `
-        <!-- Media Handoff block -->
         ${mediaHandoffHTML}
-
-        <!-- Active Reading memory vault card -->
-        <div class="friday-card-block bg-cream">
-            <span class="friday-card-eyebrow">Active Reading</span>
-            <div class="friday-card-title">How to Build AI Systems</div>
-            <p class="friday-card-body">
-                65% complete • Last edited 2h ago
-            </p>
-            <div class="friday-progress-container" style="margin-bottom: 20px;">
-                <div class="friday-progress-track">
-                    <div class="friday-progress-fill" style="width: 65%"></div>
-                </div>
-                <span class="friday-progress-pct" style="font-size: 13px;">65%</span>
-            </div>
-            <button class="friday-pill-btn primary" id="btn-continue-hub">
-                <span>Continue in Hub</span>
-                ${getIconSvg("arrow_forward", 16)}
-            </button>
-        </div>
-
-        <!-- Pending States bookmark list -->
-        <div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <span class="friday-graph-label">Pending States</span>
-                <span class="friday-conn-label" style="text-transform: none;">2 items</span>
-            </div>
-            <div class="friday-bookmarks-list">
-                <div class="friday-bookmark-card bg-mint">
-                    <div class="friday-bookmark-left">
-                        ${getIconSvg("drafts", 20)}
-                        <div class="friday-bookmark-details">
-                            <span class="friday-bookmark-name">Neural Ethics Draft</span>
-                            <span class="friday-bookmark-status">80% complete • Local</span>
-                        </div>
-                    </div>
-                    <button class="friday-bookmark-btn" id="resume-bookmark-ethics">RESUME</button>
-                </div>
-                <div class="friday-bookmark-card bg-coral">
-                    <div class="friday-bookmark-left">
-                        ${getIconSvg("play_circle", 20)}
-                        <div class="friday-bookmark-details">
-                            <span class="friday-bookmark-name">Latency Paradox Lecture</span>
-                            <span class="friday-bookmark-status">12:04 / 45:00</span>
-                        </div>
-                    </div>
-                    <button class="friday-bookmark-btn" id="resume-bookmark-lecture">RESUME</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Recent Apps grid -->
-        <div>
-            <span class="friday-graph-label" style="display: block; margin-bottom: 12px;">Recent Apps</span>
-            <div class="friday-apps-grid">
-                <div class="friday-app-card">
-                    <div class="friday-app-icon-container" style="color: #F24E1E;">
-                        ${getIconSvg("category", 24)}
-                    </div>
-                    <div>
-                        <span class="friday-app-name">Figma</span>
-                        <span class="friday-app-time" style="display: block; margin-top: 2px;">2m ago</span>
-                    </div>
-                </div>
-                <div class="friday-app-card">
-                    <div class="friday-app-icon-container" style="color: #2196F3;">
-                        ${getIconSvg("terminal", 24)}
-                    </div>
-                    <div>
-                        <span class="friday-app-name">VS Code</span>
-                        <span class="friday-app-time" style="display: block; margin-top: 2px;">15m ago</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Recent Tabs list -->
-        <div>
-            <span class="friday-graph-label" style="display: block; margin-bottom: 12px;">Recent Tabs</span>
-            <div class="friday-tabs-list">
-                <a class="friday-tab-card" href="https://arxiv.org/abs/2403.0123" target="_blank">
-                    ${getIconSvg("language", 18)}
-                    <div class="friday-tab-card-content">
-                        <span class="friday-tab-title">arXiv:2403.0123 Neural Architecture</span>
-                        <span class="friday-tab-url">arxiv.org/abs/2403.0123</span>
-                    </div>
-                    ${getIconSvg("open_in_new", 14)}
-                </a>
-                <a class="friday-tab-card" href="https://tailwindcss.com/docs" target="_blank">
-                    ${getIconSvg("language", 18)}
-                    <div class="friday-tab-card-content">
-                        <span class="friday-tab-title">Tailwind CSS Documentation</span>
-                        <span class="friday-tab-url">tailwindcss.com/docs</span>
-                    </div>
-                    ${getIconSvg("open_in_new", 14)}
-                </a>
-            </div>
-        </div>
+        ${activeReadingHTML}
+        ${pendingStatesHTML}
+        ${recentAppsHTML}
+        ${recentTabsHTML}
     `;
 }
 
-// Setup click handlers for the continuity page items
 function setupContinuityHooks() {
+    if (fetchError || !backendData) return;
+
     const resumeYoutubeBtn = shadowRoot.getElementById("sidebar-resume-youtube");
-    if (resumeYoutubeBtn && FRIDAY_STATE.mediaHandoff) {
+    if (resumeYoutubeBtn && backendData.mediaHandoff) {
         resumeYoutubeBtn.onclick = () => {
-            const data = FRIDAY_STATE.mediaHandoff;
+            const data = backendData.mediaHandoff;
             window.open(`https://www.youtube.com/watch?v=${data.video_id}&t=${data.playback_timestamp_seconds}s`, "_blank");
             sendFeedback("MEDIA_HANDOFF_EXECUTED", { video_id: data.video_id });
         };
@@ -427,18 +507,21 @@ function setupContinuityHooks() {
         };
     }
 
-    const resumeEthicsBtn = shadowRoot.getElementById("resume-bookmark-ethics");
-    if (resumeEthicsBtn) {
-        resumeEthicsBtn.onclick = () => {
-            window.open("https://docs.google.com", "_blank");
-        };
-    }
-
-    const resumeLectureBtn = shadowRoot.getElementById("resume-bookmark-lecture");
-    if (resumeLectureBtn) {
-        resumeLectureBtn.onclick = () => {
-            window.open("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=724s", "_blank");
-        };
+    if (backendData.pendingStates) {
+        backendData.pendingStates.forEach((item, idx) => {
+            const btn = shadowRoot.getElementById(`resume-bookmark-${idx}`);
+            if (btn) {
+                btn.onclick = () => {
+                    if (item.link) {
+                        window.open(item.link, "_blank");
+                    } else if (item.name.includes("Ethics")) {
+                        window.open("https://docs.google.com", "_blank");
+                    } else if (item.name.includes("Lecture")) {
+                        window.open("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=724s", "_blank");
+                    }
+                };
+            }
+        });
     }
 }
 
@@ -470,7 +553,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 function renderPairingGateway(pin) {
-    // Check if modal already exists
     if (shadowRoot.getElementById("friday-pairing-modal")) return;
 
     const overlay = document.createElement("div");
@@ -624,7 +706,6 @@ function toggleFocusShield(stressScore) {
     }
 }
 
-// Helper to push user actions back to background.js -> FastAPI hub
 function sendFeedback(eventType, trackingMetadata) {
     chrome.runtime.sendMessage({
         action: "send_to_backend",
@@ -641,5 +722,4 @@ function sendFeedback(eventType, trackingMetadata) {
     });
 }
 
-// Autostart initialization when content.js triggers
 initShadowDOM();
