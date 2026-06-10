@@ -135,25 +135,34 @@ function createSidebar() {
 }
 
 function loadBackendData(callback) {
-    chrome.runtime.sendMessage({ action: "fetch_telemetry_data" }, (response) => {
-        if (chrome.runtime.lastError) {
-            fetchError = "404 error:Server blasted";
-            backendData = null;
+    try {
+        chrome.runtime.sendMessage({ action: "fetch_telemetry_data" }, (response) => {
+            if (chrome.runtime.lastError) {
+                fetchError = "Backend unreachable";
+                backendData = null;
+                if (callback) callback();
+                return;
+            }
+            if (response && response.success && response.data && Object.keys(response.data).length > 0) {
+                backendData = response.data;
+                fetchError = null;
+                if (backendData.stressScore !== undefined) FRIDAY_STATE.stressScore = backendData.stressScore;
+                if (backendData.focusEfficiency !== undefined) FRIDAY_STATE.focusEfficiency = backendData.focusEfficiency;
+                if (backendData.mediaHandoff !== undefined) FRIDAY_STATE.mediaHandoff = backendData.mediaHandoff;
+            } else {
+                fetchError = "Backend unreachable";
+                backendData = null;
+            }
             if (callback) callback();
-            return;
-        }
-        if (response && response.success && response.data && Object.keys(response.data).length > 0) {
-            backendData = response.data;
-            fetchError = null;
-            if (backendData.stressScore !== undefined) FRIDAY_STATE.stressScore = backendData.stressScore;
-            if (backendData.focusEfficiency !== undefined) FRIDAY_STATE.focusEfficiency = backendData.focusEfficiency;
-            if (backendData.mediaHandoff !== undefined) FRIDAY_STATE.mediaHandoff = backendData.mediaHandoff;
-        } else {
-            fetchError = "404 error:Server blasted";
-            backendData = null;
-        }
+        });
+    } catch (e) {
+        // Extension context invalidated (extension was reloaded) — fail gracefully
+        console.warn("[FRIDAY] Extension context invalidated. Refresh the page to reconnect.");
+        fetchError = "Extension reloaded — refresh page";
+        backendData = null;
+        if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
         if (callback) callback();
-    });
+    }
 }
 
 function toggleSidebar(forceOpen) {
