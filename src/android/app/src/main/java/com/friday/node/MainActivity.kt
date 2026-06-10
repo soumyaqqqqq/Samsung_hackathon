@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -54,6 +55,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -103,6 +105,7 @@ class MainActivity : ComponentActivity() {
     private var recentApp = mutableStateOf("None")
     private var lastNotification = mutableStateOf("No notifications yet")
     private var wellbeingPrompt = mutableStateOf("FRIDAY ready. Baseline tracking active.")
+    private var lastPromptUpdateTimeMs = 0L
     private var isGhostMode = mutableStateOf(false)
     private var activeActionCard = mutableStateOf<JSONObject?>(null)
     
@@ -135,6 +138,26 @@ class MainActivity : ComponentActivity() {
     // Manual Settings configs
     private var hubIp = mutableStateOf("")
     private var hubPort = mutableStateOf("8000")
+    
+    // Focus, Interrupt and Memory Settings States
+    private var isFocusModeActive = mutableStateOf(false)
+    private var isReduceInterruptActive = mutableStateOf(false)
+    private val localMemories = mutableStateListOf(
+        "User prefers working in dark mode on mobile and desktop.",
+        "Typically starts evening wind-down around 9:30 PM.",
+        "Likes to focus on coding during morning hours (9 AM - 12 PM).",
+        "Prefers Minimal notifications during high-focus sessions.",
+        "VS Code is the primary development workspace."
+    )
+    private val localDevices = mutableStateListOf(
+        "Galaxy S26" to "ACTIVE",
+        "Work Laptop" to "ACTIVE"
+    )
+    private var showMemoriesDialog = mutableStateOf(false)
+    private var showDevicesDialog = mutableStateOf(false)
+    private var showExplainStressDialog = mutableStateOf(false)
+    private var showClearMemoriesConfirmDialog = mutableStateOf(false)
+    private var showDisconnectDevicesConfirmDialog = mutableStateOf(false)
     
     // Permission states
     private var isAccessibilityGranted = mutableStateOf(false)
@@ -269,6 +292,8 @@ class MainActivity : ComponentActivity() {
         // 3. Kick off services and discovery scans (only if onboarding is complete)
         if (isOnboardingComplete) {
             startFridayServices()
+            checkPermissionsState()
+            recalculateLocalStress()
         }
 
         // 4. Poll database buffer count reactively
@@ -323,10 +348,13 @@ class MainActivity : ComponentActivity() {
                             }
                             showOnboarding.value = false
                             startFridayServices(fromOnboarding = true)
+                            checkPermissionsState()
+                            recalculateLocalStress()
                         }
                     )
                 } else {
                     MainContainer()
+                    RenderSettingsDialogs()
                 }
             }
         }
@@ -454,19 +482,29 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkPermissionsState() {
-        isAccessibilityGranted.value = isAccessibilityServiceEnabled(
+        val configManager = OnboardingConfigManager(this)
+
+        val accessibilityEnabled = isAccessibilityServiceEnabled(
             this,
             com.friday.node.service.FRIDAYAccessibilityService::class.java
         )
+        isAccessibilityGranted.value = accessibilityEnabled
+        configManager.setModuleEnabled("Accessibility & Touch", accessibilityEnabled)
         
         val enabledListeners = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
-        isNotificationAccessGranted.value = enabledListeners != null && enabledListeners.contains(packageName)
+        val notificationEnabled = enabledListeners != null && enabledListeners.contains(packageName)
+        isNotificationAccessGranted.value = notificationEnabled
+        configManager.setModuleEnabled("Notification & Activity", notificationEnabled)
         
-        isPostNotificationGranted.value = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val postNotificationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
         } else {
             true
         }
+        isPostNotificationGranted.value = postNotificationGranted
+
+        val locationEnabled = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        configManager.setModuleEnabled("Location & Environment", locationEnabled)
     }
 
     private fun recalculateLocalStress() {
@@ -477,8 +515,15 @@ class MainActivity : ComponentActivity() {
             notificationsPerMin = notificationsCount.value
         )
         stressScore.value = result.stressScore
-        if (!isConnected.value || activeActionCard.value == null) {
-            wellbeingPrompt.value = result.empatheticRecommendation
+        val now = System.currentTimeMillis()
+        if (now - lastPromptUpdateTimeMs >= 15000L || wellbeingPrompt.value.startsWith("FRIDAY ready")) {
+            if (!isConnected.value || activeActionCard.value == null) {
+                val newPrompt = result.empatheticRecommendation
+                if (newPrompt != wellbeingPrompt.value) {
+                    wellbeingPrompt.value = newPrompt
+                    lastPromptUpdateTimeMs = now
+                }
+            }
         }
         
         // Update activityIntensities shifting window
@@ -810,12 +855,53 @@ class MainActivity : ComponentActivity() {
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = wellbeingPrompt.value,
+                        text = getMotivatingSubtitle(),
                         fontSize = 18.sp,
                         fontFamily = FontFamily.SansSerif,
                         fontWeight = FontWeight.W300,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                     )
+                }
+            }
+
+            // Ambient Feedback / LLM Agent Insight Card
+            item {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isDarkThemeGlobal) Color(0xFF1E293B).copy(alpha = 0.6f) else Color(0xFFF1F5F9).copy(alpha = 0.6f)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(ColorBlockLime)
+                        )
+                        Column {
+                            Text(
+                                text = "AMBIENT INSIGHT",
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = wellbeingPrompt.value,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
                 }
             }
 
@@ -1685,17 +1771,47 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        BiometricMetricItem(label = "Stress", value = "${stressScore.value}%", subtitle = "Elevated")
-                        BiometricMetricItem(label = "Focus", value = focusPercentage.value, subtitle = "High Perf")
-                        BiometricMetricItem(label = "Cadence", value = "${averageTypingCadenceMs.value}ms", subtitle = "Typing Speed")
+                        val stressSubtitle = when {
+                            stressScore.value >= 75 -> "Elevated"
+                            stressScore.value >= 50 -> "Moderate"
+                            else -> "Stable"
+                        }
+                        val focusSubtitle = when {
+                            focusPercentage.value == "Learning..." -> "Learning..."
+                            appSwitchesCount.value > 5 -> "Distracted"
+                            else -> "High Perf"
+                        }
+                        val cadenceValue = if (averageTypingCadenceMs.value == 0L) "--" else "${averageTypingCadenceMs.value}ms"
+                        val cadenceSubtitle = when {
+                            averageTypingCadenceMs.value == 0L -> "No Input"
+                            averageTypingCadenceMs.value in 10..180 -> "Fast"
+                            averageTypingCadenceMs.value > 600 -> "Slow"
+                            else -> "Consistent"
+                        }
+                        
+                        BiometricMetricItem(label = "Stress", value = "${stressScore.value}%", subtitle = stressSubtitle)
+                        BiometricMetricItem(label = "Focus", value = focusPercentage.value, subtitle = focusSubtitle)
+                        BiometricMetricItem(label = "Cadence", value = cadenceValue, subtitle = cadenceSubtitle)
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        BiometricMetricItem(label = "Confidence", value = confidencePercentage.value, subtitle = "Stable")
-                        BiometricMetricItem(label = "Social Load", value = "${socialScore.toInt()}%", subtitle = "Introvert")
+                        val confidenceSubtitle = when {
+                            confidencePercentage.value == "Learning..." -> "Learning..."
+                            stressScore.value >= 75 -> "Fluctuating"
+                            else -> "Stable"
+                        }
+                        val socialValue = if (notificationsCount.value == 0) "0%" else "${socialScore.toInt()}%"
+                        val socialSubtitle = when {
+                            notificationsCount.value == 0 -> "Quiet"
+                            socialScore >= 60 -> "Demanding"
+                            else -> "Introvert"
+                        }
+                        
+                        BiometricMetricItem(label = "Confidence", value = confidencePercentage.value, subtitle = confidenceSubtitle)
+                        BiometricMetricItem(label = "Social Load", value = socialValue, subtitle = socialSubtitle)
                     }
                 }
             }
@@ -1915,25 +2031,53 @@ class MainActivity : ComponentActivity() {
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(
-                        onClick = { showToast("Action triggered!") },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
+                        onClick = {
+                            isFocusModeActive.value = !isFocusModeActive.value
+                            if (isFocusModeActive.value) {
+                                sessionStartTimeMs = System.currentTimeMillis()
+                                focusTimeDisplay.value = "0s"
+                                showToast("Focus mode activated!")
+                            } else {
+                                showToast("Focus mode deactivated!")
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isFocusModeActive.value) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        ),
                         shape = RoundedCornerShape(9999.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Start Focus", color = MaterialTheme.colorScheme.surface, fontSize = 11.sp)
+                        Text(
+                            text = if (isFocusModeActive.value) "Stop Focus" else "Start Focus",
+                            color = if (isFocusModeActive.value) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.surface,
+                            fontSize = 11.sp
+                        )
                     }
                     Button(
-                        onClick = { showToast("Action triggered!") },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                        onClick = {
+                            isReduceInterruptActive.value = !isReduceInterruptActive.value
+                            if (isReduceInterruptActive.value) {
+                                showToast("Interruption blocker active. Blocking non-critical alerts.")
+                            } else {
+                                showToast("Interruption blocker deactivated.")
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isReduceInterruptActive.value) MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f) else Color.Transparent
+                        ),
                         shape = RoundedCornerShape(9999.dp),
                         modifier = Modifier
                             .weight(1f)
                             .border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
                     ) {
-                        Text("Reduce Interrupt", color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp)
+                        Text(
+                            text = if (isReduceInterruptActive.value) "Allow Interrupt" else "Reduce Interrupt",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 11.sp
+                        )
                     }
                     Button(
-                        onClick = { showToast("Action triggered!") },
+                        onClick = { showExplainStressDialog.value = true },
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                         shape = RoundedCornerShape(9999.dp),
                         modifier = Modifier
@@ -2661,22 +2805,23 @@ class MainActivity : ComponentActivity() {
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Column {
-                                Text("146", fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+                                Text("${localMemories.size}", fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
                                 Text("STORED", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                             }
                             Column {
-                                Text("24", fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+                                Text("${bufferedEventsCount.value}", fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
                                 Text("EVENTS", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                             }
                             Column {
-                                Text("43 MB", fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+                                val simulatedSize = String.format(Locale.US, "%.1f MB", 0.4f + localMemories.size * 0.15f)
+                                Text(simulatedSize, fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
                                 Text("SIZE", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                             }
                         }
 
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
-                                onClick = { showToast(getString(R.string.btn_view_memories)) },
+                                onClick = { showMemoriesDialog.value = true },
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth()
@@ -2684,7 +2829,7 @@ class MainActivity : ComponentActivity() {
                                 Text(stringResource(R.string.btn_view_memories), color = MaterialTheme.colorScheme.surface)
                             }
                             Button(
-                                onClick = { showToast(getString(R.string.btn_forget_memory)) },
+                                onClick = { showMemoriesDialog.value = true },
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth()
@@ -2724,47 +2869,41 @@ class MainActivity : ComponentActivity() {
                         }
 
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(imageVector = Icons.Default.Phone, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Text("Galaxy S26", color = Color.White, fontWeight = FontWeight.Bold)
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text("ACTIVE", fontSize = 9.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                                }
-                            }
-
-                            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(imageVector = Icons.Default.Build, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Text("Work Laptop", color = Color.White, fontWeight = FontWeight.Bold)
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text("ACTIVE", fontSize = 9.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                            if (localDevices.isEmpty()) {
+                                Text("No synced devices.", color = Color.White.copy(alpha = 0.6f), fontStyle = FontStyle.Italic, fontSize = 14.sp)
+                            } else {
+                                localDevices.forEachIndexed { idx, (deviceName, status) ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            val icon = if (deviceName.lowercase().contains("laptop") || deviceName.lowercase().contains("mac") || deviceName.lowercase().contains("pc")) {
+                                                Icons.Default.Build
+                                            } else {
+                                                Icons.Default.Phone
+                                            }
+                                            Icon(imageVector = icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Text(deviceName, color = Color.White, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(status, fontSize = 9.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    if (idx < localDevices.size - 1) {
+                                        HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                                    }
                                 }
                             }
                         }
 
                         Button(
-                            onClick = { showToast(getString(R.string.btn_manage_devices)) },
+                            onClick = { showDevicesDialog.value = true },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -2934,8 +3073,8 @@ class MainActivity : ComponentActivity() {
                             color = if (isDarkThemeGlobal) Color(0xFFFECACA) else Color(0xFF7F1D1D)
                         )
 
-                        Button(
-                            onClick = { showToast(getString(R.string.btn_disconnect_devices)) },
+                         Button(
+                            onClick = { showDisconnectDevicesConfirmDialog.value = true },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -2944,7 +3083,7 @@ class MainActivity : ComponentActivity() {
                         }
 
                         Button(
-                            onClick = { showToast(getString(R.string.btn_clear_memories)) },
+                            onClick = { showClearMemoriesConfirmDialog.value = true },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -3203,6 +3342,297 @@ class MainActivity : ComponentActivity() {
             colorScheme = colorScheme,
             content = content
         )
+    }
+
+    @Composable
+    private fun RenderSettingsDialogs() {
+        // 1. Memories Dialog
+        if (showMemoriesDialog.value) {
+            var newMemoryText by remember { mutableStateOf("") }
+            AlertDialog(
+                onDismissRequest = { showMemoriesDialog.value = false },
+                title = {
+                    Text(
+                        "FRIDAY Stored Memories",
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "These are user behavioral models and preferences stored in FRIDAY's long-term memory graph.",
+                            fontSize = 12.sp,
+                            color = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = newMemoryText,
+                                onValueChange = { newMemoryText = it },
+                                label = { Text("Learn new habit/info", fontSize = 11.sp) },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Button(
+                                onClick = {
+                                    if (newMemoryText.isNotBlank()) {
+                                        localMemories.add(newMemoryText.trim())
+                                        newMemoryText = ""
+                                        showToast("Memory stored successfully!")
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Add", fontSize = 11.sp)
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        if (localMemories.isEmpty()) {
+                            Text("No memories stored yet.", fontStyle = FontStyle.Italic, color = Color.Gray)
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.heightIn(max = 240.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(localMemories.size) { index ->
+                                    val item = localMemories[index]
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(
+                                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = item,
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        IconButton(
+                                            onClick = {
+                                                localMemories.removeAt(index)
+                                                showToast("Memory deleted!")
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Delete",
+                                                tint = Color.Red,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showMemoriesDialog.value = false }) {
+                        Text("Close", fontWeight = FontWeight.Bold)
+                    }
+                }
+            )
+        }
+
+        // 2. Devices Dialog
+        if (showDevicesDialog.value) {
+            var newDeviceName by remember { mutableStateOf("") }
+            AlertDialog(
+                onDismissRequest = { showDevicesDialog.value = false },
+                title = {
+                    Text(
+                        "Configure Synced Devices",
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Link a new device or manage existing sessions.",
+                            fontSize = 12.sp,
+                            color = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = newDeviceName,
+                                onValueChange = { newDeviceName = it },
+                                label = { Text("Device Name (e.g. iPad Pro)", fontSize = 11.sp) },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Button(
+                                onClick = {
+                                    if (newDeviceName.isNotBlank()) {
+                                        localDevices.add(newDeviceName.trim() to "ACTIVE")
+                                        newDeviceName = ""
+                                        showToast("Device linked!")
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Link", fontSize = 11.sp)
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        if (localDevices.isEmpty()) {
+                            Text("No devices linked.", fontStyle = FontStyle.Italic, color = Color.Gray)
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.heightIn(max = 240.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(localDevices.size) { index ->
+                                    val (device, status) = localDevices[index]
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(
+                                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(device, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                            Text(status, fontSize = 9.sp, color = Color.Green, fontWeight = FontWeight.Bold)
+                                        }
+                                        TextButton(
+                                            onClick = {
+                                                localDevices.removeAt(index)
+                                                showToast("$device disconnected!")
+                                            }
+                                        ) {
+                                            Text("Disconnect", color = Color.Red, fontSize = 11.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showDevicesDialog.value = false }) {
+                        Text("Close", fontWeight = FontWeight.Bold)
+                    }
+                }
+            )
+        }
+
+        // 3. Clear Memories Confirmation
+        if (showClearMemoriesConfirmDialog.value) {
+            AlertDialog(
+                onDismissRequest = { showClearMemoriesConfirmDialog.value = false },
+                title = { Text("Clear All Memories?", fontWeight = FontWeight.Bold) },
+                text = { Text("This action cannot be undone. FRIDAY will forget all learned behaviors.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            localMemories.clear()
+                            showClearMemoriesConfirmDialog.value = false
+                            showToast("All memories cleared!")
+                        }
+                    ) {
+                        Text("Clear All", color = Color.Red, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearMemoriesConfirmDialog.value = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        // 4. Disconnect Devices Confirmation
+        if (showDisconnectDevicesConfirmDialog.value) {
+            AlertDialog(
+                onDismissRequest = { showDisconnectDevicesConfirmDialog.value = false },
+                title = { Text("Disconnect All Devices?", fontWeight = FontWeight.Bold) },
+                text = { Text("This will terminate active sync sessions on all linked devices.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            localDevices.clear()
+                            showDisconnectDevicesConfirmDialog.value = false
+                            showToast("All devices disconnected!")
+                        }
+                    ) {
+                        Text("Disconnect All", color = Color.Red, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDisconnectDevicesConfirmDialog.value = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        // 5. Explain Stress Dialog
+        if (showExplainStressDialog.value) {
+            AlertDialog(
+                onDismissRequest = { showExplainStressDialog.value = false },
+                title = { Text("Stress Telemetry Analysis", fontWeight = FontWeight.Black) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("FRIDAY evaluates stress based on a three-tier sensor model:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        
+                        Text("1. App Switching cadence: currently ${appSwitchesCount.value} switches. High switching indicates divided focus.", fontSize = 12.sp)
+                        Text("2. Typing rhythm speed: currently ${if (averageTypingCadenceMs.value == 0L) "No input" else "${averageTypingCadenceMs.value}ms"}. Speed outliers indicate fatigue or panic states.", fontSize = 12.sp)
+                        Text("3. Notification density: currently ${notificationsCount.value} interrupts. Higher alerts cause chronic cognitive load.", fontSize = 12.sp)
+                        
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text("Current stress index is ${stressScore.value}%. This is classified as a ${
+                            when {
+                                stressScore.value >= 75 -> "Elevated Stress state. We recommend enabling Focus Mode to suppress notifications."
+                                stressScore.value >= 50 -> "Moderate Stress state. Try reducing multitasking."
+                                else -> "Optimal / Calm state. Good job keeping a steady focus!"
+                            }
+                        }", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showExplainStressDialog.value = false }) {
+                        Text("Close", fontWeight = FontWeight.Bold)
+                    }
+                }
+            )
+        }
+    }
+
+    private fun getMotivatingSubtitle(): String {
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        return when (hour) {
+            in 0..11 -> "Move around. Let me know if you forget anything."
+            in 12..16 -> "Focus is a journey, not a sprint. Pace yourself."
+            in 17..21 -> "You're doing great. Take a deep breath if needed."
+            else -> "Wind down. Clear your mind for a restful evening."
+        }
     }
 }
 
