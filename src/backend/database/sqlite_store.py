@@ -63,6 +63,8 @@ class SQLiteStore:
 
     def __init__(self, db_path: str = "data/friday.db"):
         self._path = str(Path(db_path).expanduser())
+        # Ensure the directory for the SQLite file exists
+        Path(self._path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self._path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL;")

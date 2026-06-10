@@ -156,7 +156,7 @@ class DecisionAgent:
         )
 
         try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
+            async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT) as client:
                 resp = await client.post(
                     f"{settings.OLLAMA_BASE_URL}/api/generate",
                     json={
