@@ -6,8 +6,12 @@ Agent registry, thresholds, mode settings, environment config.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -17,21 +21,38 @@ from typing import Any
 @dataclass
 class Settings:
     # Server
-    PORT:  int  = int(os.getenv("PORT", "8000"))
+    PORT: int = int(os.getenv("PORT", "8000"))
     DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
 
     # Security
-    HMAC_SECRET:   str  = os.getenv("FRIDAY_HMAC_SECRET", "friday-dev-secret-change-in-prod")
-    ENFORCE_HMAC:  bool = os.getenv("ENFORCE_HMAC", "false").lower() == "true"
+    HMAC_SECRET: str = os.getenv(
+        "FRIDAY_HMAC_SECRET",
+        "friday-dev-secret-change-in-prod"
+    )
+    ENFORCE_HMAC: bool = os.getenv(
+        "ENFORCE_HMAC",
+        "false"
+    ).lower() == "true"
 
     # Storage paths
-    SQLITE_PATH = "data/friday.db"
-    CHROMA_PATH = "data/chroma"
+    SQLITE_PATH: str = os.getenv("SQLITE_PATH", "data/friday.db")
+    CHROMA_PATH: str = os.getenv("CHROMA_PATH", "data/chroma")
 
     # Ollama / LLM
-    OLLAMA_BASE_URL:    str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    PRIMARY_LLM_MODEL:  str = os.getenv("PRIMARY_MODEL",  "llama3.1:8b")
-    FALLBACK_LLM_MODEL: str = os.getenv("FALLBACK_MODEL", "phi3:mini")
+    OLLAMA_BASE_URL: str = os.getenv(
+        "OLLAMA_BASE_URL",
+        "http://127.0.0.1:11434"
+    )
+    PRIMARY_LLM_MODEL: str = os.getenv(
+        "PRIMARY_MODEL",
+        "llama3.1:8b"
+    )
+    FALLBACK_LLM_MODEL: str = os.getenv(
+        "FALLBACK_MODEL",
+        "phi3:mini"
+    )
+
+    ...
 
     # ChromaDB embedding model (sentence-transformers, runs locally)
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")

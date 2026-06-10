@@ -8,7 +8,7 @@ __pycache__/
 
 # Databases
 *.db
-
+.env
 # Chroma data
 chroma/
 data/chroma/
