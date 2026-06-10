@@ -73,13 +73,7 @@ class WebSocketManager private constructor() {
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 Log.d(TAG, "Received message from Hub: $text")
-                // Handle incoming actions/decisions from Hub (e.g., system actions, prompts)
-                context?.let { ctx ->
-                    val intent = Intent("com.friday.node.ACTION_RECEIVED").apply {
-                        putExtra("action_payload", text)
-                    }
-                    ctx.sendBroadcast(intent)
-                }
+                handleBackendMessage(text)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -119,6 +113,107 @@ class WebSocketManager private constructor() {
                 })
             }
         })
+    }
+
+    /**
+     * Parse and dispatch backend messages based on their `type` field.
+     *
+     * Backend sends these message types:
+     * - FRIDAY_CARD: Decision/action card from orchestrator
+     * - ACK: Batch acknowledgment every 100 messages
+     * - error: Validation/HMAC errors
+     */
+    private fun handleBackendMessage(text: String) {
+        val ctx = context ?: return
+        try {
+            val json = JSONObject(text)
+            val type = json.optString("type", "")
+
+            when (type) {
+                "FRIDAY_CARD" -> {
+                    // Full decision card from backend orchestrator
+                    val actionId = json.optString("action_id", "")
+                    val message = json.optString("message", "")
+                    val score = json.optDouble("score", 0.0)
+                    val condition = json.optString("condition", "default")
+                    val agent = json.optString("agent", "decision")
+
+                    Log.i(TAG, "FRIDAY_CARD received: action=$actionId, score=$score, condition=$condition, agent=$agent")
+
+                    // Broadcast detailed action to UI
+                    val intent = Intent("com.friday.node.ACTION_RECEIVED").apply {
+                        putExtra("action_payload", text)
+                        putExtra("action_id", actionId)
+                        putExtra("suggested_action", message)
+                        putExtra("score", score)
+                        putExtra("condition", condition)
+                        putExtra("agent", agent)
+                    }
+                    ctx.sendBroadcast(intent)
+                }
+
+                "ACK" -> {
+                    val count = json.optInt("count", 0)
+                    Log.i(TAG, "Backend ACK received: $count messages processed")
+                }
+
+                "" -> {
+                    // Check if it's an error response
+                    val error = json.optString("error", "")
+                    if (error.isNotEmpty()) {
+                        Log.w(TAG, "Backend error: $error")
+                    } else {
+                        // Legacy/unknown format — broadcast raw payload
+                        val intent = Intent("com.friday.node.ACTION_RECEIVED").apply {
+                            putExtra("action_payload", text)
+                        }
+                        ctx.sendBroadcast(intent)
+                    }
+                }
+
+                else -> {
+                    Log.d(TAG, "Unhandled message type: $type")
+                    val intent = Intent("com.friday.node.ACTION_RECEIVED").apply {
+                        putExtra("action_payload", text)
+                    }
+                    ctx.sendBroadcast(intent)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse backend message: ${e.message}")
+            // Fallback: broadcast raw payload
+            val intent = Intent("com.friday.node.ACTION_RECEIVED").apply {
+                putExtra("action_payload", text)
+            }
+            ctx.sendBroadcast(intent)
+        }
+    }
+
+    /**
+     * Send RLHF feedback to the backend for a specific action card.
+     *
+     * @param actionId  The action_id from the FRIDAY_CARD
+     * @param reaction  One of: "helpful", "dismissed", "ignored"
+     */
+    fun sendFeedback(actionId: String, reaction: String) {
+        if (!isConnected || webSocket == null) {
+            Log.w(TAG, "Cannot send feedback: not connected to hub")
+            return
+        }
+
+        val feedbackPayload = JSONObject().apply {
+            put("type", "feedback")
+            put("action_id", actionId)
+            put("user_reaction", reaction)
+            put("timestamp", System.currentTimeMillis())
+        }
+
+        val sent = webSocket?.send(feedbackPayload.toString()) == true
+        if (sent) {
+            Log.i(TAG, "RLHF feedback sent: action=$actionId, reaction=$reaction")
+        } else {
+            Log.e(TAG, "Failed to send RLHF feedback for action: $actionId")
+        }
     }
 
     fun sendEvent(jsonPayload: String) {

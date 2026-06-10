@@ -97,6 +97,7 @@ class MainActivity : ComponentActivity() {
     private var lastNotification = mutableStateOf("No notifications yet")
     private var wellbeingPrompt = mutableStateOf("Ambient tracking active. System stable.")
     private var isGhostMode = mutableStateOf(false)
+    private var activeActionCard = mutableStateOf<JSONObject?>(null)
     
     // Dynamic user profile and metrics
     private var userName = mutableStateOf("")
@@ -158,10 +159,18 @@ class MainActivity : ComponentActivity() {
                     val payload = intent.getStringExtra("action_payload") ?: ""
                     try {
                         val json = JSONObject(payload)
-                        // Extract decision action or recommendation
-                        val suggestion = json.optString("suggested_action")
-                        if (!suggestion.isNullOrEmpty()) {
-                            wellbeingPrompt.value = suggestion
+                        val type = json.optString("type", "")
+                        if (type == "FRIDAY_CARD") {
+                            activeActionCard.value = json
+                            val message = json.optString("message", "")
+                            if (message.isNotEmpty()) {
+                                wellbeingPrompt.value = message
+                            }
+                        } else {
+                            val suggestion = json.optString("suggested_action")
+                            if (!suggestion.isNullOrEmpty()) {
+                                wellbeingPrompt.value = suggestion
+                            }
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to parse Action payload: ${e.message}")
@@ -624,6 +633,121 @@ class MainActivity : ComponentActivity() {
                         fontWeight = FontWeight.W300,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                     )
+                }
+            }
+
+            // Active FRIDAY Recommendation Card (RLHF Feedback integration)
+            if (activeActionCard.value != null) {
+                item {
+                    val card = activeActionCard.value!!
+                    val actionId = card.optString("action_id", "")
+                    val message = card.optString("message", "")
+                    val score = card.optDouble("score", 0.0)
+                    val condition = card.optString("condition", "default")
+                    val agentName = card.optString("agent", "Orchestrator")
+                        .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+
+                    Card(
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isDarkThemeGlobal) Color(0xFF1E293B) else Color(0xFFF1F5F9)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(
+                                1.dp,
+                                ColorBlockLime.copy(alpha = 0.3f),
+                                RoundedCornerShape(24.dp)
+                            )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(ColorBlockCoral)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "$agentName Agent".uppercase(Locale.getDefault()),
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .background(ColorBlockLime.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "SCORE: ${(score * 100).toInt()}%",
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isDarkThemeGlobal) ColorBlockLime else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = message,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                lineHeight = 22.sp
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(
+                                    onClick = {
+                                        WebSocketManager.getInstance().sendFeedback(actionId, "dismissed")
+                                        activeActionCard.value = null
+                                        wellbeingPrompt.value = "Ambient tracking active. System stable."
+                                        showToast("Recommendation dismissed")
+                                    }
+                                ) {
+                                    Text("Dismiss", color = Color.Gray, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = {
+                                        WebSocketManager.getInstance().sendFeedback(actionId, "helpful")
+                                        activeActionCard.value = null
+                                        wellbeingPrompt.value = "Feedback logged. Optimizing model."
+                                        showToast("Thank you for your feedback!")
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.surface,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Helpful", color = MaterialTheme.colorScheme.surface, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

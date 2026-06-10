@@ -11,10 +11,11 @@ import json
 import logging
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Request as FastAPIRequest
 from fastapi.middleware.cors import CORSMiddleware
 
 import os
@@ -160,6 +161,46 @@ async def export_logs(
         raise HTTPException(status_code=503, detail="Database not ready")
     rows = db.export_logs(start_date=start_date, limit=limit)
     return {"count": len(rows), "logs": rows}
+
+
+@app.post("/api/onboarding/complete", tags=["onboarding"])
+async def onboarding_complete(request: FastAPIRequest):
+    """
+    Receive onboarding completion notification from Android.
+    Stores device config and enabled modules for session tracking.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    device_id = body.get("device_id", "unknown")
+    enabled_modules = body.get("enabled_modules", [])
+    modules_count = body.get("modules_enabled", 0)
+    config = body.get("configuration", {})
+    timestamp = body.get("timestamp", int(time.time() * 1000))
+
+    logger.info(
+        f"Onboarding complete: device={device_id}, "
+        f"modules_enabled={modules_count}, modules={enabled_modules}"
+    )
+
+    # Log to KPI database
+    if db:
+        db.log_session_event(
+            session_id=f"onboarding_{device_id}",
+            device_id=device_id,
+            event_type="onboarding_complete",
+            is_offline=False,
+            latency_ms=0,
+        )
+
+    return {
+        "status": "ok",
+        "device_id": device_id,
+        "modules_acknowledged": modules_count,
+        "message": "Onboarding configuration received. FRIDAY backend ready.",
+    }
 
 
 @app.get("/api/telemetry", tags=["telemetry"])
@@ -347,6 +388,25 @@ async def android_ws(websocket: WebSocket):
                 await websocket.send_json({"error": "invalid JSON"})
                 continue
 
+            # ── Handle feedback messages from Android RLHF ──
+            msg_type = data.get("type", "")
+            if msg_type == "feedback":
+                action_id = data.get("action_id")
+                user_reaction = data.get("user_reaction")  # helpful / dismissed / ignored
+                if action_id and user_reaction and orchestrator:
+                    orchestrator.record_feedback(action_id=action_id, reaction=user_reaction)
+                    logger.info(f"Android RLHF feedback: {action_id} → {user_reaction}")
+                continue
+
+            # ── Handle individual sensor events (not full ContextObjects) ──
+            # The Android side also sends raw events like app_switch,
+            # typing_metrics, notification. Log them but don't orchestrate.
+            if msg_type in ("app_switch", "typing_metrics", "notification", "biometric_baseline"):
+                logger.debug(f"Individual sensor event received: {msg_type}")
+                # These are informational; the full ContextObject snapshot
+                # sent every 15s is what drives orchestration.
+                continue
+
             # HMAC verification (optional; skip if sig absent for dev)
             sig = data.pop("hmac_signature", None)
             if settings.ENFORCE_HMAC and sig:
@@ -354,10 +414,10 @@ async def android_ws(websocket: WebSocket):
                     await websocket.send_json({"error": "HMAC verification failed"})
                     continue
 
-            # Validate schema
+            # Validate ContextObject schema
             ok, reason = validate_context_object(data)
             if not ok:
-                await websocket.send_json({"error": reason})
+                logger.debug(f"Non-ContextObject message skipped: {reason}")
                 continue
 
             device_id = data["metadata"]["device_id"]
@@ -365,12 +425,15 @@ async def android_ws(websocket: WebSocket):
             session_id = data["metadata"]["session_id"]
             latest_contexts[session_id] = data
 
+            # Track offline replays
+            is_offline_replay = data.get("is_offline_replay", False)
+
             # Log receipt
             db.log_session_event(
                 session_id=session_id,
                 device_id=device_id,
                 event_type="context_received",
-                is_offline=False,
+                is_offline=is_offline_replay,
                 latency_ms=0,
             )
 
