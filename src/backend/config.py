@@ -51,6 +51,7 @@ class Settings:
         "FALLBACK_MODEL",
         "phi3:mini"
     )
+    LLM_TIMEOUT: float = float(os.getenv("LLM_TIMEOUT", "90.0"))
 
     ...
 
