@@ -1,5 +1,6 @@
 import socket
-from zeroconf import IPVersion, Info, Zeroconf
+from zeroconf import IPVersion, ServiceInfo
+from zeroconf.asyncio import AsyncZeroconf
 
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -12,19 +13,19 @@ def get_local_ip():
         s.close()
     return ip
 
-def start_discovery_service(port=8000):
+async def start_discovery_service(port=8000):
     local_ip = get_local_ip()
     packed_ip = socket.inet_aton(local_ip)
     
-    info = Info(
-        "_friday_hub._tcp.local.",
-        "FRIDAY Compute Hub._friday_hub._tcp.local.",
+    info = ServiceInfo(
+        "_friday-hub._tcp.local.",
+        "FRIDAY Compute Hub._friday-hub._tcp.local.",
         addresses=[packed_ip],
         port=port,
         properties={},
     )
     
-    zeroconf = Zeroconf(ip_version=IPVersion.All)
+    aiozc = AsyncZeroconf(ip_version=IPVersion.V4Only)
     print(f"[Discovery] Advertising FRIDAY Hub at {local_ip}:{port}")
-    zeroconf.register_service(info)
-    return zeroconf, info
+    await aiozc.zeroconf.async_register_service(info)
+    return aiozc, info

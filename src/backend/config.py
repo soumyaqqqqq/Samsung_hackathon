@@ -35,8 +35,14 @@ class Settings:
     ).lower() == "true"
 
     # Storage paths
-    SQLITE_PATH: str = os.getenv("SQLITE_PATH", "data/friday.db")
-    CHROMA_PATH: str = os.getenv("CHROMA_PATH", "data/chroma")
+    SQLITE_PATH: str = os.getenv(
+        "SQLITE_PATH",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "friday.db")
+    )
+    CHROMA_PATH: str = os.getenv(
+        "CHROMA_PATH",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "chroma")
+    )
 
     # Ollama / LLM
     OLLAMA_BASE_URL: str = os.getenv(
@@ -66,6 +72,14 @@ class Settings:
 
     # Maximum memories to inject into LLM context
     MAX_MEMORY_RESULTS: int = int(os.getenv("MAX_MEMORY_RESULTS", "5"))
+
+    def __post_init__(self):
+        # Resolve relative storage paths relative to config.py's directory
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        if not os.path.isabs(self.SQLITE_PATH):
+            self.SQLITE_PATH = os.path.abspath(os.path.join(base_dir, self.SQLITE_PATH))
+        if not os.path.isabs(self.CHROMA_PATH):
+            self.CHROMA_PATH = os.path.abspath(os.path.join(base_dir, self.CHROMA_PATH))
 
 
 settings = Settings()

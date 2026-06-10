@@ -23,12 +23,28 @@ function connectWebSocket() {
     socket.onopen = () => {
         console.log("[FRIDAY Background] WebSocket Connected to Hub Server.");
         broadcastConnectionState(true);
+
+        // Register session ID with the backend
+        chrome.storage.local.get(["session_id"], (result) => {
+            const regMsg = {
+                type: "REGISTER",
+                session_id: result.session_id || null
+            };
+            socket.send(JSON.stringify(regMsg));
+            console.log("[FRIDAY Background] Sent registration message:", regMsg);
+        });
     };
 
     socket.onmessage = (event) => {
         try {
             const payload = JSON.parse(event.data);
             console.log("[FRIDAY Background] Received event type:", payload.type);
+
+            if (payload.type === "REGISTERED" && payload.session_id) {
+                chrome.storage.local.set({ session_id: payload.session_id }, () => {
+                    console.log("[FRIDAY Background] Session registered and saved:", payload.session_id);
+                });
+            }
 
             chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
                 if (tabs[0] && tabs[0].id) {
@@ -71,17 +87,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         socket.send(JSON.stringify(message.data));
     }
     if (message.action === "fetch_telemetry_data") {
-        fetch(FRIDAY_CONFIG.telemetryUrl)
-            .then(res => {
-                if (!res.ok) throw new Error("HTTP error " + res.status);
-                return res.json();
-            })
-            .then(data => {
-                sendResponse({ success: true, data: data });
-            })
-            .catch(err => {
-                sendResponse({ success: false, error: err.message });
-            });
+        chrome.storage.local.get(["session_id"], (result) => {
+            const sessionId = result.session_id || "";
+            const url = sessionId ? `${FRIDAY_CONFIG.telemetryUrl}?session_id=${sessionId}` : FRIDAY_CONFIG.telemetryUrl;
+            
+            fetch(url)
+                .then(res => {
+                    if (!res.ok) throw new Error("HTTP error " + res.status);
+                    return res.json();
+                })
+                .then(data => {
+                    sendResponse({ success: true, data: data });
+                })
+                .catch(err => {
+                    sendResponse({ success: false, error: err.message });
+                });
+        });
         return true;
     }
 });

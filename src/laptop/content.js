@@ -135,25 +135,34 @@ function createSidebar() {
 }
 
 function loadBackendData(callback) {
-    chrome.runtime.sendMessage({ action: "fetch_telemetry_data" }, (response) => {
-        if (chrome.runtime.lastError) {
-            fetchError = "404 error:Server blasted";
-            backendData = null;
+    try {
+        chrome.runtime.sendMessage({ action: "fetch_telemetry_data" }, (response) => {
+            if (chrome.runtime.lastError) {
+                fetchError = "Backend unreachable";
+                backendData = null;
+                if (callback) callback();
+                return;
+            }
+            if (response && response.success && response.data && Object.keys(response.data).length > 0) {
+                backendData = response.data;
+                fetchError = null;
+                if (backendData.stressScore !== undefined) FRIDAY_STATE.stressScore = backendData.stressScore;
+                if (backendData.focusEfficiency !== undefined) FRIDAY_STATE.focusEfficiency = backendData.focusEfficiency;
+                if (backendData.mediaHandoff !== undefined) FRIDAY_STATE.mediaHandoff = backendData.mediaHandoff;
+            } else {
+                fetchError = "Backend unreachable";
+                backendData = null;
+            }
             if (callback) callback();
-            return;
-        }
-        if (response && response.success && response.data && Object.keys(response.data).length > 0) {
-            backendData = response.data;
-            fetchError = null;
-            if (backendData.stressScore !== undefined) FRIDAY_STATE.stressScore = backendData.stressScore;
-            if (backendData.focusEfficiency !== undefined) FRIDAY_STATE.focusEfficiency = backendData.focusEfficiency;
-            if (backendData.mediaHandoff !== undefined) FRIDAY_STATE.mediaHandoff = backendData.mediaHandoff;
-        } else {
-            fetchError = "404 error:Server blasted";
-            backendData = null;
-        }
+        });
+    } catch (e) {
+        // Extension context invalidated (extension was reloaded) — fail gracefully
+        console.warn("[FRIDAY] Extension context invalidated. Refresh the page to reconnect.");
+        fetchError = "Extension reloaded — refresh page";
+        backendData = null;
+        if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
         if (callback) callback();
-    });
+    }
 }
 
 function toggleSidebar(forceOpen) {
@@ -541,6 +550,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case "INTERRUPTION_SHIELD":
             toggleFocusShield(message.stress_score);
             break;
+        case "SHOW_CONTINUITY":
+            showContinuityToast(message);
+            break;
         case "TOGGLE_SIDEBAR":
             toggleSidebar();
             break;
@@ -720,6 +732,79 @@ function sendFeedback(eventType, trackingMetadata) {
             console.warn("[FRIDAY Content] Could not send feedback to background:", chrome.runtime.lastError.message);
         }
     });
+}
+
+function showContinuityToast(message) {
+    const toast = document.createElement("div");
+    toast.className = "friday-toast";
+    
+    const content = message.content || {};
+    const title = content.title || "FRIDAY Suggestion";
+    const bodyText = content.message || "";
+    
+    let iconName = "psychology";
+    if (message.condition === "high_stress" || message.condition === "burnout_risk") {
+        iconName = "shield";
+    } else if (message.condition === "notification_overload") {
+        iconName = "notifications";
+    }
+
+    toast.innerHTML = `
+        <div class="friday-toast-header">
+            ${getIconSvg(iconName, 20)}
+            ${title}
+        </div>
+        <div class="friday-toast-body">
+            ${bodyText}
+        </div>
+        <div class="friday-toast-actions">
+            <button id="dismiss-continuity" class="friday-toast-btn secondary">Dismiss</button>
+            <button id="accept-continuity" class="friday-toast-btn primary">Helpful</button>
+        </div>
+    `;
+
+    shadowRoot.appendChild(toast);
+
+    shadowRoot.getElementById("accept-continuity").onclick = () => {
+        chrome.runtime.sendMessage({
+            action: "send_to_backend",
+            data: {
+                action_id: message.action_id,
+                user_reaction: "helpful"
+            }
+        });
+        toast.style.transform = "translateX(120%)";
+        toast.style.opacity = "0";
+        setTimeout(() => toast.remove(), 300);
+    };
+
+    shadowRoot.getElementById("dismiss-continuity").onclick = () => {
+        chrome.runtime.sendMessage({
+            action: "send_to_backend",
+            data: {
+                action_id: message.action_id,
+                user_reaction: "dismissed"
+            }
+        });
+        toast.style.transform = "translateX(120%)";
+        toast.style.opacity = "0";
+        setTimeout(() => toast.remove(), 300);
+    };
+
+    setTimeout(() => {
+        if (toast.parentNode) {
+            chrome.runtime.sendMessage({
+                action: "send_to_backend",
+                data: {
+                    action_id: message.action_id,
+                    user_reaction: "ignored"
+                }
+            });
+            toast.style.transform = "translateX(120%)";
+            toast.style.opacity = "0";
+            setTimeout(() => toast.remove(), 300);
+        }
+    }, 15000);
 }
 
 initShadowDOM();
