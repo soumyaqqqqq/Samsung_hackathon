@@ -163,10 +163,23 @@ class MainActivity : ComponentActivity() {
                     val pkg = intent.getStringExtra("package_name") ?: ""
                     val title = intent.getStringExtra("title") ?: ""
                     val content = intent.getStringExtra("content") ?: ""
+                    val timestamp = intent.getLongExtra("timestamp", System.currentTimeMillis())
+                    
                     lastNotification.value = "$title: $content ($pkg)"
                     notificationsCount.value += 1
                     recalculateLocalStress()
                     timelineEvents.add(0, TimelineEvent("Alert Muted", "$title ($pkg)", timeStr, "notification"))
+
+                    val notifJson = JSONObject().apply {
+                        put("type", "notification")
+                        put("action_id", "notif_${timestamp}_${pkg.hashCode()}")
+                        put("package", pkg)
+                        put("title", title)
+                        put("message", content)
+                        put("agent", getAppNameFromPackage(pkg))
+                        put("timestamp", timestamp)
+                    }
+                    attentionTasks.add(notifJson)
                 }
                 "com.friday.node.BATTERY_MODE_CHANGED" -> {
                     val mode = intent.getStringExtra("current_mode") ?: "ACTIVE"
@@ -278,7 +291,19 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 5. Draw the Compose user interface
+        // 5. Register receiver for real-time sensing updates
+        val filter = IntentFilter().apply {
+            addAction("com.friday.node.APP_SWITCH_DETECTED")
+            addAction("com.friday.node.TYPING_CADENCE_DETECTED")
+            addAction("com.friday.node.NOTIFICATION_INTERCEPTED")
+            addAction("com.friday.node.BATTERY_MODE_CHANGED")
+            addAction("com.friday.node.CONNECTION_STATE_CHANGED")
+            addAction("com.friday.node.ACTION_RECEIVED")
+            addAction("com.friday.node.LOCATION_CHANGED")
+        }
+        registerReceiver(telemetryReceiver, filter, RECEIVER_EXPORTED)
+
+        // 6. Draw the Compose user interface
         setContent {
             val showOnboarding = remember { mutableStateOf(!isOnboardingComplete) }
             FridayTheme {
@@ -318,18 +343,6 @@ class MainActivity : ComponentActivity() {
         } else {
             "Searching for Hub..."
         }
-
-        // Register receiver for real-time sensing updates
-        val filter = IntentFilter().apply {
-            addAction("com.friday.node.APP_SWITCH_DETECTED")
-            addAction("com.friday.node.TYPING_CADENCE_DETECTED")
-            addAction("com.friday.node.NOTIFICATION_INTERCEPTED")
-            addAction("com.friday.node.BATTERY_MODE_CHANGED")
-            addAction("com.friday.node.CONNECTION_STATE_CHANGED")
-            addAction("com.friday.node.ACTION_RECEIVED")
-            addAction("com.friday.node.LOCATION_CHANGED")
-        }
-        registerReceiver(telemetryReceiver, filter, RECEIVER_EXPORTED)
         
         // Check permission statuses
         checkPermissionsState()
@@ -337,7 +350,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        unregisterReceiver(telemetryReceiver)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            unregisterReceiver(telemetryReceiver)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to unregister receiver: ${e.message}")
+        }
     }
 
     private fun getDynamicGreeting(name: String): String {
@@ -358,6 +379,78 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             "Wednesday,\nJune 4, 2026"
         }
+    }
+
+    private fun getAppNameFromPackage(packageName: String): String {
+        return when {
+            packageName.contains("whatsapp", ignoreCase = true) -> "WhatsApp"
+            packageName.contains("slack", ignoreCase = true) -> "Slack"
+            packageName.contains("gmail", ignoreCase = true) -> "Gmail"
+            packageName.contains("telegram", ignoreCase = true) -> "Telegram"
+            packageName.contains("discord", ignoreCase = true) -> "Discord"
+            packageName.contains("teams", ignoreCase = true) -> "MS Teams"
+            packageName.contains("instagram", ignoreCase = true) -> "Instagram"
+            packageName.contains("facebook", ignoreCase = true) -> "Facebook"
+            packageName.contains("twitter", ignoreCase = true) -> "Twitter"
+            packageName.contains("android.gm", ignoreCase = true) -> "Gmail"
+            else -> {
+                val parts = packageName.split(".")
+                if (parts.isNotEmpty()) {
+                    parts.last().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+                } else {
+                    "App"
+                }
+            }
+        }
+    }
+
+    private fun getSafeTimestamp(json: JSONObject): Long {
+        val ts = json.optLong("timestamp", 0L)
+        return if (ts == 0L) {
+            System.currentTimeMillis()
+        } else if (ts < 10000000000L) {
+            ts * 1000L
+        } else {
+            ts
+        }
+    }
+
+    private fun getProcessedAttentionTasks(tasks: List<JSONObject>): List<JSONObject> {
+        val cards = tasks.filter { it.optString("type") != "notification" }
+        val notifications = tasks.filter { it.optString("type") == "notification" }
+
+        val groupedNotifications = notifications.groupBy { it.optString("package", it.optString("agent")) }
+        val processedNotifications = mutableListOf<JSONObject>()
+
+        for ((pkg, group) in groupedNotifications) {
+            if (group.size == 1) {
+                processedNotifications.add(group[0])
+            } else {
+                val sortedGroup = group.sortedByDescending { getSafeTimestamp(it) }
+                val mostRecent = sortedGroup[0]
+                val agentName = if (pkg.contains(".")) getAppNameFromPackage(pkg) else pkg
+                
+                // Summarize: e.g. "3 notifications: Alice: Hey; Bob: Call"
+                val summaryText = "${group.size} notifications: " + sortedGroup.take(3).joinToString("; ") { 
+                    val title = it.optString("title", "")
+                    val msg = it.optString("message", "")
+                    if (title.isNotEmpty()) "$title: $msg" else msg
+                } + (if (group.size > 3) "..." else "")
+
+                val summaryJson = JSONObject().apply {
+                    put("type", "notification")
+                    put("action_id", mostRecent.optString("action_id"))
+                    put("package", pkg)
+                    put("agent", agentName)
+                    put("message", summaryText)
+                    put("timestamp", getSafeTimestamp(mostRecent))
+                }
+                processedNotifications.add(summaryJson)
+            }
+        }
+
+        val combined = (cards + processedNotifications).sortedByDescending { getSafeTimestamp(it) }
+        return combined.take(6)
     }
 
     private fun checkPermissionsState() {
@@ -926,20 +1019,21 @@ class MainActivity : ComponentActivity() {
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
 
-                        if (attentionTasks.isEmpty()) {
+                        val processedTasks = getProcessedAttentionTasks(attentionTasks)
+                        if (processedTasks.isEmpty()) {
                             Column(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
-                                    text = "Ambient intelligence calibrating...",
+                                    text = "FRIDAY is learning your flow...",
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "No urgent tasks detected. FRIDAY is monitoring telemetry to map your active attention triggers.",
+                                    text = "Move around and start your routines. I'll prioritize what needs attention here.",
                                     fontSize = 12.sp,
                                     textAlign = TextAlign.Center,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
@@ -947,11 +1041,10 @@ class MainActivity : ComponentActivity() {
                             }
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                attentionTasks.forEachIndexed { index, task ->
+                                processedTasks.forEachIndexed { index, task ->
                                     val actionId = task.optString("action_id", "act_${index}")
                                     val agent = task.optString("agent", "Orchestrator")
                                     val message = task.optString("message", "Attention required")
-                                    val shortMsg = if (message.length > 32) message.take(30) + "..." else message
 
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -968,30 +1061,45 @@ class MainActivity : ComponentActivity() {
                                             )
                                             Spacer(modifier = Modifier.width(12.dp))
                                             Text(
-                                                text = "[$agent] $shortMsg",
-                                                fontSize = 16.sp,
+                                                text = "[$agent] $message",
+                                                fontSize = 15.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f)
                                             )
                                         }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        val btnText = if (task.optString("type") == "notification") "Clear" else stringResource(R.string.btn_action)
                                         Button(
                                             onClick = {
-                                                activeTaskName.value = "Optimize: $shortMsg"
-                                                activeTaskSteps.clear()
-                                                activeTaskSteps.add(Pair("Analyze VS Code metrics", "COMPLETED"))
-                                                activeTaskSteps.add(Pair("Verify DB query efficiency", "IN_PROGRESS"))
-                                                activeTaskSteps.add(Pair("Generate execution plan", "PENDING"))
-                                                showToast("Continuous journey started: $shortMsg")
+                                                if (task.optString("type") == "notification") {
+                                                    val pkg = task.optString("package")
+                                                    if (pkg.isNotEmpty()) {
+                                                        attentionTasks.removeAll { it.optString("package") == pkg || it.optString("action_id") == actionId }
+                                                    } else {
+                                                        attentionTasks.removeAll { it.optString("action_id") == actionId }
+                                                    }
+                                                    showToast("Alert cleared")
+                                                } else {
+                                                    activeTaskName.value = "Optimize: $message"
+                                                    activeTaskSteps.clear()
+                                                    activeTaskSteps.add(Pair("Analyze VS Code metrics", "COMPLETED"))
+                                                    activeTaskSteps.add(Pair("Verify DB query efficiency", "IN_PROGRESS"))
+                                                    activeTaskSteps.add(Pair("Generate execution plan", "PENDING"))
+                                                    showToast("Continuous journey started: $message")
+                                                }
                                             },
                                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
                                             shape = RoundedCornerShape(9999.dp),
                                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                                             modifier = Modifier.height(32.dp)
                                         ) {
-                                            Text(stringResource(R.string.btn_action), fontSize = 11.sp, color = MaterialTheme.colorScheme.surface)
+                                            Text(btnText, fontSize = 11.sp, color = MaterialTheme.colorScheme.surface)
                                         }
                                     }
-                                    if (index < attentionTasks.size - 1) {
+                                    if (index < processedTasks.size - 1) {
                                         HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
                                     }
                                 }
@@ -1103,7 +1211,7 @@ class MainActivity : ComponentActivity() {
                                 )
                                 Column {
                                     Text(
-                                        text = "4h 32m",
+                                        text = focusTimeDisplay.value,
                                         fontSize = 28.sp,
                                         fontWeight = FontWeight.Black,
                                         color = MaterialTheme.colorScheme.onSurface
@@ -1141,14 +1249,25 @@ class MainActivity : ComponentActivity() {
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
                                 Column {
+                                    val currentLoc = locationState.value
+                                    val contextTitle = if (currentLoc.isEmpty() || currentLoc == "unknown" || currentLoc == "home") {
+                                        "Learning Flow"
+                                    } else {
+                                        currentLoc.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() } + " Mode"
+                                    }
+                                    val contextSub = if (currentLoc.isEmpty() || currentLoc == "unknown" || currentLoc == "home") {
+                                        "Use more to map context"
+                                    } else {
+                                        "Match: Current Location"
+                                    }
                                     Text(
-                                        text = "Exam Week",
-                                        fontSize = 20.sp,
+                                        text = contextTitle,
+                                        fontSize = 18.sp,
                                         fontWeight = FontWeight.Black,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = "Match: May 2023",
+                                        text = contextSub,
                                         fontSize = 10.sp,
                                         fontFamily = FontFamily.Monospace,
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
@@ -1162,6 +1281,13 @@ class MainActivity : ComponentActivity() {
 
             // Memory Moment Card
             item {
+                val currentLoc = locationState.value
+                val memoryTitle = if (currentLoc.isEmpty() || currentLoc == "unknown") "Learning Routines" else currentLoc.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+                val memoryBody = if (currentLoc.isEmpty() || currentLoc == "unknown") {
+                    "Move around, let me know if you forget. I will map your focus triggers and routines here."
+                } else {
+                    "You typically activate 'Deep Focus' mode here. Repeat setup?"
+                }
                 Card(
                     shape = RoundedCornerShape(24.dp),
                     colors = CardDefaults.cardColors(containerColor = if (isDarkThemeGlobal) Color(0xFF1E1E1E) else Color(0xFFEEEEEE)),
@@ -1179,32 +1305,34 @@ class MainActivity : ComponentActivity() {
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
                         Text(
-                            text = "VIT Library",
+                            text = memoryTitle,
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "You typically activate 'Deep Focus' mode here. Repeat setup?",
+                            text = memoryBody,
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Button(
-                                onClick = { /* TODO: Repeat focus setup */ },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
-                                shape = RoundedCornerShape(9999.dp)
-                            ) {
-                                Text("Repeat Setup", color = Color.White)
-                            }
-                            Button(
-                                onClick = { /* TODO: Dismiss memory moment */ },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                                shape = RoundedCornerShape(9999.dp),
-                                modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
-                            ) {
-                                Text("Dismiss", color = MaterialTheme.colorScheme.onSurface)
+                        if (currentLoc.isNotEmpty() && currentLoc != "unknown") {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Button(
+                                    onClick = { /* TODO: Repeat focus setup */ },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
+                                    shape = RoundedCornerShape(9999.dp)
+                                ) {
+                                    Text("Repeat Setup", color = Color.White)
+                                }
+                                Button(
+                                    onClick = { /* TODO: Dismiss memory moment */ },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                                    shape = RoundedCornerShape(9999.dp),
+                                    modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
+                                ) {
+                                    Text("Dismiss", color = MaterialTheme.colorScheme.onSurface)
+                                }
                             }
                         }
                     }
@@ -1576,8 +1704,8 @@ class MainActivity : ComponentActivity() {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     // Emotion Agent (Mint)
-                    val emotionTitle = if (stressScore.value == 0) "Calibrating..." else if (stressScore.value >= 70) "High Arousal" else "Focused & Confident"
-                    val emotionDesc = if (stressScore.value == 0) "Gathering baseline telemetry." else if (stressScore.value >= 70) "Slight stress spike detected. Take deep breaths." else "Stable typing rhythms and low application switching detected."
+                    val emotionTitle = if (stressScore.value == 0) "Stable" else if (stressScore.value >= 70) "High Arousal" else "Focused & Confident"
+                    val emotionDesc = if (stressScore.value == 0) "Ambient tracking active. Analyzing focus patterns." else if (stressScore.value >= 70) "Slight stress spike detected. Take deep breaths." else "Stable typing rhythms and low application switching detected."
                     Card(
                         shape = RoundedCornerShape(24.dp),
                         colors = CardDefaults.cardColors(containerColor = ColorBlockMint),
@@ -1626,8 +1754,8 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // Burnout Agent (Pink)
-                    val burnoutTitle = if (stressScore.value == 0) "Risk: Calibrating" else if (burnoutScore >= 60) "Risk: High" else if (burnoutScore >= 35) "Risk: Moderate" else "Risk: Low"
-                    val burnoutDesc = if (stressScore.value == 0) "Analyzing daily rhythm." else if (burnoutScore >= 60) "High continuous stress. Prioritize rest cycles immediately." else "Normal sleep cycles, consistent output, and language neutrality."
+                    val burnoutTitle = if (stressScore.value == 0) "Risk: Stable" else if (burnoutScore >= 60) "Risk: High" else if (burnoutScore >= 35) "Risk: Moderate" else "Risk: Low"
+                    val burnoutDesc = if (stressScore.value == 0) "No active stress patterns detected. Tracking balance." else if (burnoutScore >= 60) "High continuous stress. Prioritize rest cycles immediately." else "Normal sleep cycles, consistent output, and language neutrality."
                     Card(
                         shape = RoundedCornerShape(24.dp),
                         colors = CardDefaults.cardColors(containerColor = ColorBlockPink),
@@ -1663,8 +1791,8 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // Social Agent (Cream)
-                    val socialTitle = if (notificationsCount.value == 0) "Risk: Calibrating" else if (socialScore >= 60) "Risk: High" else if (socialScore >= 35) "Risk: Moderate" else "Risk: Low"
-                    val socialDesc = if (notificationsCount.value == 0) "Introvert. Waiting for notification spikes." else if (socialScore >= 60) "High messaging volume. Consider putting phone on Do Not Disturb." else "Impending tasks stable. Social load is well within limits."
+                    val socialTitle = if (notificationsCount.value == 0) "Risk: Stable" else if (socialScore >= 60) "Risk: High" else if (socialScore >= 35) "Risk: Moderate" else "Risk: Low"
+                    val socialDesc = if (notificationsCount.value == 0) "No recent communication spikes. Social load is light." else if (socialScore >= 60) "High messaging volume. Consider putting phone on Do Not Disturb." else "Impending tasks stable. Social load is well within limits."
                     Card(
                         shape = RoundedCornerShape(24.dp),
                         colors = CardDefaults.cardColors(containerColor = ColorBlockCream),
