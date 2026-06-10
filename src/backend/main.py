@@ -31,6 +31,7 @@ from config import settings
 from database.sqlite_store import SQLiteStore
 from database.chroma_store import ChromaStore
 from validation.orchestrator import Orchestrator
+from discovery import start_discovery_service
 # ──────────────────────────────────────────────────────────────────────────────
 # Logging
 # ──────────────────────────────────────────────────────────────────────────────
@@ -53,6 +54,8 @@ latest_contexts:     dict[str, dict] = {}        # session_id → latest Context
 db:           Optional[SQLiteStore]  = None
 chroma:       Optional[ChromaStore]  = None
 orchestrator: Optional[Orchestrator] = None
+zeroconf_instance = None
+zeroconf_info = None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -61,7 +64,7 @@ orchestrator: Optional[Orchestrator] = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global db, chroma, orchestrator
+    global db, chroma, orchestrator, zeroconf_instance, zeroconf_info
 
     logger.info("FRIDAY backend starting up …")
     db      = SQLiteStore(settings.SQLITE_PATH)
@@ -69,9 +72,25 @@ async def lifespan(app: FastAPI):
     orchestrator = Orchestrator(db=db, chroma=chroma, laptop_connections=laptop_connections)
 
     logger.info("All stores and orchestrator initialised.")
+
+    try:
+        zeroconf_instance, zeroconf_info = await start_discovery_service(settings.PORT)
+    except Exception as e:
+        import traceback
+        logger.warning(f"Failed to start Zeroconf discovery: {e}\n{traceback.format_exc()}")
+
     yield
 
     logger.info("FRIDAY backend shutting down …")
+    
+    if zeroconf_instance and zeroconf_info:
+        try:
+            logger.info("Stopping Zeroconf service discovery …")
+            await zeroconf_instance.zeroconf.async_unregister_service(zeroconf_info)
+            await zeroconf_instance.async_close()
+        except Exception as e:
+            logger.warning(f"Failed to clean up Zeroconf: {e}")
+
     db.close()
 
 

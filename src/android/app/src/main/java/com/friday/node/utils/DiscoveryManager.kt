@@ -10,7 +10,7 @@ class DiscoveryManager(
     private val onHubFound: (ipAddress: String, port: Int) -> Unit
 ) {
     private val nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
-    private val SERVICE_TYPE = "_friday_hub._tcp."
+    private val SERVICE_TYPE = "_friday-hub._tcp."
     private var isDiscovering = false
 
     companion object {

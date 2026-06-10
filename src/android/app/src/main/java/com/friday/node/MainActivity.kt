@@ -690,8 +690,9 @@ class MainActivity : ComponentActivity() {
                                         .background(ColorBlockLime.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
                                         .padding(horizontal = 8.dp, vertical = 2.dp)
                                 ) {
+                                    val displayScore = if (score > 1.0) score.toInt() else (score * 100).toInt()
                                     Text(
-                                        text = "SCORE: ${(score * 100).toInt()}%",
+                                        text = "SCORE: $displayScore%",
                                         fontSize = 9.sp,
                                         fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.Bold,

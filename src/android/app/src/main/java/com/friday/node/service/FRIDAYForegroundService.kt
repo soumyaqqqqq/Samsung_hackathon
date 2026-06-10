@@ -93,13 +93,15 @@ class FRIDAYForegroundService : Service() {
         }
         com.friday.node.utils.BatteryOptimizer.evaluateSystemState(this)
 
+        Log.i("FRIDAY_SERVICE", "Starting automatic network discovery for FRIDAY Compute Hub...")
+        discoveryManager.startSearching()
+
         val configManager = com.friday.node.config.OnboardingConfigManager(this)
         if (configManager.isModuleEnabled("Location & Environment")) {
-            Log.i("FRIDAY_SERVICE", "Location & Environment telemetry module enabled. Starting discovery & health baseline.")
-            discoveryManager.startSearching()
+            Log.i("FRIDAY_SERVICE", "Location & Environment telemetry module enabled. Sampling health baseline.")
             healthManager.sampleBiometricBaseline()
         } else {
-            Log.i("FRIDAY_SERVICE", "Location & Environment telemetry module disabled. Skipping discovery scan.")
+            Log.i("FRIDAY_SERVICE", "Location & Environment telemetry module disabled. Skipping baseline health sampling.")
         }
 
         // Start periodic context snapshot push (every 15 seconds)

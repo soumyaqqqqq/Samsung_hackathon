@@ -150,7 +150,7 @@ class Orchestrator:
         await self._push_to_laptop(session_id, response, ctx)
 
         # Store memory episode in ChromaDB (async, don't block response)
-        asyncio.create_task(self._store_memory(ctx, response_text))
+        asyncio.create_task(self._store_memory(ctx, response_text, agent_used))
 
         return response
 
@@ -387,8 +387,11 @@ class Orchestrator:
     # Memory storage
     # ──────────────────────────────────────────────────────────────────────────
 
-    async def _store_memory(self, ctx: dict, response_text: str):
+    async def _store_memory(self, ctx: dict, response_text: str, agent_used: str = ""):
         """Compress and store a memory episode in ChromaDB."""
+        if agent_used == "memory" or "I remember" in response_text:
+            logger.info("Skipping memory storage for recall prompt to prevent recursion")
+            return
         try:
             meta = ctx["metadata"]
             state  = ctx.get("user_state", {})
@@ -412,6 +415,7 @@ class Orchestrator:
                     "emotion":      state.get("emotion_label", "unknown"),
                     "stress_score": str(state.get("stress_score", 0)),
                     "location":     sensor.get("location", "unknown"),
+                    "action":       response_text,
                 },
             )
         except Exception as exc:
