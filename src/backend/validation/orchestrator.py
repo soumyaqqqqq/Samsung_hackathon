@@ -133,6 +133,7 @@ class Orchestrator:
             "message":   response_text,
             "agent":     agent_used,
             "timestamp": ctx["metadata"]["timestamp"],
+            "laptop_active": len(self.laptop_connections) > 0,
         }
 
         # Persist KPI log

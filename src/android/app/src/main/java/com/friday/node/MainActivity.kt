@@ -77,6 +77,13 @@ import java.util.Date
 import java.util.Locale
 import org.json.JSONObject
 
+data class TimelineEvent(
+    val title: String,
+    val description: String,
+    val time: String,
+    val type: String
+)
+
 class MainActivity : ComponentActivity() {
 
     private val TAG = "FRIDAY_MainActivity"
@@ -88,27 +95,42 @@ class MainActivity : ComponentActivity() {
     // Live UI State variables using Compose states
     private var connectionStatus = mutableStateOf("Searching for Hub...")
     private var isConnected = mutableStateOf(false)
-    private var stressScore = mutableStateOf(52)
+    private var stressScore = mutableStateOf(0)
     private var appSwitchesCount = mutableStateOf(0)
     private var averageTypingCadenceMs = mutableStateOf(0L)
     private var notificationsCount = mutableStateOf(0)
     private var bufferedEventsCount = mutableStateOf(0)
     private var recentApp = mutableStateOf("None")
     private var lastNotification = mutableStateOf("No notifications yet")
-    private var wellbeingPrompt = mutableStateOf("Ambient tracking active. System stable.")
+    private var wellbeingPrompt = mutableStateOf("FRIDAY ready. Baseline tracking active.")
     private var isGhostMode = mutableStateOf(false)
     private var activeActionCard = mutableStateOf<JSONObject?>(null)
     
     // Dynamic user profile and metrics
     private var userName = mutableStateOf("")
     private var userRole = mutableStateOf("")
-    private var productivityPercentage = mutableStateOf("87%")
-    private var peakFocusTime = mutableStateOf("9:15 PM")
-    private var stressSpikeTime = mutableStateOf("7:10 PM")
-    private var focusPercentage = mutableStateOf("84%")
-    private var focusImprovementPercent = mutableStateOf("24%")
-    private var confidencePercentage = mutableStateOf("87%")
-    private var memoryMatchPercentage = mutableStateOf("87%")
+    private var productivityPercentage = mutableStateOf("Learning...")
+    private var peakFocusTime = mutableStateOf("Learning...")
+    private var stressSpikeTime = mutableStateOf("None")
+    private var focusPercentage = mutableStateOf("Learning...")
+    private var focusImprovementPercent = mutableStateOf("0%")
+    private var confidencePercentage = mutableStateOf("Learning...")
+    private var memoryMatchPercentage = mutableStateOf("Learning...")
+
+    // Dynamic telemetry collections
+    private var sessionStartTimeMs = System.currentTimeMillis()
+    private var focusTimeDisplay = mutableStateOf("0s")
+    private var locationState = mutableStateOf("home")
+    private var isLaptopConnected = mutableStateOf(false)
+    private var attentionTasks = mutableStateListOf<JSONObject>()
+    private val timelineEvents = mutableStateListOf<TimelineEvent>()
+    private val activityIntensities = mutableStateListOf<Float>().apply {
+        repeat(16) { add(0.02f) }
+    }
+    
+    // Active task journey states
+    private var activeTaskName = mutableStateOf("")
+    private val activeTaskSteps = mutableStateListOf<Pair<String, String>>()
     
     // Manual Settings configs
     private var hubIp = mutableStateOf("")
@@ -122,12 +144,15 @@ class MainActivity : ComponentActivity() {
     // BroadcastReceiver to update Compose states in real-time
     private val telemetryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
+            val timeStr = sdf.format(Date())
             when (intent?.action) {
                 "com.friday.node.APP_SWITCH_DETECTED" -> {
                     val pkg = intent.getStringExtra("package_name") ?: "Unknown"
                     recentApp.value = pkg
                     appSwitchesCount.value += 1
                     recalculateLocalStress()
+                    timelineEvents.add(0, TimelineEvent("App Shift", "Opened $pkg", timeStr, "app"))
                 }
                 "com.friday.node.TYPING_CADENCE_DETECTED" -> {
                     val delay = intent.getLongExtra("average_delay_ms", 0L)
@@ -141,6 +166,7 @@ class MainActivity : ComponentActivity() {
                     lastNotification.value = "$title: $content ($pkg)"
                     notificationsCount.value += 1
                     recalculateLocalStress()
+                    timelineEvents.add(0, TimelineEvent("Alert Muted", "$title ($pkg)", timeStr, "notification"))
                 }
                 "com.friday.node.BATTERY_MODE_CHANGED" -> {
                     val mode = intent.getStringExtra("current_mode") ?: "ACTIVE"
@@ -155,16 +181,33 @@ class MainActivity : ComponentActivity() {
                         "Hub Offline (Caching)"
                     }
                 }
+                "com.friday.node.LOCATION_CHANGED" -> {
+                    val loc = intent.getStringExtra("location") ?: "home"
+                    locationState.value = loc
+                    timelineEvents.add(0, TimelineEvent("Location Shift", "Moved to ${loc.uppercase(Locale.getDefault())}", timeStr, "location"))
+                }
                 "com.friday.node.ACTION_RECEIVED" -> {
                     val payload = intent.getStringExtra("action_payload") ?: ""
                     try {
                         val json = JSONObject(payload)
                         val type = json.optString("type", "")
+                        
+                        // Parse laptop active status
+                        if (json.has("laptop_active")) {
+                            isLaptopConnected.value = json.optBoolean("laptop_active", false)
+                        }
+                        
                         if (type == "FRIDAY_CARD") {
                             activeActionCard.value = json
                             val message = json.optString("message", "")
                             if (message.isNotEmpty()) {
                                 wellbeingPrompt.value = message
+                                val alreadyHas = attentionTasks.any { it.optString("action_id") == json.optString("action_id") }
+                                if (!alreadyHas) {
+                                    attentionTasks.add(json)
+                                }
+                                val agent = json.optString("agent", "Orchestrator")
+                                timelineEvents.add(0, TimelineEvent("FRIDAY Action", "[$agent Agent] $message", timeStr, "suggestion"))
                             }
                         } else {
                             val suggestion = json.optString("suggested_action")
@@ -224,6 +267,17 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Ticker for focusTimeDisplay
+        CoroutineScope(Dispatchers.Main).launch {
+            while (true) {
+                val durationMs = System.currentTimeMillis() - sessionStartTimeMs
+                val mins = (durationMs / 60000).toInt()
+                val secs = ((durationMs / 1000) % 60).toInt()
+                focusTimeDisplay.value = if (mins > 0) "${mins}m ${secs}s" else "${secs}s"
+                delay(1000)
+            }
+        }
+
         // 5. Draw the Compose user interface
         setContent {
             val showOnboarding = remember { mutableStateOf(!isOnboardingComplete) }
@@ -273,6 +327,7 @@ class MainActivity : ComponentActivity() {
             addAction("com.friday.node.BATTERY_MODE_CHANGED")
             addAction("com.friday.node.CONNECTION_STATE_CHANGED")
             addAction("com.friday.node.ACTION_RECEIVED")
+            addAction("com.friday.node.LOCATION_CHANGED")
         }
         registerReceiver(telemetryReceiver, filter, RECEIVER_EXPORTED)
         
@@ -329,8 +384,33 @@ class MainActivity : ComponentActivity() {
             notificationsPerMin = notificationsCount.value
         )
         stressScore.value = result.stressScore
-        if (!isConnected.value) {
+        if (!isConnected.value || activeActionCard.value == null) {
             wellbeingPrompt.value = result.empatheticRecommendation
+        }
+        
+        // Update activityIntensities shifting window
+        val intensity = (result.stressScore.toFloat() / 100f).coerceIn(0.02f, 1.0f)
+        if (activityIntensities.size >= 16) {
+            activityIntensities.removeAt(0)
+        }
+        activityIntensities.add(intensity)
+
+        // Dynamicize other computed state metrics
+        val calculatedProductivity = (96 - appSwitchesCount.value * 2 - notificationsCount.value).coerceIn(10, 100)
+        productivityPercentage.value = "$calculatedProductivity%"
+
+        val calculatedFocus = (92 - appSwitchesCount.value * 3).coerceIn(10, 100)
+        focusPercentage.value = "$calculatedFocus%"
+
+        val calculatedConfidence = (88 - result.stressScore / 5).coerceIn(10, 100)
+        confidencePercentage.value = "$calculatedConfidence%"
+
+        val calculatedMemoryMatch = (82 + appSwitchesCount.value).coerceIn(50, 99)
+        memoryMatchPercentage.value = "$calculatedMemoryMatch%"
+
+        if (result.stressScore > 60) {
+            val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
+            stressSpikeTime.value = sdf.format(Date())
         }
     }
 
@@ -846,70 +926,74 @@ class MainActivity : ComponentActivity() {
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
 
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                        if (attentionTasks.isEmpty()) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "01",
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Text(
-                                        text = "Database Schema Final",
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                                Button(
-                                    onClick = { showToast("Opening Database Schema task...") },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
-                                    shape = RoundedCornerShape(9999.dp),
-                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                                    modifier = Modifier.height(32.dp)
-                                ) {
-                                    Text(stringResource(R.string.btn_action), fontSize = 11.sp, color = MaterialTheme.colorScheme.surface)
-                                }
+                                Text(
+                                    text = "Ambient intelligence calibrating...",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "No urgent tasks detected. FRIDAY is monitoring telemetry to map your active attention triggers.",
+                                    fontSize = 12.sp,
+                                    textAlign = TextAlign.Center,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                )
                             }
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                attentionTasks.forEachIndexed { index, task ->
+                                    val actionId = task.optString("action_id", "act_${index}")
+                                    val agent = task.optString("agent", "Orchestrator")
+                                    val message = task.optString("message", "Attention required")
+                                    val shortMsg = if (message.length > 32) message.take(30) + "..." else message
 
-                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "02",
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Text(
-                                        text = "Professor Smith Meeting",
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                                Button(
-                                    onClick = { showToast("Opening Database Schema task...") },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
-                                    shape = RoundedCornerShape(9999.dp),
-                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                                    modifier = Modifier.height(32.dp)
-                                ) {
-                                    Text(stringResource(R.string.btn_action), fontSize = 11.sp, color = MaterialTheme.colorScheme.surface)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = String.format("%02d", index + 1),
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                            )
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Text(
+                                                text = "[$agent] $shortMsg",
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                        Button(
+                                            onClick = {
+                                                activeTaskName.value = "Optimize: $shortMsg"
+                                                activeTaskSteps.clear()
+                                                activeTaskSteps.add(Pair("Analyze VS Code metrics", "COMPLETED"))
+                                                activeTaskSteps.add(Pair("Verify DB query efficiency", "IN_PROGRESS"))
+                                                activeTaskSteps.add(Pair("Generate execution plan", "PENDING"))
+                                                showToast("Continuous journey started: $shortMsg")
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
+                                            shape = RoundedCornerShape(9999.dp),
+                                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                                            modifier = Modifier.height(32.dp)
+                                        ) {
+                                            Text(stringResource(R.string.btn_action), fontSize = 11.sp, color = MaterialTheme.colorScheme.surface)
+                                        }
+                                    }
+                                    if (index < attentionTasks.size - 1) {
+                                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                                    }
                                 }
                             }
                         }
@@ -917,14 +1001,35 @@ class MainActivity : ComponentActivity() {
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Button(
-                            onClick = { showToast("Prioritizing tasks automatically...") },
+                            onClick = {
+                                if (attentionTasks.isEmpty()) {
+                                    val mockCard = JSONObject().apply {
+                                        put("type", "FRIDAY_CARD")
+                                        put("action_id", "act_simulated_01")
+                                        put("message", "We detected high CPU usage on VS Code. Run profile_schema.py to inspect queries.")
+                                        put("agent", "Decision")
+                                        put("score", 0.94)
+                                        put("laptop_active", true)
+                                    }
+                                    attentionTasks.add(mockCard)
+                                    activeActionCard.value = mockCard
+                                    isLaptopConnected.value = true
+                                    showToast("Workspace journey simulated!")
+                                } else {
+                                    showToast("Tasks prioritized automatically.")
+                                }
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                             shape = RoundedCornerShape(9999.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
                         ) {
-                            Text(stringResource(R.string.btn_prioritize_automatically), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = if (attentionTasks.isEmpty()) "Simulate Workspace Journey" else stringResource(R.string.btn_prioritize_automatically),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
@@ -1330,6 +1435,30 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun MindTab() {
+        val subtitleText = if (stressScore.value == 0) {
+            "Learning routine..."
+        } else if (stressScore.value >= 75) {
+            "Elevated Stress"
+        } else if (stressScore.value >= 50) {
+            "Focused & Engaged"
+        } else {
+            "Calm & Balanced"
+        }
+
+        val insightText = if (stressScore.value == 0) {
+            "Ambient tracking active. As we collect telemetry from your app switching and typing speeds, personalized cognitive insights will appear here."
+        } else if (stressScore.value >= 75) {
+            "Your stress score is high (${stressScore.value}%). We detect multiple context transitions. A short break is recommended."
+        } else if (appSwitchesCount.value > 8) {
+            "Frequent app switching detected. Try to isolate your environment to stay in deep focus."
+        } else {
+            "Focus metrics look solid today. Your typing cadence is consistent and app switching is minimal."
+        }
+
+        val burnoutScore = if (stressScore.value == 0) 10f else (stressScore.value * 0.7f).coerceIn(10f, 100f)
+        val fatigueScore = if (stressScore.value == 0) 15f else (appSwitchesCount.value * 6f + averageTypingCadenceMs.value / 25f).coerceIn(10f, 100f)
+        val socialScore = if (notificationsCount.value == 0) 12f else (notificationsCount.value * 12f).coerceIn(10f, 100f)
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -1362,7 +1491,7 @@ class MainActivity : ComponentActivity() {
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Calm but busy",
+                            text = subtitleText,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Normal,
                             color = MaterialTheme.colorScheme.onSurface
@@ -1374,7 +1503,7 @@ class MainActivity : ComponentActivity() {
             // Empathetic Insight
             item {
                 Text(
-                    text = "You're handling more work than usual today, but your focus levels remain strong. The biggest risk is mental fatigue later this evening.",
+                    text = insightText,
                     fontSize = 18.sp,
                     fontFamily = FontFamily.SansSerif,
                     fontWeight = FontWeight.W300,
@@ -1404,9 +1533,9 @@ class MainActivity : ComponentActivity() {
                         Spacer(modifier = Modifier.height(16.dp))
                         BiometricsRadarChart(
                             stress = stressScore.value.toFloat(),
-                            burnout = 28f,
-                            fatigue = 47f,
-                            social = 53f
+                            burnout = burnoutScore,
+                            fatigue = fatigueScore,
+                            social = socialScore
                         )
                     }
                 }
@@ -1437,8 +1566,8 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        BiometricMetricItem(label = "Confidence", value = "73%", subtitle = "Stable")
-                        BiometricMetricItem(label = "Social Load", value = "31%", subtitle = "Introvert")
+                        BiometricMetricItem(label = "Confidence", value = confidencePercentage.value, subtitle = "Stable")
+                        BiometricMetricItem(label = "Social Load", value = "${socialScore.toInt()}%", subtitle = "Introvert")
                     }
                 }
             }
@@ -1447,6 +1576,8 @@ class MainActivity : ComponentActivity() {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     // Emotion Agent (Mint)
+                    val emotionTitle = if (stressScore.value == 0) "Calibrating..." else if (stressScore.value >= 70) "High Arousal" else "Focused & Confident"
+                    val emotionDesc = if (stressScore.value == 0) "Gathering baseline telemetry." else if (stressScore.value >= 70) "Slight stress spike detected. Take deep breaths." else "Stable typing rhythms and low application switching detected."
                     Card(
                         shape = RoundedCornerShape(24.dp),
                         colors = CardDefaults.cardColors(containerColor = ColorBlockMint),
@@ -1468,13 +1599,13 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                             Text(
-                                text = "Focused & Confident",
+                                text = emotionTitle,
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Stable typing rhythms and low application switching detected.",
+                                text = emotionDesc,
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                             )
@@ -1495,6 +1626,8 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // Burnout Agent (Pink)
+                    val burnoutTitle = if (stressScore.value == 0) "Risk: Calibrating" else if (burnoutScore >= 60) "Risk: High" else if (burnoutScore >= 35) "Risk: Moderate" else "Risk: Low"
+                    val burnoutDesc = if (stressScore.value == 0) "Analyzing daily rhythm." else if (burnoutScore >= 60) "High continuous stress. Prioritize rest cycles immediately." else "Normal sleep cycles, consistent output, and language neutrality."
                     Card(
                         shape = RoundedCornerShape(24.dp),
                         colors = CardDefaults.cardColors(containerColor = ColorBlockPink),
@@ -1516,13 +1649,13 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                             Text(
-                                text = "Risk: Low",
+                                text = burnoutTitle,
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Normal sleep cycles, consistent output, and language neutrality.",
+                                text = burnoutDesc,
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                             )
@@ -1530,6 +1663,8 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // Social Agent (Cream)
+                    val socialTitle = if (notificationsCount.value == 0) "Risk: Calibrating" else if (socialScore >= 60) "Risk: High" else if (socialScore >= 35) "Risk: Moderate" else "Risk: Low"
+                    val socialDesc = if (notificationsCount.value == 0) "Introvert. Waiting for notification spikes." else if (socialScore >= 60) "High messaging volume. Consider putting phone on Do Not Disturb." else "Impending tasks stable. Social load is well within limits."
                     Card(
                         shape = RoundedCornerShape(24.dp),
                         colors = CardDefaults.cardColors(containerColor = ColorBlockCream),
@@ -1551,13 +1686,13 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                             Text(
-                                text = "Risk: Moderate",
+                                text = socialTitle,
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "High messaging volume and impending team project deadlines.",
+                                text = socialDesc,
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                             )
@@ -1579,9 +1714,9 @@ class MainActivity : ComponentActivity() {
 
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         SignalRowItem(label = "App Switching", value = "${appSwitchesCount.value} events")
-                        SignalRowItem(label = "Assignment Due", value = "Tomorrow")
-                        SignalRowItem(label = "Sleep Duration", value = "-14% Avg", isAlert = true)
-                        SignalRowItem(label = "Focus Work", value = "4.2 hours")
+                        SignalRowItem(label = "Active Location", value = locationState.value.uppercase(Locale.getDefault()))
+                        SignalRowItem(label = "Typing Delay", value = "${averageTypingCadenceMs.value} ms")
+                        SignalRowItem(label = "Session Duration", value = focusTimeDisplay.value)
                     }
                 }
             }
@@ -1755,12 +1890,11 @@ class MainActivity : ComponentActivity() {
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.Bottom
                 ) {
-                    val heights = listOf(0.2f, 0.4f, 0.7f, 0.9f, 0.6f, 0.3f, 0.1f, 0.55f, 0.85f, 0.45f, 0.25f, 0.75f, 0.35f, 0.65f, 0.95f, 0.5f)
-                    heights.forEach { h ->
+                    activityIntensities.forEach { h ->
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .fillMaxHeight(h)
+                                .fillMaxHeight(h.coerceIn(0.02f, 1f))
                                 .background(Color.Black, RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
                         )
                     }
@@ -1836,21 +1970,18 @@ class MainActivity : ComponentActivity() {
                         color = Color.Gray,
                         fontWeight = FontWeight.Bold
                     )
+                    val storyText = if (stressScore.value == 0) {
+                        "Ambient tracking active. As we collect telemetry from your device switches and notification intercepts, your personalized daily story will build here."
+                    } else {
+                        "Today's journey began with tracking active in the ${locationState.value.lowercase(Locale.getDefault())} sanctuary. So far, we have logged ${appSwitchesCount.value} application switches and intercepted ${notificationsCount.value} distractions. Your cognitive stress is hovering around ${stressScore.value}%, indicating a steady level of focus."
+                    }
                     Text(
-                        text = "The day began with a sharp trajectory toward deep cognitive work. Between 9:00 AM and 12:30 PM, you maintained an unbroken flow state on the Database Assignment.",
+                        text = storyText,
                         fontSize = 20.sp,
                         fontFamily = FontFamily.SansSerif,
                         fontWeight = FontWeight.W300,
                         color = MaterialTheme.colorScheme.onSurface,
                         lineHeight = 28.sp
-                    )
-                    Text(
-                        text = "The afternoon dipped during the 3:00 PM sync, where minor stress levels were detected. Evening brought a resurgence of energy, peaking at ${peakFocusTime.value}, where your problem-solving efficiency was ${focusImprovementPercent.value} higher than the monthly average.",
-                        fontSize = 16.sp,
-                        fontFamily = FontFamily.SansSerif,
-                        fontWeight = FontWeight.W300,
-                        color = Color.Gray,
-                        lineHeight = 24.sp
                     )
                 }
             }
@@ -1867,8 +1998,12 @@ class MainActivity : ComponentActivity() {
                     )
 
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        DeviceContinuityRow(icon = "phone", name = "Galaxy Phone", active = "Active: 4h 12m")
-                        DeviceContinuityRow(icon = "laptop", name = "Work Laptop", active = "Active: 8h 45m")
+                        DeviceContinuityRow(icon = "phone", name = "Galaxy Phone", active = "Active: ${focusTimeDisplay.value}")
+                        DeviceContinuityRow(
+                            icon = "laptop",
+                            name = "Work Laptop",
+                            active = if (isLaptopConnected.value) "Active (WebSocket Connected)" else "Offline"
+                        )
                     }
                 }
             }
@@ -1892,17 +2027,37 @@ class MainActivity : ComponentActivity() {
                             .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
                     ) {
                         Column(modifier = Modifier.padding(24.dp)) {
-                            Text(
-                                text = "Database Assignment",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
+                            if (activeTaskName.value.isEmpty()) {
+                                Text(
+                                    text = "Awaiting task journey...",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "No active workspace journey selected. Start a task from the Dashboard's What Needs Attention list to track execution steps in real-time.",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                )
+                            } else {
+                                Text(
+                                    text = activeTaskName.value,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
 
-                            TaskJourneyStep(title = "Research & Scoping", status = "Completed", isDone = true)
-                            TaskJourneyStep(title = "Schema Design", status = "Completed", isDone = true)
-                            TaskJourneyStep(title = "API Integration", status = "IN PROGRESS", isCurrent = true)
+                                activeTaskSteps.forEach { step ->
+                                    TaskJourneyStep(
+                                        title = step.first,
+                                        status = step.second,
+                                        isDone = step.second == "COMPLETED",
+                                        isCurrent = step.second == "IN_PROGRESS"
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -1940,7 +2095,7 @@ class MainActivity : ComponentActivity() {
                                 Icon(imageVector = Icons.Default.Notifications, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
                                 Column {
                                     Text("Filtered", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text("34 suppressed distractions.", fontSize = 11.sp, color = Color.Gray)
+                                    Text("${notificationsCount.value} suppressed distractions.", fontSize = 11.sp, color = Color.Gray)
                                 }
                             }
                         }
@@ -1962,24 +2117,65 @@ class MainActivity : ComponentActivity() {
                                 Icon(imageVector = Icons.Default.Star, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
                                 Column {
                                     Text("Focus Rec", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text("Optimal window at 9:00 PM.", fontSize = 11.sp, color = Color.Gray)
+                                    Text(
+                                        text = if (stressScore.value > 60) "Optimal window in 30m." else "Optimal window at 9:00 PM.",
+                                        fontSize = 11.sp,
+                                        color = Color.Gray
+                                    )
                                 }
                             }
                         }
                     }
 
-                    Card(
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = if (isDarkThemeGlobal) Color(0xFF4C0505) else Color(0xFFFEE2E2)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(24.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                    if (stressScore.value > 65) {
+                        Card(
+                            shape = RoundedCornerShape(24.dp),
+                            colors = CardDefaults.cardColors(containerColor = if (isDarkThemeGlobal) Color(0xFF4C0505) else Color(0xFFFEE2E2)),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(imageVector = Icons.Default.Warning, contentDescription = null, tint = if (isDarkThemeGlobal) Color(0xFFFCA5A5) else Color(0xFF991B1B), modifier = Modifier.size(20.dp))
-                            Text("Fatigue Predicted", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = if (isDarkThemeGlobal) Color(0xFFFCA5A5) else Color(0xFF991B1B))
-                            Text("Sleep cycle correction needed. Rest suggested before 11:30 PM.", fontSize = 13.sp, color = if (isDarkThemeGlobal) Color(0xFFFECACA) else Color(0xFF7F1D1D))
+                            Column(
+                                modifier = Modifier.padding(24.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(imageVector = Icons.Default.Warning, contentDescription = null, tint = if (isDarkThemeGlobal) Color(0xFFFCA5A5) else Color(0xFF991B1B), modifier = Modifier.size(20.dp))
+                                Text("Fatigue Predicted", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = if (isDarkThemeGlobal) Color(0xFFFCA5A5) else Color(0xFF991B1B))
+                                Text("Sleep cycle correction needed. Rest suggested before 11:30 PM.", fontSize = 13.sp, color = if (isDarkThemeGlobal) Color(0xFFFECACA) else Color(0xFF7F1D1D))
+                            }
+                        }
+                    } else {
+                        Card(
+                            shape = RoundedCornerShape(24.dp),
+                            colors = CardDefaults.cardColors(containerColor = if (isDarkThemeGlobal) Color(0xFF064E3B) else Color(0xFFD1FAE5)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(24.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = if (isDarkThemeGlobal) Color(0xFF34D399) else Color(0xFF065F46), modifier = Modifier.size(20.dp))
+                                Text("Cognitive Balance Stable", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = if (isDarkThemeGlobal) Color(0xFF34D399) else Color(0xFF065F46))
+                                Text("Great job keeping your focus window clear of context switching.", fontSize = 13.sp, color = if (isDarkThemeGlobal) Color(0xFFA7F3D0) else Color(0xFF065F46))
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (timelineEvents.isNotEmpty()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(
+                            text = "LIVE ACTIVITY LOG",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = Color.Gray,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            timelineEvents.forEach { event ->
+                                TimelineRowItem(event = event)
+                            }
                         }
                     }
                 }
@@ -1988,6 +2184,47 @@ class MainActivity : ComponentActivity() {
             item {
                 Spacer(modifier = Modifier.height(40.dp))
             }
+        }
+    }
+
+    @Composable
+    fun TimelineRowItem(event: TimelineEvent) {
+        val icon = when (event.type) {
+            "app" -> Icons.Default.Build
+            "notification" -> Icons.Default.Notifications
+            "location" -> Icons.Default.Home
+            "suggestion" -> Icons.Default.Star
+            else -> Icons.Default.Info
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
+                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(ColorBackground, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(imageVector = icon, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = event.title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Text(text = event.description, fontSize = 12.sp, color = Color.Gray)
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = event.time,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                color = Color.Gray
+            )
         }
     }
 
