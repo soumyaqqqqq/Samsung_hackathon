@@ -89,7 +89,7 @@ class Orchestrator:
             # Still log the silenced decision
             self.db.log_kpi(
                 user_id=user_id,
-                stress_score=ctx["user_state"].get("stress_score", 0) / 100,
+                stress_score=ctx["user_state"].get("stress_score", 0) ,
                 suggested_action="[SILENCED]",
                 response_score=score,
                 user_reaction=None,
@@ -112,7 +112,7 @@ class Orchestrator:
         # Persist KPI log
         log_id = self.db.log_kpi(
             user_id=user_id,
-            stress_score=ctx["user_state"].get("stress_score", 0) / 100,
+            stress_score=ctx["user_state"].get("stress_score", 0) ,
             suggested_action=response_text,
             response_score=score,
             user_reaction=None,
