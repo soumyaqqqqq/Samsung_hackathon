@@ -10,7 +10,7 @@ class DiscoveryManager(
     private val onHubFound: (ipAddress: String, port: Int) -> Unit
 ) {
     private val nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
-    private val SERVICE_TYPE = "_friday-hub._tcp."
+    private val SERVICE_TYPE = "_friday-hub._tcp"
     private var isDiscovering = false
 
     companion object {
@@ -41,8 +41,8 @@ class DiscoveryManager(
         }
 
         override fun onServiceFound(serviceInfo: NsdServiceInfo) {
-            Log.d("FRIDAY_NSD", "Service found: ${serviceInfo.serviceName}")
-            if (serviceInfo.serviceType == SERVICE_TYPE) {
+            Log.d("FRIDAY_NSD", "Service found: ${serviceInfo.serviceName}, type: ${serviceInfo.serviceType}")
+            if (serviceInfo.serviceType.contains("_friday-hub")) {
                 nsdManager.resolveService(serviceInfo, object : NsdManager.ResolveListener {
                     override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
                         Log.e("FRIDAY_NSD", "Resolve failed: Error code $errorCode")

@@ -25,7 +25,7 @@ async def start_discovery_service(port=8000):
         properties={},
     )
     
-    aiozc = AsyncZeroconf(ip_version=IPVersion.All)
+    aiozc = AsyncZeroconf(ip_version=IPVersion.V4Only)
     print(f"[Discovery] Advertising FRIDAY Hub at {local_ip}:{port}")
     await aiozc.zeroconf.async_register_service(info)
     return aiozc, info

@@ -255,6 +255,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        
+        // Sync connection state with WebSocketManager
+        val connected = WebSocketManager.getInstance().isConnected()
+        isConnected.value = connected
+        connectionStatus.value = if (connected) {
+            "Connected to Hub"
+        } else {
+            "Searching for Hub..."
+        }
+
         // Register receiver for real-time sensing updates
         val filter = IntentFilter().apply {
             addAction("com.friday.node.APP_SWITCH_DETECTED")

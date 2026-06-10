@@ -54,9 +54,20 @@ class WebSocketManager private constructor() {
         return serverUrl?.replace("ws://", "http://")?.replace("wss://", "https://")?.replace("/ws/android", "")
     }
 
+    private fun attemptReconnection() {
+        val url = serverUrl ?: return
+        CoroutineScope(Dispatchers.IO).launch {
+            delay(5000)
+            if (!isConnected && serverUrl == url) {
+                Log.i(TAG, "Attempting automatic reconnection to $url...")
+                connect(url)
+            }
+        }
+    }
+
     fun connect(url: String) {
-        this.serverUrl = url
         disconnect()
+        this.serverUrl = url
 
         Log.i(TAG, "Connecting to target hub: $url")
         val request = Request.Builder().url(url).build()
@@ -83,16 +94,7 @@ class WebSocketManager private constructor() {
                 context?.sendBroadcast(android.content.Intent("com.friday.node.CONNECTION_STATE_CHANGED").apply {
                     putExtra("is_connected", false)
                 })
-                
-                // Attempt automatic reconnection after 5 seconds if we have a URL
-                serverUrl?.let { url ->
-                    CoroutineScope(Dispatchers.IO).launch {
-                        delay(5000)
-                        if (!isConnected) {
-                            connect(url)
-                        }
-                    }
-                }
+                attemptReconnection()
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -102,6 +104,7 @@ class WebSocketManager private constructor() {
                 context?.sendBroadcast(android.content.Intent("com.friday.node.CONNECTION_STATE_CHANGED").apply {
                     putExtra("is_connected", false)
                 })
+                attemptReconnection()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -111,6 +114,7 @@ class WebSocketManager private constructor() {
                 context?.sendBroadcast(android.content.Intent("com.friday.node.CONNECTION_STATE_CHANGED").apply {
                     putExtra("is_connected", false)
                 })
+                attemptReconnection()
             }
         })
     }
@@ -278,8 +282,10 @@ class WebSocketManager private constructor() {
     }
 
     fun disconnect() {
-        webSocket?.close(1000, "Service stopping")
+        val ws = webSocket
         webSocket = null
+        ws?.close(1000, "Service stopping")
+        serverUrl = null
         isConnected = false
         onConnectionStateChanged?.invoke(false)
     }

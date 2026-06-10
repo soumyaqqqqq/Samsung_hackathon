@@ -39,6 +39,13 @@ class FRIDAYForegroundService : Service() {
                 "com.friday.node.NOTIFICATION_INTERCEPTED" -> {
                     builder.recordNotification()
                 }
+                "com.friday.node.CONNECTION_STATE_CHANGED" -> {
+                    val isConnected = intent.getBooleanExtra("is_connected", false)
+                    if (!isConnected) {
+                        Log.i("FRIDAY_SERVICE", "Connection lost/disconnected. Restarting network discovery...")
+                        discoveryManager.startSearching()
+                    }
+                }
             }
         }
     }
@@ -67,6 +74,7 @@ class FRIDAYForegroundService : Service() {
             addAction("com.friday.node.APP_SWITCH_DETECTED")
             addAction("com.friday.node.TYPING_CADENCE_DETECTED")
             addAction("com.friday.node.NOTIFICATION_INTERCEPTED")
+            addAction("com.friday.node.CONNECTION_STATE_CHANGED")
         }
         registerReceiver(sensorFeedReceiver, filter, RECEIVER_EXPORTED)
     }
