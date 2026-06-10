@@ -27,6 +27,7 @@ _RESPONSE_PROFILES: dict[str, tuple[float, float]] = {
     "MEMORY_PROMPT":         (68.0, 25.0),
     "LLM_GENERATED":         (80.0, 30.0),
     "GENERIC":               (60.0, 50.0),
+    "DEADLINE_MISSED":       (80.0, 70.0),
 }
 
 
