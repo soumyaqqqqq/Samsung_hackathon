@@ -541,6 +541,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case "INTERRUPTION_SHIELD":
             toggleFocusShield(message.stress_score);
             break;
+        case "SHOW_CONTINUITY":
+            showContinuityToast(message);
+            break;
         case "TOGGLE_SIDEBAR":
             toggleSidebar();
             break;
@@ -720,6 +723,79 @@ function sendFeedback(eventType, trackingMetadata) {
             console.warn("[FRIDAY Content] Could not send feedback to background:", chrome.runtime.lastError.message);
         }
     });
+}
+
+function showContinuityToast(message) {
+    const toast = document.createElement("div");
+    toast.className = "friday-toast";
+    
+    const content = message.content || {};
+    const title = content.title || "FRIDAY Suggestion";
+    const bodyText = content.message || "";
+    
+    let iconName = "psychology";
+    if (message.condition === "high_stress" || message.condition === "burnout_risk") {
+        iconName = "shield";
+    } else if (message.condition === "notification_overload") {
+        iconName = "notifications";
+    }
+
+    toast.innerHTML = `
+        <div class="friday-toast-header">
+            ${getIconSvg(iconName, 20)}
+            ${title}
+        </div>
+        <div class="friday-toast-body">
+            ${bodyText}
+        </div>
+        <div class="friday-toast-actions">
+            <button id="dismiss-continuity" class="friday-toast-btn secondary">Dismiss</button>
+            <button id="accept-continuity" class="friday-toast-btn primary">Helpful</button>
+        </div>
+    `;
+
+    shadowRoot.appendChild(toast);
+
+    shadowRoot.getElementById("accept-continuity").onclick = () => {
+        chrome.runtime.sendMessage({
+            action: "send_to_backend",
+            data: {
+                action_id: message.action_id,
+                user_reaction: "helpful"
+            }
+        });
+        toast.style.transform = "translateX(120%)";
+        toast.style.opacity = "0";
+        setTimeout(() => toast.remove(), 300);
+    };
+
+    shadowRoot.getElementById("dismiss-continuity").onclick = () => {
+        chrome.runtime.sendMessage({
+            action: "send_to_backend",
+            data: {
+                action_id: message.action_id,
+                user_reaction: "dismissed"
+            }
+        });
+        toast.style.transform = "translateX(120%)";
+        toast.style.opacity = "0";
+        setTimeout(() => toast.remove(), 300);
+    };
+
+    setTimeout(() => {
+        if (toast.parentNode) {
+            chrome.runtime.sendMessage({
+                action: "send_to_backend",
+                data: {
+                    action_id: message.action_id,
+                    user_reaction: "ignored"
+                }
+            });
+            toast.style.transform = "translateX(120%)";
+            toast.style.opacity = "0";
+            setTimeout(() => toast.remove(), 300);
+        }
+    }, 15000);
 }
 
 initShadowDOM();
