@@ -821,7 +821,7 @@ class MainActivity : ComponentActivity() {
                             text = stringResource(R.string.title_node_connection),
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
-                            color = Color.Gray,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(2.dp))
@@ -884,7 +884,7 @@ class MainActivity : ComponentActivity() {
                     Card(
                         shape = RoundedCornerShape(24.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = if (isDarkThemeGlobal) Color(0xFF1E293B) else Color(0xFFF1F5F9)
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -930,7 +930,7 @@ class MainActivity : ComponentActivity() {
                                         fontSize = 9.sp,
                                         fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isDarkThemeGlobal) ColorBlockLime else MaterialTheme.colorScheme.onSurface
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                             }
@@ -956,7 +956,7 @@ class MainActivity : ComponentActivity() {
                                         showToast("Recommendation dismissed")
                                     }
                                 ) {
-                                    Text("Dismiss", color = Color.Gray, fontWeight = FontWeight.Bold)
+                                    Text("Dismiss", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
                                 }
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Button(
@@ -1037,7 +1037,7 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier.fillMaxSize(),
                                     color = MaterialTheme.colorScheme.onSurface,
                                     strokeWidth = 10.dp,
-                                    trackColor = Color.Black.copy(alpha = 0.1f)
+                                    trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
                                 )
                                 Text(
                                     text = "${stressScore.value}%",
@@ -1246,7 +1246,7 @@ class MainActivity : ComponentActivity() {
                     item {
                         Card(
                             shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = if (isDarkThemeGlobal) Color(0xFF1E1E1E) else Color(0xFFEEEEEE)),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                             modifier = Modifier
                                 .width(180.dp)
                                 .height(140.dp)
@@ -1345,7 +1345,7 @@ class MainActivity : ComponentActivity() {
                 }
                 Card(
                     shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = if (isDarkThemeGlobal) Color(0xFF1E1E1E) else Color(0xFFEEEEEE)),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -1375,10 +1375,13 @@ class MainActivity : ComponentActivity() {
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Button(
                                     onClick = { /* TODO: Repeat focus setup */ },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.onSurface,
+                                        contentColor = MaterialTheme.colorScheme.surface
+                                    ),
                                     shape = RoundedCornerShape(9999.dp)
                                 ) {
-                                    Text("Repeat Setup", color = Color.White)
+                                    Text("Repeat Setup")
                                 }
                                 Button(
                                     onClick = { /* TODO: Dismiss memory moment */ },
@@ -1732,7 +1735,7 @@ class MainActivity : ComponentActivity() {
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        color = Color.Gray
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
 
@@ -1801,7 +1804,7 @@ class MainActivity : ComponentActivity() {
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(imageVector = Icons.Default.Favorite, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                                Icon(imageVector = Icons.Default.Favorite, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = stringResource(R.string.title_emotion_agent),
@@ -1851,7 +1854,7 @@ class MainActivity : ComponentActivity() {
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(imageVector = Icons.Default.Build, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                                Icon(imageVector = Icons.Default.Build, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = stringResource(R.string.title_burnout_agent),
@@ -1888,7 +1891,7 @@ class MainActivity : ComponentActivity() {
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(imageVector = Icons.Default.Info, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                                Icon(imageVector = Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = stringResource(R.string.title_social_agent),
@@ -1922,7 +1925,7 @@ class MainActivity : ComponentActivity() {
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        color = Color.Gray
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1950,7 +1953,7 @@ class MainActivity : ComponentActivity() {
                                 fontSize = 11.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.Gray
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
@@ -1964,7 +1967,7 @@ class MainActivity : ComponentActivity() {
 
                     Card(
                         shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = if (isDarkThemeGlobal) Color(0xFF1E1E1E) else Color(0xFFEEEEEE)),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
@@ -1973,7 +1976,7 @@ class MainActivity : ComponentActivity() {
                                 fontSize = 11.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.Gray
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
@@ -1986,7 +1989,7 @@ class MainActivity : ComponentActivity() {
                             Text(
                                 text = "Outcome: High stress, but assignment successfully completed.",
                                 fontSize = 12.sp,
-                                color = Color.Gray
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -2071,7 +2074,7 @@ class MainActivity : ComponentActivity() {
                 text = label.uppercase(),
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(4.dp))
@@ -2102,7 +2105,7 @@ class MainActivity : ComponentActivity() {
                 text = value,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (isAlert) Color(0xFFEF4444) else Color.Black
+                color = if (isAlert) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurface
             )
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
@@ -2136,7 +2139,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight(h.coerceIn(0.02f, 1f))
-                                .background(Color.Black, RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
+                                .background(MaterialTheme.colorScheme.onSurface, RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
                         )
                     }
                 }
@@ -2160,7 +2163,7 @@ class MainActivity : ComponentActivity() {
                     text = stringResource(R.string.title_life_timeline),
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
-                    color = Color.Gray,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.Bold
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 4.dp))
@@ -2182,15 +2185,15 @@ class MainActivity : ComponentActivity() {
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column {
-                        Text("PRODUCTIVITY", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.Gray, fontWeight = FontWeight.Bold)
+                        Text("PRODUCTIVITY", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
                         Text(productivityPercentage.value, fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
                     }
                     Column {
-                        Text("PEAK FOCUS", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.Gray, fontWeight = FontWeight.Bold)
+                        Text("PEAK FOCUS", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
                         Text(peakFocusTime.value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     }
                     Column {
-                        Text("STRESS SPIKE", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.Gray, fontWeight = FontWeight.Bold)
+                        Text("STRESS SPIKE", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
                         Text(stressSpikeTime.value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
@@ -2208,7 +2211,7 @@ class MainActivity : ComponentActivity() {
                         text = stringResource(R.string.title_today_story),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
-                        color = Color.Gray,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Bold
                     )
                     val storyText = if (stressScore.value == 0) {
@@ -2234,7 +2237,7 @@ class MainActivity : ComponentActivity() {
                         text = stringResource(R.string.title_device_continuity),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
-                        color = Color.Gray,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Bold
                     )
 
@@ -2256,7 +2259,7 @@ class MainActivity : ComponentActivity() {
                         text = stringResource(R.string.title_task_journey),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
-                        color = Color.Gray,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Bold
                     )
 
@@ -2311,7 +2314,7 @@ class MainActivity : ComponentActivity() {
                         text = stringResource(R.string.title_friday_actions),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
-                        color = Color.Gray,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Bold
                     )
 
@@ -2333,10 +2336,10 @@ class MainActivity : ComponentActivity() {
                                     .padding(16.dp),
                                 verticalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Icon(imageVector = Icons.Default.Notifications, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                                Icon(imageVector = Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
                                 Column {
                                     Text("Filtered", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text("${notificationsCount.value} suppressed distractions.", fontSize = 11.sp, color = Color.Gray)
+                                    Text("${notificationsCount.value} suppressed distractions.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -2355,13 +2358,13 @@ class MainActivity : ComponentActivity() {
                                     .padding(16.dp),
                                 verticalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Icon(imageVector = Icons.Default.Star, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                                Icon(imageVector = Icons.Default.Star, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
                                 Column {
                                     Text("Focus Rec", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                     Text(
                                         text = if (stressScore.value > 60) "Optimal window in 30m." else "Optimal window at 9:00 PM.",
                                         fontSize = 11.sp,
-                                        color = Color.Gray
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
@@ -2409,7 +2412,7 @@ class MainActivity : ComponentActivity() {
                             text = "LIVE ACTIVITY LOG",
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
-                            color = Color.Gray,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = FontWeight.Bold
                         )
 
@@ -2449,22 +2452,22 @@ class MainActivity : ComponentActivity() {
             Box(
                 modifier = Modifier
                     .size(40.dp)
-                    .background(ColorBackground, CircleShape),
+                    .background(MaterialTheme.colorScheme.background, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(imageVector = icon, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                Icon(imageVector = icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = event.title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                Text(text = event.description, fontSize = 12.sp, color = Color.Gray)
+                Text(text = event.description, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = event.time,
                 fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace,
-                color = Color.Gray
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -2482,15 +2485,15 @@ class MainActivity : ComponentActivity() {
             Box(
                 modifier = Modifier
                     .size(40.dp)
-                    .background(ColorBackground, CircleShape),
+                    .background(MaterialTheme.colorScheme.background, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(imageVector = if (icon == "phone") Icons.Default.Phone else Icons.Default.Build, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                Icon(imageVector = if (icon == "phone") Icons.Default.Phone else Icons.Default.Build, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column {
                 Text(text = name, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                Text(text = active, fontSize = 12.sp, color = Color.Gray)
+                Text(text = active, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -2531,7 +2534,7 @@ class MainActivity : ComponentActivity() {
                 Text(
                     text = status,
                     fontSize = 11.sp,
-                    color = if (isCurrent) Color.Black else Color.Gray,
+                    color = if (isCurrent) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
                 )
             }
@@ -2554,7 +2557,7 @@ class MainActivity : ComponentActivity() {
                     text = stringResource(R.string.title_trust_center),
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
-                    color = Color.Gray,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.Bold
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 4.dp))
@@ -2569,7 +2572,7 @@ class MainActivity : ComponentActivity() {
                 Text(
                     text = "Manage privacy, devices and personalization.",
                     fontSize = 14.sp,
-                    color = Color.Gray
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -2587,12 +2590,12 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier
                             .size(72.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(Color.Black),
+                            .background(MaterialTheme.colorScheme.onSurface),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = if (userName.value.isNotEmpty()) userName.value.take(1) else "U",
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.surface,
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Black
                         )
@@ -2608,7 +2611,7 @@ class MainActivity : ComponentActivity() {
                         Text(
                             text = userRole.value,
                             fontSize = 12.sp,
-                            color = Color.Gray
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -2707,7 +2710,7 @@ class MainActivity : ComponentActivity() {
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            color = Color.Gray
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
                         // Accessibility
@@ -2718,7 +2721,7 @@ class MainActivity : ComponentActivity() {
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("Accessibility Service", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                Text("For active application context switches", fontSize = 11.sp, color = Color.Gray)
+                                Text("For active application context switches", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Button(
                                 onClick = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
@@ -2742,7 +2745,7 @@ class MainActivity : ComponentActivity() {
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("Notification Listener", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                Text("For intercepting notifications", fontSize = 11.sp, color = Color.Gray)
+                                Text("For intercepting notifications", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Button(
                                 onClick = { startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")) },
@@ -2766,7 +2769,7 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text("Post Notifications", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text("Foreground sensing alert channel", fontSize = 11.sp, color = Color.Gray)
+                                    Text("Foreground sensing alert channel", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 Button(
                                     onClick = {
@@ -2936,7 +2939,7 @@ class MainActivity : ComponentActivity() {
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            color = Color.Gray
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
                         Row(
@@ -2946,7 +2949,7 @@ class MainActivity : ComponentActivity() {
                             OutlinedTextField(
                                 value = hubIp.value,
                                 onValueChange = { hubIp.value = it },
-                                label = { Text("Hub IP Address", color = Color.Gray, fontSize = 12.sp) },
+                                label = { Text("Hub IP Address", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) },
                                 singleLine = true,
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -2959,7 +2962,7 @@ class MainActivity : ComponentActivity() {
                             OutlinedTextField(
                                 value = hubPort.value,
                                 onValueChange = { hubPort.value = it },
-                                label = { Text("Port", color = Color.Gray, fontSize = 12.sp) },
+                                label = { Text("Port", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) },
                                 singleLine = true,
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -3006,7 +3009,7 @@ class MainActivity : ComponentActivity() {
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            color = Color.Gray
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
                         val sharedPrefs = remember { getSharedPreferences("friday_settings", MODE_PRIVATE) }
@@ -3153,10 +3156,10 @@ class MainActivity : ComponentActivity() {
                 checked = checked,
                 onCheckedChange = onCheckedChange,
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = MaterialTheme.colorScheme.onSurface,
-                    uncheckedThumbColor = Color.Gray,
-                    uncheckedTrackColor = Color.LightGray
+                    checkedThumbColor = MaterialTheme.colorScheme.primary,
+                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+                    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
                 )
             )
         }
@@ -3392,7 +3395,7 @@ class MainActivity : ComponentActivity() {
                         Text(
                             "These are user behavioral models and preferences stored in FRIDAY's long-term memory graph.",
                             fontSize = 12.sp,
-                            color = Color.Gray
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         
@@ -3425,7 +3428,7 @@ class MainActivity : ComponentActivity() {
                         Spacer(modifier = Modifier.height(8.dp))
                         
                         if (localMemories.isEmpty()) {
-                            Text("No memories stored yet.", fontStyle = FontStyle.Italic, color = Color.Gray)
+                            Text("No memories stored yet.", fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
                             LazyColumn(
                                 modifier = Modifier.heightIn(max = 240.dp),
@@ -3494,7 +3497,7 @@ class MainActivity : ComponentActivity() {
                         Text(
                             "Link a new device or manage existing sessions.",
                             fontSize = 12.sp,
-                            color = Color.Gray
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         
@@ -3527,7 +3530,7 @@ class MainActivity : ComponentActivity() {
                         Spacer(modifier = Modifier.height(8.dp))
                         
                         if (localDevices.isEmpty()) {
-                            Text("No devices linked.", fontStyle = FontStyle.Italic, color = Color.Gray)
+                            Text("No devices linked.", fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
                             LazyColumn(
                                 modifier = Modifier.heightIn(max = 240.dp),
@@ -3765,7 +3768,7 @@ class MainActivity : ComponentActivity() {
         Card(
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(
-                containerColor = if (isDarkThemeGlobal) Color(0xFF1E293B).copy(alpha = 0.8f) else Color(0xFFF1F5F9).copy(alpha = 0.8f)
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
             ),
             modifier = Modifier
                 .fillMaxWidth()
@@ -3837,12 +3840,12 @@ class MainActivity : ComponentActivity() {
                             iconBg = Color(0xFFFEE2E2) // Light red
                             icon = Icons.Default.Warning
                         } else if (item.category == "weather") {
-                            iconColor = Color(0xFF6B7280) // Grey
-                            iconBg = Color(0xFFF3F4F6) // Light grey
+                            iconColor = MaterialTheme.colorScheme.onSurfaceVariant // Grey
+                            iconBg = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f) // Light grey
                             icon = Icons.Default.Info
                         } else {
-                            iconColor = ColorBlockLime
-                            iconBg = ColorBlockLime.copy(alpha = 0.15f)
+                            iconColor = if (isDarkThemeGlobal) Color(0xFFD6FF3D) else Color(0xFF2A3600)
+                            iconBg = iconColor.copy(alpha = 0.15f)
                             icon = Icons.Default.Notifications
                         }
 
@@ -3850,7 +3853,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(
-                                    if (isDarkThemeGlobal) Color(0xFF0F172A) else Color.White,
+                                    MaterialTheme.colorScheme.surface,
                                     RoundedCornerShape(16.dp)
                                 )
                                 .border(
