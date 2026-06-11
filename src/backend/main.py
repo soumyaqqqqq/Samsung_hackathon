@@ -378,6 +378,60 @@ async def get_telemetry(session_id: Optional[str] = Query(None)):
 # ──────────────────────────────────────────────────────────────────────────────
 # WebSocket — Android
 # ──────────────────────────────────────────────────────────────────────────────
+# Inactivity summary generation helper
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def execute_hub_context_summary_generation(raw_payload: str) -> str:
+    """
+    Run Ollama to summarize the batch of notifications missed during inactivity.
+    If Ollama is not running/unreachable, falls back to a rule-based summary helper.
+    """
+    import httpx
+    
+    system_prompt = (
+        "You are FRIDAY, an empathetic AI assistant. "
+        "The user has been away from their device. Below is a batch of notifications they missed. "
+        "Summarize these notifications in a single concise, friendly, and structured sentence or two. "
+        "Format it nicely and highlight any critical action items or key updates. "
+        "Do not repeat details if they are not important."
+    )
+    user_prompt = f"Missed notifications:\n{raw_payload}"
+    
+    try:
+        async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT) as client:
+            resp = await client.post(
+                f"{settings.OLLAMA_BASE_URL}/api/generate",
+                json={
+                    "model": settings.PRIMARY_LLM_MODEL,
+                    "prompt": f"<system>{system_prompt}</system>\n{user_prompt}",
+                    "stream": False,
+                    "options": {"temperature": 0.5, "num_predict": 120},
+                },
+            )
+            resp.raise_for_status()
+            summary = resp.json().get("response", "").strip()
+            if summary:
+                return summary
+    except Exception as e:
+        logger.warning(f"Ollama digest generation failed: {e}. Using local rule-based fallback.")
+    
+    # Rule-based fallback summary logic
+    lines = [line.strip() for line in raw_payload.split("\n") if line.strip()]
+    if not lines:
+        return "You had no notifications during this period of inactivity."
+        
+    app_counts = {}
+    for line in lines:
+        if line.startswith("[App: ") and "]" in line:
+            app_name = line.split("]")[0].replace("[App: ", "")
+            # Get simpler app name
+            app_name = app_name.split(".")[-1]
+            app_counts[app_name] = app_counts.get(app_name, 0) + 1
+            
+    summary_parts = [f"{count} from {app}" for app, count in app_counts.items()]
+    return f"While you were away, you missed {len(lines)} updates: " + ", ".join(summary_parts) + "."
+
+# ──────────────────────────────────────────────────────────────────────────────
 
 @app.websocket("/ws/android")
 async def android_ws(websocket: WebSocket):
@@ -415,6 +469,21 @@ async def android_ws(websocket: WebSocket):
                 if action_id and user_reaction and orchestrator:
                     orchestrator.record_feedback(action_id=action_id, reaction=user_reaction)
                     logger.info(f"Android RLHF feedback: {action_id} → {user_reaction}")
+                continue
+
+            if msg_type == "LIVE_TRACKER_SIGNAL":
+                logger.info(f"Live tracker update: app={data.get('package_id')} title={data.get('title')}")
+                continue
+
+            if msg_type == "BATCH_SUMMARY_REQUEST":
+                raw_payload = data.get("raw_payload", "")
+                logger.info(f"Batch summary request received. Length={len(raw_payload)}")
+                summary = await execute_hub_context_summary_generation(raw_payload)
+                response_frame = {
+                    "type": "INACTIVITY_DIGEST_RESPONSE",
+                    "summary": summary
+                }
+                await websocket.send_json(response_frame)
                 continue
 
             # ── Handle individual sensor events (not full ContextObjects) ──
