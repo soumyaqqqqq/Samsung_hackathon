@@ -1210,7 +1210,11 @@ class MainActivity : ComponentActivity() {
                                     isLaptopConnected.value = true
                                     showToast("Workspace journey simulated!")
                                 } else {
-                                    showToast("Tasks prioritized automatically.")
+                                    // Actually prioritize the tasks by sorting by urgency score descending
+                                    val sortedTasks = attentionTasks.sortedByDescending { it.optDouble("score", 0.0) }
+                                    attentionTasks.clear()
+                                    attentionTasks.addAll(sortedTasks)
+                                    showToast("Tasks prioritized by urgency score.")
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
@@ -2663,18 +2667,53 @@ class MainActivity : ComponentActivity() {
                             color = MaterialTheme.colorScheme.onSurface
                         )
 
-                        var dataProcessing by remember { mutableStateOf(true) }
-                        var cloudBackup by remember { mutableStateOf(true) }
-                        var dataEncryption by remember { mutableStateOf(true) }
+                        val sharedPrefs = remember { getSharedPreferences("friday_settings", MODE_PRIVATE) }
+                        var dataProcessing by remember { mutableStateOf(sharedPrefs.getBoolean("data_processing", true)) }
+                        var cloudBackup by remember { mutableStateOf(sharedPrefs.getBoolean("cloud_backup", true)) }
+                        var dataEncryption by remember { mutableStateOf(sharedPrefs.getBoolean("data_encryption", true)) }
 
-                        ToggleRow(label = stringResource(R.string.hint_data_processing), subtitle = stringResource(R.string.hint_mostly_on_device), checked = dataProcessing, onCheckedChange = { dataProcessing = it })
-                        ToggleRow(label = stringResource(R.string.hint_cloud_backup), checked = cloudBackup, onCheckedChange = { cloudBackup = it })
-                        ToggleRow(label = stringResource(R.string.hint_data_encryption), checked = dataEncryption, onCheckedChange = { dataEncryption = it })
+                        ToggleRow(
+                            label = stringResource(R.string.hint_data_processing),
+                            subtitle = stringResource(R.string.hint_mostly_on_device),
+                            checked = dataProcessing,
+                            onCheckedChange = {
+                                dataProcessing = it
+                                sharedPrefs.edit().putBoolean("data_processing", it).apply()
+                                showToast(if (it) "On-device processing enabled" else "On-device processing disabled")
+                            }
+                        )
+                        ToggleRow(
+                            label = stringResource(R.string.hint_cloud_backup),
+                            checked = cloudBackup,
+                            onCheckedChange = {
+                                cloudBackup = it
+                                sharedPrefs.edit().putBoolean("cloud_backup", it).apply()
+                                showToast(if (it) "Cloud backup enabled" else "Cloud backup disabled")
+                            }
+                        )
+                        ToggleRow(
+                            label = stringResource(R.string.hint_data_encryption),
+                            checked = dataEncryption,
+                            onCheckedChange = {
+                                dataEncryption = it
+                                sharedPrefs.edit().putBoolean("data_encryption", it).apply()
+                                showToast(if (it) "Data encryption enabled" else "Data encryption disabled")
+                            }
+                        )
 
                         Spacer(modifier = Modifier.height(8.dp))
 
                         Button(
-                            onClick = { showToast(getString(R.string.msg_open_permission_manager)) },
+                            onClick = {
+                                try {
+                                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = Uri.fromParts("package", packageName, null)
+                                    }
+                                    startActivity(intent)
+                                } catch (e: Exception) {
+                                    showToast(getString(R.string.msg_open_permission_manager))
+                                }
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
@@ -3005,18 +3044,27 @@ class MainActivity : ComponentActivity() {
                             color = Color.Gray
                         )
 
-                        var assistanceStyle by remember { mutableStateOf("Balanced") }
+                        val sharedPrefs = remember { getSharedPreferences("friday_settings", MODE_PRIVATE) }
+                        var assistanceStyle by remember { mutableStateOf(sharedPrefs.getString("assistance_style", "Balanced") ?: "Balanced") }
 
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { assistanceStyle = "Quiet" },
+                                    .clickable {
+                                        assistanceStyle = "Quiet"
+                                        sharedPrefs.edit().putString("assistance_style", "Quiet").apply()
+                                        showToast("Assistance style set to Quiet")
+                                    },
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 RadioButton(
                                     selected = assistanceStyle == "Quiet",
-                                    onClick = { assistanceStyle = "Quiet" },
+                                    onClick = {
+                                        assistanceStyle = "Quiet"
+                                        sharedPrefs.edit().putString("assistance_style", "Quiet").apply()
+                                        showToast("Assistance style set to Quiet")
+                                    },
                                     colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.onSurface)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -3025,12 +3073,20 @@ class MainActivity : ComponentActivity() {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { assistanceStyle = "Balanced" },
+                                    .clickable {
+                                        assistanceStyle = "Balanced"
+                                        sharedPrefs.edit().putString("assistance_style", "Balanced").apply()
+                                        showToast("Assistance style set to Balanced")
+                                    },
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 RadioButton(
                                     selected = assistanceStyle == "Balanced",
-                                    onClick = { assistanceStyle = "Balanced" },
+                                    onClick = {
+                                        assistanceStyle = "Balanced"
+                                        sharedPrefs.edit().putString("assistance_style", "Balanced").apply()
+                                        showToast("Assistance style set to Balanced")
+                                    },
                                     colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.onSurface)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -3039,12 +3095,20 @@ class MainActivity : ComponentActivity() {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { assistanceStyle = "Proactive" },
+                                    .clickable {
+                                        assistanceStyle = "Proactive"
+                                        sharedPrefs.edit().putString("assistance_style", "Proactive").apply()
+                                        showToast("Assistance style set to Proactive")
+                                    },
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 RadioButton(
                                     selected = assistanceStyle == "Proactive",
-                                    onClick = { assistanceStyle = "Proactive" },
+                                    onClick = {
+                                        assistanceStyle = "Proactive"
+                                        sharedPrefs.edit().putString("assistance_style", "Proactive").apply()
+                                        showToast("Assistance style set to Proactive")
+                                    },
                                     colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.onSurface)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))

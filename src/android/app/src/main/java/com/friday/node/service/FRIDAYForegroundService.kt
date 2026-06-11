@@ -9,6 +9,11 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import android.widget.RemoteViews
+import android.graphics.Color
+import android.util.TypedValue
+import com.friday.node.R
+import com.friday.node.utils.LocalFallbackEngine
 import com.friday.node.data.remote.ContextObjectBuilder
 import com.friday.node.data.remote.WebSocketManager
 import com.friday.node.utils.BatteryOptimizer
@@ -30,6 +35,14 @@ class FRIDAYForegroundService : Service() {
     private var contextPushJob: Job? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    // Rolling window of the last 9 stress score evaluations
+    private val stressHistory = mutableListOf<Int>()
+
+    // Cached last notification for stress level layout
+    private var lastInterceptedPkg: String? = null
+    private var lastInterceptedTitle: String? = null
+    private var lastInterceptedContent: String? = null
+
     // Broadcast receiver to feed sensor events into the ContextObjectBuilder
     private val sensorFeedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -38,13 +51,24 @@ class FRIDAYForegroundService : Service() {
                 "com.friday.node.APP_SWITCH_DETECTED" -> {
                     val pkg = intent.getStringExtra("package_name") ?: "unknown"
                     builder.recordAppSwitch(pkg)
+                    updateNotificationLayout()
                 }
                 "com.friday.node.TYPING_CADENCE_DETECTED" -> {
                     val delay = intent.getLongExtra("average_delay_ms", 0L)
                     builder.recordTypingCadence(delay)
+                    updateNotificationLayout()
                 }
                 "com.friday.node.NOTIFICATION_INTERCEPTED" -> {
                     builder.recordNotification()
+                    val pkg = intent.getStringExtra("package_name")
+                    val title = intent.getStringExtra("title")
+                    val content = intent.getStringExtra("content")
+                    if (pkg != null && title != null && content != null) {
+                        lastInterceptedPkg = pkg
+                        lastInterceptedTitle = title
+                        lastInterceptedContent = content
+                    }
+                    updateNotificationLayout()
                 }
                 "com.friday.node.CONNECTION_STATE_CHANGED" -> {
                     val isConnected = intent.getBooleanExtra("is_connected", false)
@@ -55,6 +79,11 @@ class FRIDAYForegroundService : Service() {
                 }
             }
         }
+    }
+
+    private fun updateNotificationLayout() {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(TRACKER_NOTIFICATION_ID, buildCustomStressNotification())
     }
 
     private val digestReceiver = object : BroadcastReceiver() {
@@ -113,7 +142,7 @@ class FRIDAYForegroundService : Service() {
             Log.i(TAG, "Sensing Node started from onboarding completion. Loading active configuration.")
         }
 
-        val baseNotification = buildTrackerNotification("FRIDAY Engine Status: Ambient Senses Initialized")
+        val baseNotification = buildCustomStressNotification()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(TRACKER_NOTIFICATION_ID, baseNotification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
@@ -191,10 +220,12 @@ class FRIDAYForegroundService : Service() {
     }
 
     private fun updateLiveTrackerDisplay(pkg: String, title: String, content: String) {
-        val cleanPkg = pkg.substringAfterLast(".")
-        val updateText = "[$cleanPkg] $title: $content"
+        lastInterceptedPkg = pkg
+        lastInterceptedTitle = title
+        lastInterceptedContent = content
+        
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(TRACKER_NOTIFICATION_ID, buildTrackerNotification(updateText))
+        manager.notify(TRACKER_NOTIFICATION_ID, buildCustomStressNotification())
     }
 
     private fun triggerSystemDigestAlert(summaryText: String) {
@@ -210,13 +241,124 @@ class FRIDAYForegroundService : Service() {
         manager.notify(DIGEST_NOTIFICATION_ID, alert)
     }
 
-    private fun buildTrackerNotification(text: String): Notification {
+    private fun buildCustomStressNotification(): Notification {
+        val builder = contextBuilder
+        val appSwitches = builder?.appSwitchCount ?: 0
+        val typingDelay = if ((builder?.typingEventCount ?: 0) > 0) {
+            (builder?.totalTypingDelayMs ?: 0L) / (builder?.typingEventCount ?: 1)
+        } else 0L
+        val notifications = builder?.notificationCount ?: 0
+
+        val result = LocalFallbackEngine.evaluateOfflineContext(appSwitches, typingDelay, notifications)
+        val stressScore = result.stressScore
+        val statusString = when (result.cognitiveLoadStatus) {
+            "CRITICAL_OVERLOAD" -> "Overload"
+            "ELEVATED_STRESS" -> "Elevated"
+            else -> "Stable"
+        }
+
+        // Update rolling stress history
+        stressHistory.add(stressScore)
+        if (stressHistory.size > 9) {
+            stressHistory.removeAt(0)
+        }
+
+        val recommendationText = if (lastInterceptedPkg != null && lastInterceptedTitle != null && lastInterceptedContent != null) {
+            val cleanPkg = lastInterceptedPkg?.substringAfterLast(".") ?: ""
+            "Latest Alert: [$cleanPkg] $lastInterceptedTitle: $lastInterceptedContent"
+        } else {
+            result.empatheticRecommendation
+        }
+
+        // Determine dynamic resources and colors depending on current stress level
+        val pillBgRes: Int
+        val pillTextColorHex: String
+        val scoreColorHex: String
+
+        when {
+            stressScore >= 75 -> { // Critical Overload
+                pillBgRes = R.drawable.pill_status_critical
+                pillTextColorHex = "#721C24"
+                scoreColorHex = "#EF4444"
+            }
+            stressScore >= 50 -> { // Elevated Stress
+                pillBgRes = R.drawable.pill_status_elevated
+                pillTextColorHex = "#856404"
+                scoreColorHex = "#F59E0B"
+            }
+            else -> { // Stable / Calm
+                pillBgRes = R.drawable.pill_status_stable
+                pillTextColorHex = "#1E5A34"
+                scoreColorHex = "#10B981"
+            }
+        }
+
+        val remoteViewsCollapsed = RemoteViews(packageName, R.layout.custom_stress_notification_collapsed).apply {
+            setTextViewText(R.id.notif_score, "$stressScore/100")
+            setTextViewText(R.id.notif_status_pill, statusString)
+            setInt(R.id.notif_status_pill, "setBackgroundResource", pillBgRes)
+            setTextColor(R.id.notif_status_pill, Color.parseColor(pillTextColorHex))
+            setTextColor(R.id.notif_score, Color.parseColor(scoreColorHex))
+        }
+
+        val remoteViewsExpanded = RemoteViews(packageName, R.layout.custom_stress_notification).apply {
+            setTextViewText(R.id.notif_score, stressScore.toString())
+            setTextViewText(R.id.notif_status_pill, statusString)
+            setInt(R.id.notif_status_pill, "setBackgroundResource", pillBgRes)
+            setTextColor(R.id.notif_status_pill, Color.parseColor(pillTextColorHex))
+            setTextColor(R.id.notif_score, Color.parseColor(scoreColorHex))
+            setTextViewText(R.id.notif_description, recommendationText)
+
+            // Setup dynamic trend bars based on rolling history
+            val displayHistory = ArrayList<Int>()
+            val padCount = 9 - stressHistory.size
+            for (i in 0 until padCount) {
+                // Pad early history with a gentle ramp
+                displayHistory.add(20 + i * 5)
+            }
+            displayHistory.addAll(stressHistory)
+
+            val barIds = arrayOf(
+                R.id.notif_bar_1, R.id.notif_bar_2, R.id.notif_bar_3,
+                R.id.notif_bar_4, R.id.notif_bar_5, R.id.notif_bar_6,
+                R.id.notif_bar_7, R.id.notif_bar_8, R.id.notif_bar_9
+            )
+
+            for (i in 0..8) {
+                val histScore = displayHistory[i]
+                val barId = barIds[i]
+
+                // Proportional height (min 8dp, max 42dp)
+                val heightDp = 8 + (histScore.toFloat() / 100f * 34f).toInt()
+
+                // Capsule color matching stress level
+                val barCapsuleRes = when {
+                    histScore >= 75 -> R.drawable.capsule_red
+                    histScore >= 50 -> R.drawable.capsule_orange
+                    else -> R.drawable.capsule_green
+                }
+
+                setInt(barId, "setBackgroundResource", barCapsuleRes)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setViewLayoutHeight(barId, heightDp.toFloat(), TypedValue.COMPLEX_UNIT_DIP)
+                }
+            }
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, com.friday.node.MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("FRIDAY Live Telemetry Tracker")
-            .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
+            .setCustomContentView(remoteViewsCollapsed)
+            .setCustomBigContentView(remoteViewsExpanded)
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+            .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
     }
 
