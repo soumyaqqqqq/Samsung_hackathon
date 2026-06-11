@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -3351,12 +3352,32 @@ class MainActivity : ComponentActivity() {
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = if (assistantState == VoiceState.RECORDING) Icons.Default.Check else Icons.Default.Star,
-                            contentDescription = "Mic",
-                            tint = if (assistantState == VoiceState.RECORDING) MaterialTheme.colorScheme.surface else ColorBlockLime,
-                            modifier = Modifier.size(32.dp)
-                        )
+                        Crossfade(targetState = assistantState, label = "mic_state_transition") { state ->
+                            when (state) {
+                                VoiceState.RECORDING -> {
+                                    val recordingColor = if (isDarkThemeGlobal) Color(0xFFD6FF3D) else Color.Black
+                                    PulsatingDotsCompose(color = recordingColor)
+                                }
+                                VoiceState.TRANSCRIBING -> {
+                                    CircularProgressIndicator(
+                                        color = if (isDarkThemeGlobal) Color(0xFFD6FF3D) else Color.Black,
+                                        strokeWidth = 3.dp,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                                VoiceState.RESPONDING -> {
+                                    RippleWaveLoaderCompose()
+                                }
+                                else -> {
+                                    Icon(
+                                        imageVector = Icons.Default.Star,
+                                        contentDescription = "Mic",
+                                        tint = ColorBlockLime,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -3525,6 +3546,101 @@ class MainActivity : ComponentActivity() {
         ) {
             Text(text = text, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
             Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
+        }
+    }
+
+    @Composable
+    private fun PulsatingDotsCompose(color: Color) {
+        val transition = rememberInfiniteTransition(label = "dots")
+        val dot1Scale by transition.animateFloat(
+            initialValue = 0.5f,
+            targetValue = 1.3f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "dot1"
+        )
+        val dot2Scale by transition.animateFloat(
+            initialValue = 0.5f,
+            targetValue = 1.3f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+                initialStartOffset = androidx.compose.animation.core.StartOffset(200)
+            ),
+            label = "dot2"
+        )
+        val dot3Scale by transition.animateFloat(
+            initialValue = 0.5f,
+            targetValue = 1.3f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+                initialStartOffset = androidx.compose.animation.core.StartOffset(400)
+            ),
+            label = "dot3"
+        )
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .graphicsLayer(scaleX = dot1Scale, scaleY = dot1Scale)
+                    .background(color, CircleShape)
+            )
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .graphicsLayer(scaleX = dot2Scale, scaleY = dot2Scale)
+                    .background(color, CircleShape)
+            )
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .graphicsLayer(scaleX = dot3Scale, scaleY = dot3Scale)
+                    .background(color, CircleShape)
+            )
+        }
+    }
+
+    @Composable
+    private fun RippleWaveLoaderCompose() {
+        val transition = rememberInfiniteTransition(label = "wave")
+        val animVals = (0 until 7).map { index ->
+            transition.animateFloat(
+                initialValue = 0.4f,
+                targetValue = 1.6f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(500, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse,
+                    initialStartOffset = androidx.compose.animation.core.StartOffset(index * 80)
+                ),
+                label = "wave_$index"
+            )
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            animVals.forEachIndexed { index, animVal ->
+                val barColor = if (isDarkThemeGlobal) {
+                    if (index % 2 == 0) Color(0xFFD6FF3D) else Color.White
+                } else {
+                    Color.Black
+                }
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(18.dp)
+                        .graphicsLayer(scaleY = animVal.value)
+                        .background(barColor, RoundedCornerShape(99.dp))
+                )
+            }
         }
     }
 
