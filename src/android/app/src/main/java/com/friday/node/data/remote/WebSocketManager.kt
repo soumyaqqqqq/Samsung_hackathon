@@ -156,6 +156,15 @@ class WebSocketManager private constructor() {
                     ctx.sendBroadcast(intent)
                 }
 
+                "INACTIVITY_DIGEST_RESPONSE" -> {
+                    val summary = json.optString("summary", "")
+                    Log.i(TAG, "INACTIVITY_DIGEST_RESPONSE received: summary=$summary")
+                    val intent = Intent("com.friday.node.INACTIVITY_DIGEST_RECEIVED").apply {
+                        putExtra("summary", summary)
+                    }
+                    ctx.sendBroadcast(intent)
+                }
+
                 "ACK" -> {
                     val count = json.optInt("count", 0)
                     Log.i(TAG, "Backend ACK received: $count messages processed")
