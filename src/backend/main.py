@@ -652,6 +652,10 @@ async def voice_ws(websocket: WebSocket):
         while True:
             message = await websocket.receive()
 
+            if message.get("type") == "websocket.disconnect":
+                logger.info("Voice WebSocket client disconnected cleanly")
+                break
+
             if "bytes" in message and message["bytes"]:
                 # Binary frame: accumulate audio data
                 audio_buffer.extend(message["bytes"])
@@ -718,15 +722,49 @@ async def voice_ws(websocket: WebSocket):
 
 async def generate_voice_response(text: str) -> str:
     """
-    Use Ollama to generate an assistant response for the voice command.
+    Use Ollama to generate a conversational response for the voice command,
+    integrating the latest sensor/user telemetry context for a Jarvis-like experience.
     """
     import httpx
+    
+    # 1. Compile active telemetry context
+    context_str = "No active telemetry context available."
+    if latest_contexts:
+        try:
+            ctx = list(latest_contexts.values())[-1]
+            sensor = ctx.get("sensor_data", {})
+            user_state = ctx.get("user_state", {})
+            active_task = ctx.get("active_task")
+            
+            loc = sensor.get("location", "home")
+            stress = user_state.get("stress_score", 42)
+            noise = sensor.get("ambient_noise_db", 40)
+            light = sensor.get("ambient_light_lux", 150)
+            apps = sensor.get("app_switches", 0)
+            typos = sensor.get("typo_rate", 0.0)
+            task_name = active_task.get("name") if active_task else "None"
+            
+            context_str = (
+                f"- User Current Location: {loc}\n"
+                f"- User Stress Score: {stress}/100\n"
+                f"- Active Working Task: {task_name}\n"
+                f"- Application Switches (15m): {apps}\n"
+                f"- Typo Rate: {typos:.2f}\n"
+                f"- Ambient Noise: {noise} dB\n"
+                f"- Ambient Light Level: {light} lux\n"
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to compile telemetry context: {exc}")
+
+    # 2. Build the Jarvis-like system prompt
     system_prompt = (
-        "You are FRIDAY, an empathetic AI assistant. "
-        "The user has spoken a voice command/question. "
-        "Answer it in 1 or 2 concise, friendly, warm sentences. "
-        "Be helpful, direct, and conversational."
+        "You are FRIDAY, an advanced, highly intelligent, empathetic, Jarvis-like AI assistant. "
+        "Answer the user's spoken command/question in exactly 1 or 2 concise, friendly, and smart sentences. "
+        "Integrate the user's real-time context metrics below to give precise, contextual answers if helpful. "
+        "Keep your tone conversational, warm, and professional. Do not exceed 2 sentences.\n\n"
+        f"USER REAL-TIME CONTEXT:\n{context_str}"
     )
+    
     try:
         async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT) as client:
             resp = await client.post(

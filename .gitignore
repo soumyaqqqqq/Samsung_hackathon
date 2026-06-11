@@ -18,6 +18,10 @@ __pycache__/
 chroma/
 data/chroma/
 data/chroma_backup/
+src/backend/data/audio/
+*.wav
+*.aac
+*.pcm
 
 # VS Code
 .vscode/
