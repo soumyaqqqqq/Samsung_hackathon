@@ -7,6 +7,7 @@ import com.friday.node.data.local.EventEntity
 import com.friday.node.data.local.RoomDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -66,13 +67,22 @@ class WebSocketManager private constructor() {
     }
 
     fun connect(url: String) {
+        if (isConnected && serverUrl == url) {
+            Log.i(TAG, "Already connected to $url. Skipping connection attempt.")
+            return
+        }
+
         disconnect()
         this.serverUrl = url
 
         Log.i(TAG, "Connecting to target hub: $url")
         val request = Request.Builder().url(url).build()
-        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+        val newWebSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (webSocket != this@WebSocketManager.webSocket) {
+                    webSocket.close(1000, "Stale connection")
+                    return
+                }
                 Log.i(TAG, "WebSocket Connection successfully established!")
                 isConnected = true
                 onConnectionStateChanged?.invoke(true)
@@ -83,11 +93,17 @@ class WebSocketManager private constructor() {
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                if (webSocket != this@WebSocketManager.webSocket) {
+                    return
+                }
                 Log.d(TAG, "Received message from Hub: $text")
                 handleBackendMessage(text)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (webSocket != this@WebSocketManager.webSocket) {
+                    return
+                }
                 Log.e(TAG, "WebSocket connection failure: ${t.message}")
                 isConnected = false
                 onConnectionStateChanged?.invoke(false)
@@ -98,6 +114,9 @@ class WebSocketManager private constructor() {
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                if (webSocket != this@WebSocketManager.webSocket) {
+                    return
+                }
                 Log.w(TAG, "WebSocket closing: $code / $reason")
                 isConnected = false
                 onConnectionStateChanged?.invoke(false)
@@ -108,6 +127,9 @@ class WebSocketManager private constructor() {
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (webSocket != this@WebSocketManager.webSocket) {
+                    return
+                }
                 Log.i(TAG, "WebSocket closed.")
                 isConnected = false
                 onConnectionStateChanged?.invoke(false)
@@ -117,6 +139,7 @@ class WebSocketManager private constructor() {
                 attemptReconnection()
             }
         })
+        this.webSocket = newWebSocket
     }
 
     /**
@@ -299,13 +322,4 @@ class WebSocketManager private constructor() {
         onConnectionStateChanged?.invoke(false)
     }
 
-    // Helper method to simulate delay without importing kotlinx.coroutines.delay
-    private fun delay(ms: Long) {
-        try {
-            Thread.sleep(ms)
-        } catch (e: InterruptedException) {
-            // Restore interrupted status
-            Thread.currentThread().interrupt()
-        }
-    }
 }
