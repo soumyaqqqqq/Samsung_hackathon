@@ -54,6 +54,7 @@ latest_contexts:     dict[str, dict] = {}        # session_id → latest Context
 db:           Optional[SQLiteStore]  = None
 chroma:       Optional[ChromaStore]  = None
 orchestrator: Optional[Orchestrator] = None
+voice_agent   = None  # Initialized in lifespan
 zeroconf_instance = None
 zeroconf_info = None
 
@@ -64,12 +65,21 @@ zeroconf_info = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global db, chroma, orchestrator, zeroconf_instance, zeroconf_info
+    global db, chroma, orchestrator, voice_agent, zeroconf_instance, zeroconf_info
 
     logger.info("FRIDAY backend starting up …")
     db      = SQLiteStore(settings.SQLITE_PATH)
     chroma  = ChromaStore(settings.CHROMA_PATH)
     orchestrator = Orchestrator(db=db, chroma=chroma, laptop_connections=laptop_connections)
+
+    # Initialize voice transcription agent (whisper.cpp)
+    try:
+        from agents.voice import VoiceAgent
+        voice_agent = VoiceAgent()
+        logger.info("VoiceAgent initialized successfully.")
+    except Exception as e:
+        logger.warning(f"VoiceAgent unavailable (whisper.cpp not built?): {e}")
+        voice_agent = None
 
     logger.info("All stores and orchestrator initialised.")
 
@@ -608,6 +618,173 @@ async def laptop_ws(websocket: WebSocket):
     finally:
         if session_id and session_id in laptop_connections:
             del laptop_connections[session_id]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# WebSocket — Voice Transcription
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.websocket("/ws/voice")
+async def voice_ws(websocket: WebSocket):
+    """
+    WebSocket endpoint for streaming voice audio from Android.
+
+    Protocol:
+      Android → Backend : Binary audio frames (raw bytes)
+      Android → Backend : JSON control messages:
+        {"type": "voice_start", "format": "amr"} — begin recording
+        {"type": "voice_end"}                     — finish recording, trigger transcription
+      Backend → Android : JSON transcription result:
+        {"type": "VOICE_TRANSCRIPTION", "text": "...", "duration_ms": 123}
+    """
+    await websocket.accept()
+    logger.info("Voice WebSocket connected")
+
+    if voice_agent is None:
+        await websocket.send_json({"type": "VOICE_ERROR", "error": "Voice transcription unavailable"})
+        await websocket.close(1011, "VoiceAgent not initialized")
+        return
+
+    audio_buffer = bytearray()
+    source_format = "wav"
+
+    try:
+        while True:
+            message = await websocket.receive()
+
+            if "bytes" in message and message["bytes"]:
+                # Binary frame: accumulate audio data
+                audio_buffer.extend(message["bytes"])
+
+            elif "text" in message and message["text"]:
+                # JSON control message
+                try:
+                    data = json.loads(message["text"])
+                except json.JSONDecodeError:
+                    continue
+
+                msg_type = data.get("type", "")
+
+                if msg_type == "voice_start":
+                    # New recording session — reset buffer
+                    audio_buffer = bytearray()
+                    source_format = data.get("format", "amr")
+                    logger.info(f"Voice recording started (format={source_format})")
+
+                elif msg_type == "voice_end":
+                    # Recording finished — transcribe the buffer
+                    if source_format == "text":
+                        text_val = data.get("text", "")
+                        result = {"text": text_val, "duration_ms": 0}
+                    else:
+                        if len(audio_buffer) == 0:
+                            await websocket.send_json({
+                                "type": "VOICE_TRANSCRIPTION",
+                                "text": "",
+                                "duration_ms": 0,
+                                "error": "Empty audio buffer"
+                            })
+                            continue
+
+                        logger.info(f"Voice recording ended ({len(audio_buffer)} bytes). Transcribing...")
+                        result = await voice_agent.transcribe_bytes(
+                            bytes(audio_buffer), source_format=source_format
+                        )
+
+                    voice_response = ""
+                    if result["text"]:
+                        logger.info(f"Voice text: \"{result['text'][:80]}...\"")
+                        voice_response = await generate_voice_response(result["text"])
+
+                    response = {
+                        "type": "VOICE_TRANSCRIPTION",
+                        "text": result["text"],
+                        "response": voice_response,
+                        "duration_ms": result["duration_ms"],
+                    }
+                    if result.get("error"):
+                        response["error"] = result["error"]
+
+                    await websocket.send_json(response)
+
+                    # Reset buffer for next recording
+                    audio_buffer = bytearray()
+
+    except WebSocketDisconnect:
+        logger.info("Voice WebSocket disconnected")
+    except Exception as exc:
+        logger.exception(f"Voice WS error: {exc}")
+
+
+async def generate_voice_response(text: str) -> str:
+    """
+    Use Ollama to generate an assistant response for the voice command.
+    """
+    import httpx
+    system_prompt = (
+        "You are FRIDAY, an empathetic AI assistant. "
+        "The user has spoken a voice command/question. "
+        "Answer it in 1 or 2 concise, friendly, warm sentences. "
+        "Be helpful, direct, and conversational."
+    )
+    try:
+        async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT) as client:
+            resp = await client.post(
+                f"{settings.OLLAMA_BASE_URL}/api/generate",
+                json={
+                    "model": settings.PRIMARY_LLM_MODEL,
+                    "prompt": f"<system>{system_prompt}</system>\nUser voice command: {text}",
+                    "stream": False,
+                    "options": {"temperature": 0.7, "num_predict": 100},
+                },
+            )
+            resp.raise_for_status()
+            response_text = resp.json().get("response", "").strip()
+            if response_text:
+                return response_text
+    except Exception as e:
+        logger.warning(f"Ollama voice response generation failed: {e}")
+    
+    # Fallbacks
+    text_lower = text.lower()
+    if "focus" in text_lower:
+        return "I will adjust your workspace to block distractions and help you focus."
+    if "stress" in text_lower or "how am i" in text_lower:
+        return "You seem to be handling your tasks well. Take a deep breath."
+    return f"I heard you say: '{text}'. I'm processing it now."
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# HTTP — Voice Transcription (file upload)
+# ──────────────────────────────────────────────────────────────────────────────
+
+from fastapi import UploadFile, File
+
+@app.post("/api/transcribe", tags=["voice"])
+async def transcribe_audio(file: UploadFile = File(...)):
+    """
+    HTTP endpoint for single-shot audio transcription.
+    Upload an audio file and receive the transcribed text.
+    """
+    if voice_agent is None:
+        raise HTTPException(status_code=503, detail="Voice transcription unavailable")
+
+    audio_data = await file.read()
+    if len(audio_data) == 0:
+        raise HTTPException(status_code=400, detail="Empty audio file")
+
+    # Determine format from filename extension
+    ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename else "wav"
+
+    result = await voice_agent.transcribe_bytes(audio_data, source_format=ext)
+
+    if result.get("error"):
+        raise HTTPException(status_code=500, detail=result["error"])
+
+    return {
+        "text": result["text"],
+        "duration_ms": result["duration_ms"],
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────
