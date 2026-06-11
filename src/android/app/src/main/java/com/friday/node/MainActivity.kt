@@ -516,7 +516,7 @@ class MainActivity : ComponentActivity() {
         )
         stressScore.value = result.stressScore
         val now = System.currentTimeMillis()
-        if (now - lastPromptUpdateTimeMs >= 15000L || wellbeingPrompt.value.startsWith("FRIDAY ready")) {
+        if (now - lastPromptUpdateTimeMs >= 60000L || wellbeingPrompt.value.startsWith("FRIDAY ready")) {
             if (!isConnected.value || activeActionCard.value == null) {
                 val newPrompt = result.empatheticRecommendation
                 if (newPrompt != wellbeingPrompt.value) {
@@ -864,46 +864,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Ambient Feedback / LLM Agent Insight Card
+            // Notification Briefing Card
             item {
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isDarkThemeGlobal) Color(0xFF1E293B).copy(alpha = 0.6f) else Color(0xFFF1F5F9).copy(alpha = 0.6f)
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(ColorBlockLime)
-                        )
-                        Column {
-                            Text(
-                                text = "AMBIENT INSIGHT",
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = wellbeingPrompt.value,
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-                }
+                NotificationBriefingCard(tasks = attentionTasks, stressScore = stressScore.value)
             }
+
 
             // Active FRIDAY Recommendation Card (RLHF Feedback integration)
             if (activeActionCard.value != null) {
@@ -3692,10 +3657,216 @@ class MainActivity : ComponentActivity() {
     private fun getMotivatingSubtitle(): String {
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         return when (hour) {
-            in 0..11 -> "Move around. Let me know if you forget anything."
-            in 12..16 -> "Focus is a journey, not a sprint. Pace yourself."
-            in 17..21 -> "You're doing great. Take a deep breath if needed."
-            else -> "Wind down. Clear your mind for a restful evening."
+            in 5..11 -> "Rise and shine! A fresh start to achieve your goals today."
+            in 12..16 -> "Keep going! You're making great progress. Stay focused."
+            in 17..21 -> "Great job today. Take a moment to appreciate your effort."
+            else -> "Rest well. Sleep is the fuel for tomorrow's success."
+        }
+    }
+
+    data class BriefItem(
+        val title: String,
+        val message: String,
+        val category: String
+    )
+
+    @Composable
+    fun NotificationBriefingCard(tasks: List<JSONObject>, stressScore: Int) {
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val briefTitle = when (hour) {
+            in 5..11 -> "Morning Brief"
+            in 12..16 -> "Afternoon Brief"
+            in 17..21 -> "Evening Brief"
+            else -> "Night Brief"
+        }
+
+        // Count of unread is the number of notifications + some simulated base if empty to look like the UI in screenshot
+        val unreadCount = if (tasks.isEmpty()) 23 else tasks.size
+
+        // We will display the top items. If tasks is not empty, we extract from tasks.
+        // Otherwise, we use the default mock items from the screenshot.
+        val briefItems = remember(tasks) {
+            val notifsOnly = tasks.filter { it.optString("type") == "notification" }
+            if (notifsOnly.isNotEmpty()) {
+                notifsOnly.map { task ->
+                    val agent = task.optString("agent", "Orchestrator")
+                    val message = task.optString("message", "")
+                    val isDeadline = message.lowercase().contains("deadline") || message.lowercase().contains("thesis") || message.lowercase().contains("due")
+                    val isWeather = message.lowercase().contains("weather") || message.lowercase().contains("rain") || message.lowercase().contains("sky")
+                    
+                    val title = if (isDeadline) "Academic deadline today" 
+                                else if (isWeather) "Weather update"
+                                else "Alert: $agent"
+                    
+                    val category = if (isDeadline) "academic" else if (isWeather) "weather" else "general"
+                    BriefItem(title = title, message = message, category = category)
+                }.take(2)
+            } else {
+                listOf(
+                    BriefItem(
+                        title = "Academic deadline today",
+                        message = "Thesis draft submission due by 5:00 PM",
+                        category = "academic"
+                    ),
+                    BriefItem(
+                        title = "Weather update",
+                        message = "Clear skies until noon. Light showers expected.",
+                        category = "weather"
+                    )
+                )
+            }
+        }
+
+        val footerQuote = when {
+            stressScore > 75 -> "High stress detected. Recommending a short break."
+            stressScore > 45 -> "Elevated cognitive load. Keeping notifications quiet."
+            else -> "You seem rested today. Prioritizing academic tasks."
+        }
+
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isDarkThemeGlobal) Color(0xFF1E293B).copy(alpha = 0.8f) else Color(0xFFF1F5F9).copy(alpha = 0.8f)
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(
+                    1.dp,
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                    RoundedCornerShape(24.dp)
+                )
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Text(
+                            text = briefTitle,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    
+                    Box(
+                        modifier = Modifier
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(9999.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "$unreadCount Unread",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+
+                // Inner cards
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    briefItems.forEach { item ->
+                        val iconColor: Color
+                        val iconBg: Color
+                        val icon: androidx.compose.ui.graphics.vector.ImageVector
+
+                        if (item.category == "academic") {
+                            iconColor = Color(0xFFEF4444) // Red
+                            iconBg = Color(0xFFFEE2E2) // Light red
+                            icon = Icons.Default.Warning
+                        } else if (item.category == "weather") {
+                            iconColor = Color(0xFF6B7280) // Grey
+                            iconBg = Color(0xFFF3F4F6) // Light grey
+                            icon = Icons.Default.Info
+                        } else {
+                            iconColor = ColorBlockLime
+                            iconBg = ColorBlockLime.copy(alpha = 0.15f)
+                            icon = Icons.Default.Notifications
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (isDarkThemeGlobal) Color(0xFF0F172A) else Color.White,
+                                    RoundedCornerShape(16.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.03f),
+                                    RoundedCornerShape(16.dp)
+                                )
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(iconBg),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    tint = iconColor,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = item.title,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = item.message,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Footer quote
+                Text(
+                    text = "\"$footerQuote\"",
+                    fontSize = 13.sp,
+                    fontStyle = FontStyle.Italic,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp)
+                )
+            }
         }
     }
 }

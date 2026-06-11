@@ -293,20 +293,33 @@ class FRIDAYForegroundService : Service() {
             }
         }
 
+        val dynamicTitle = when {
+            stressScore >= 75 -> "FRIDAY: Overload Alert"
+            stressScore >= 50 -> "FRIDAY: Elevated Stress"
+            appSwitches > 12 -> "FRIDAY: High Switching"
+            typingDelay > 2000L -> "FRIDAY: Typing Delay"
+            notifications > 8 -> "FRIDAY: High Notification Load"
+            else -> "FRIDAY: Optimal Flow"
+        }
+
         val remoteViewsCollapsed = RemoteViews(packageName, R.layout.custom_stress_notification_collapsed).apply {
+            setTextViewText(R.id.notif_title, dynamicTitle)
             setTextViewText(R.id.notif_score, "$stressScore/100")
             setTextViewText(R.id.notif_status_pill, statusString)
             setInt(R.id.notif_status_pill, "setBackgroundResource", pillBgRes)
             setTextColor(R.id.notif_status_pill, Color.parseColor(pillTextColorHex))
             setTextColor(R.id.notif_score, Color.parseColor(scoreColorHex))
+            setInt(R.id.notif_icon_bg, "setColorFilter", Color.parseColor(scoreColorHex))
         }
 
         val remoteViewsExpanded = RemoteViews(packageName, R.layout.custom_stress_notification).apply {
+            setTextViewText(R.id.notif_title, dynamicTitle)
             setTextViewText(R.id.notif_score, stressScore.toString())
             setTextViewText(R.id.notif_status_pill, statusString)
             setInt(R.id.notif_status_pill, "setBackgroundResource", pillBgRes)
             setTextColor(R.id.notif_status_pill, Color.parseColor(pillTextColorHex))
             setTextColor(R.id.notif_score, Color.parseColor(scoreColorHex))
+            setInt(R.id.notif_icon_bg, "setColorFilter", Color.parseColor(scoreColorHex))
             setTextViewText(R.id.notif_description, recommendationText)
 
             // Setup dynamic trend bars based on rolling history
