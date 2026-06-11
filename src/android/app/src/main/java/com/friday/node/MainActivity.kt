@@ -105,6 +105,11 @@ class MainActivity : ComponentActivity() {
     }
     
     // Live UI State variables using Compose states
+    private var showProactiveOverlay = mutableStateOf(false)
+    private var assistantState = mutableStateOf(VoiceState.IDLE)
+    private var transcriptText = mutableStateOf("")
+    private var assistantResponse = mutableStateOf("")
+    private var errorMessage = mutableStateOf("")
     private var connectionStatus = mutableStateOf("Searching for Hub...")
     private var isConnected = mutableStateOf(false)
     private var stressScore = mutableStateOf(0)
@@ -285,7 +290,24 @@ class MainActivity : ComponentActivity() {
         
         // 1. Initialize WebSocket context binding
         WebSocketManager.getInstance().init(this)
-        voiceAssistantManager = VoiceAssistantManager(this)
+        voiceAssistantManager = VoiceAssistantManager(this).apply {
+            onStateChanged = { newState ->
+                assistantState.value = newState
+            }
+            onResultReceived = { transcript, response ->
+                transcriptText.value = transcript
+                assistantResponse.value = response
+                if (!showProactiveOverlay.value) {
+                    showToast("FRIDAY: $response")
+                }
+            }
+            onErrorOccurred = { error ->
+                errorMessage.value = error
+                if (!showProactiveOverlay.value) {
+                    showToast("FRIDAY Error: $error")
+                }
+            }
+        }
         
         val configManager = OnboardingConfigManager(this)
         val isOnboardingComplete = configManager.isOnboardingComplete()
@@ -600,7 +622,6 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun MainContainer() {
         var activeTab by remember { mutableStateOf(0) }
-        var showProactiveOverlay by remember { mutableStateOf(false) }
 
         Scaffold(
             bottomBar = {
@@ -608,10 +629,10 @@ class MainActivity : ComponentActivity() {
                     activeTab = activeTab,
                     onTabSelected = { tab ->
                         activeTab = tab
-                        showProactiveOverlay = false
+                        showProactiveOverlay.value = false
                     },
                     onSparkClicked = {
-                        showProactiveOverlay = !showProactiveOverlay
+                        showProactiveOverlay.value = !showProactiveOverlay.value
                     }
                 )
             },
@@ -630,8 +651,8 @@ class MainActivity : ComponentActivity() {
                     3 -> SettingsTab()
                 }
 
-                if (showProactiveOverlay) {
-                    ProactiveOverlayScreen(onClose = { showProactiveOverlay = false })
+                if (showProactiveOverlay.value) {
+                    ProactiveOverlayScreen(onClose = { showProactiveOverlay.value = false })
                 }
             }
         }
@@ -3183,34 +3204,21 @@ class MainActivity : ComponentActivity() {
     fun ProactiveOverlayScreen(onClose: () -> Unit) {
         val context = androidx.compose.ui.platform.LocalContext.current
         
-        var assistantState by remember { mutableStateOf(voiceAssistantManager.state) }
-        var transcriptText by remember { mutableStateOf(voiceAssistantManager.lastTranscript) }
-        var assistantResponse by remember { mutableStateOf(voiceAssistantManager.lastResponse) }
-        var errorMessage by remember { mutableStateOf(voiceAssistantManager.lastError) }
+        val assistantState by this@MainActivity.assistantState
+        val transcriptText by this@MainActivity.transcriptText
+        val assistantResponse by this@MainActivity.assistantResponse
+        val errorMessage by this@MainActivity.errorMessage
         
         DisposableEffect(Unit) {
-            voiceAssistantManager.onStateChanged = { newState ->
-                assistantState = newState
-            }
-            voiceAssistantManager.onResultReceived = { transcript, response ->
-                transcriptText = transcript
-                assistantResponse = response
-            }
-            voiceAssistantManager.onErrorOccurred = { error ->
-                errorMessage = error
-            }
-            
-            // Auto-start recording when overlay is opened if permission is granted
-            val hasMicPermission = context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
-            if (hasMicPermission) {
-                voiceAssistantManager.startRecording()
+            if (voiceAssistantManager.state == VoiceState.IDLE) {
+                val hasMicPermission = context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (hasMicPermission) {
+                    voiceAssistantManager.startRecording()
+                }
             }
             
             onDispose {
-                voiceAssistantManager.cancel()
-                voiceAssistantManager.onStateChanged = null
-                voiceAssistantManager.onResultReceived = null
-                voiceAssistantManager.onErrorOccurred = null
+                // Background execution: Do not cancel voiceAssistantManager on screen close/dispose
             }
         }
 
