@@ -22,22 +22,36 @@ class DiscoveryManager(
     private val discoveryListener = object : NsdManager.DiscoveryListener {
         override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
             Log.e("FRIDAY_NSD", "Discovery start failed: Error code $errorCode")
-            nsdManager.stopServiceDiscovery(this)
+            synchronized(this@DiscoveryManager) {
+                isDiscovering = false
+            }
+            try {
+                nsdManager.stopServiceDiscovery(this)
+            } catch (e: Exception) {}
         }
 
         override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
             Log.e("FRIDAY_NSD", "Discovery stop failed: Error code $errorCode")
-            nsdManager.stopServiceDiscovery(this)
+            synchronized(this@DiscoveryManager) {
+                isDiscovering = false
+            }
+            try {
+                nsdManager.stopServiceDiscovery(this)
+            } catch (e: Exception) {}
         }
 
         override fun onDiscoveryStarted(regType: String) {
             Log.d("FRIDAY_NSD", "Service discovery started")
-            isDiscovering = true
+            synchronized(this@DiscoveryManager) {
+                isDiscovering = true
+            }
         }
 
         override fun onDiscoveryStopped(serviceType: String) {
             Log.d("FRIDAY_NSD", "Discovery stopped: $serviceType")
-            isDiscovering = false
+            synchronized(this@DiscoveryManager) {
+                isDiscovering = false
+            }
         }
 
         override fun onServiceFound(serviceInfo: NsdServiceInfo) {
@@ -68,14 +82,30 @@ class DiscoveryManager(
     }
 
     fun startSearching() {
-        if (!isDiscovering) {
-            nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
+        synchronized(this) {
+            if (!isDiscovering) {
+                isDiscovering = true
+                try {
+                    nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
+                } catch (e: Exception) {
+                    Log.e("FRIDAY_NSD", "Failed to start service discovery: ${e.message}")
+                    isDiscovering = false
+                }
+            }
         }
     }
 
     fun stopSearching() {
-        if (isDiscovering) {
-            nsdManager.stopServiceDiscovery(discoveryListener)
+        synchronized(this) {
+            if (isDiscovering) {
+                try {
+                    nsdManager.stopServiceDiscovery(discoveryListener)
+                } catch (e: Exception) {
+                    Log.e("FRIDAY_NSD", "Failed to stop service discovery: ${e.message}")
+                } finally {
+                    isDiscovering = false
+                }
+            }
         }
     }
 }
