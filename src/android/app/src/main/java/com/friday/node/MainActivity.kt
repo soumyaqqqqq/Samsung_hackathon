@@ -173,6 +173,7 @@ class MainActivity : ComponentActivity() {
     private var showExplainStressDialog = mutableStateOf(false)
     private var showClearMemoriesConfirmDialog = mutableStateOf(false)
     private var showDisconnectDevicesConfirmDialog = mutableStateOf(false)
+    private var isMemoryMomentDismissed = mutableStateOf(false)
     
     // Permission states
     private var isAccessibilityGranted = mutableStateOf(false)
@@ -1370,61 +1371,72 @@ class MainActivity : ComponentActivity() {
             }
 
             // Memory Moment Card
-            item {
-                val currentLoc = locationState.value
-                val memoryTitle = if (currentLoc.isEmpty() || currentLoc == "unknown") "Learning Routines" else currentLoc.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
-                val memoryBody = if (currentLoc.isEmpty() || currentLoc == "unknown") {
-                    "Move around, let me know if you forget. I will map your focus triggers and routines here."
-                } else {
-                    "You typically activate 'Deep Focus' mode here. Repeat setup?"
-                }
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+            if (!isMemoryMomentDismissed.value) {
+                item {
+                    val currentLoc = locationState.value
+                    val memoryTitle = if (currentLoc.isEmpty() || currentLoc == "unknown") "Learning Routines" else currentLoc.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+                    val memoryBody = if (currentLoc.isEmpty() || currentLoc == "unknown") {
+                        "Move around, let me know if you forget. I will map your focus triggers and routines here."
+                    } else {
+                        "You typically activate 'Deep Focus' mode here. Repeat setup?"
+                    }
+                    Card(
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = "MEMORY MOMENT",
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                        Text(
-                            text = memoryTitle,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = memoryBody,
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                        )
-                        if (currentLoc.isNotEmpty() && currentLoc != "unknown") {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Button(
-                                    onClick = { /* TODO: Repeat focus setup */ },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.onSurface,
-                                        contentColor = MaterialTheme.colorScheme.surface
-                                    ),
-                                    shape = RoundedCornerShape(9999.dp)
-                                ) {
-                                    Text("Repeat Setup", color = MaterialTheme.colorScheme.surface)
-                                }
-                                Button(
-                                    onClick = { /* TODO: Dismiss memory moment */ },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                                    shape = RoundedCornerShape(9999.dp),
-                                    modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
-                                ) {
-                                    Text("Dismiss", color = MaterialTheme.colorScheme.onSurface)
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "MEMORY MOMENT",
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                            Text(
+                                text = memoryTitle,
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = memoryBody,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                            )
+                            if (currentLoc.isNotEmpty() && currentLoc != "unknown") {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Button(
+                                        onClick = {
+                                            isFocusModeActive.value = true
+                                            sessionStartTimeMs = System.currentTimeMillis()
+                                            focusTimeDisplay.value = "0s"
+                                            showToast("Focus mode activated from routine memory!")
+                                            isMemoryMomentDismissed.value = true
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.onSurface,
+                                            contentColor = MaterialTheme.colorScheme.surface
+                                        ),
+                                        shape = RoundedCornerShape(9999.dp)
+                                    ) {
+                                        Text("Repeat Setup", color = MaterialTheme.colorScheme.surface)
+                                    }
+                                    Button(
+                                        onClick = {
+                                            isMemoryMomentDismissed.value = true
+                                            showToast("Routine suggestion dismissed")
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                                        shape = RoundedCornerShape(9999.dp),
+                                        modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
+                                    ) {
+                                        Text("Dismiss", color = MaterialTheme.colorScheme.onSurface)
+                                    }
                                 }
                             }
                         }
@@ -1991,8 +2003,9 @@ class MainActivity : ComponentActivity() {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(4.dp))
+                            val dayOfWeek = SimpleDateFormat("EEEE", Locale.getDefault()).format(Date())
                             Text(
-                                text = "Pattern Analysis: 12% deviation from standard Thursday baseline.",
+                                text = "Pattern Analysis: 12% deviation from standard $dayOfWeek baseline.",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -2014,15 +2027,25 @@ class MainActivity : ComponentActivity() {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(4.dp))
+                            val cal = java.util.Calendar.getInstance()
+                            cal.add(java.util.Calendar.MONTH, -3)
+                            val pastMonth = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(cal.time)
                             Text(
-                                text = "Similar Past Events: ${memoryMatchPercentage.value} Match to Mid-Semester Week (March 2026).",
+                                text = "Similar Past Events: ${memoryMatchPercentage.value} Match to $pastMonth Baseline.",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.height(4.dp))
+                            val memoryOutcome = if (stressScore.value >= 75) {
+                                "Outcome: High cognitive load detected. Recommend task transition."
+                            } else if (stressScore.value >= 50) {
+                                "Outcome: Moderate stress. High focus but stable output."
+                            } else {
+                                "Outcome: Balanced flow state. Smooth task transitions."
+                            }
                             Text(
-                                text = "Outcome: High stress, but assignment successfully completed.",
+                                text = memoryOutcome,
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

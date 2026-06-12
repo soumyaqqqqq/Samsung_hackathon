@@ -294,12 +294,12 @@ class FRIDAYForegroundService : Service() {
         }
 
         val dynamicTitle = when {
-            stressScore >= 75 -> "FRIDAY: Overload Alert"
-            stressScore >= 50 -> "FRIDAY: Elevated Stress"
-            appSwitches > 12 -> "FRIDAY: High Switching"
-            typingDelay > 2000L -> "FRIDAY: Typing Delay"
-            notifications > 8 -> "FRIDAY: High Notification Load"
-            else -> "FRIDAY: Optimal Flow"
+            stressScore >= 75 -> "Overload Alert"
+            stressScore >= 50 -> "Elevated Stress"
+            appSwitches > 12 -> "High Switching"
+            typingDelay > 2000L -> "Typing Delay"
+            notifications > 8 -> "High Notification Load"
+            else -> "Optimal Flow"
         }
 
         val remoteViewsCollapsed = RemoteViews(packageName, R.layout.custom_stress_notification_collapsed).apply {
