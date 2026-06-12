@@ -98,6 +98,13 @@ data class TimelineEvent(
     val type: String
 )
 
+data class TimelineEvent(
+    val title: String,
+    val description: String,
+    val time: String,
+    val type: String
+)
+
 class MainActivity : ComponentActivity() {
 
     private val TAG = "FRIDAY_MainActivity"
@@ -176,7 +183,6 @@ class MainActivity : ComponentActivity() {
     private var showExplainStressDialog = mutableStateOf(false)
     private var showClearMemoriesConfirmDialog = mutableStateOf(false)
     private var showDisconnectDevicesConfirmDialog = mutableStateOf(false)
-    private var isMemoryMomentDismissed = mutableStateOf(false)
     
     // Permission states
     private var isAccessibilityGranted = mutableStateOf(false)
@@ -547,34 +553,6 @@ class MainActivity : ComponentActivity() {
         configManager.setModuleEnabled("Location & Environment", locationEnabled)
     }
 
-    private fun triggerTelemetryRefresh(onComplete: () -> Unit) {
-        CoroutineScope(Dispatchers.Main).launch {
-            // 1. Recalculate stress
-            recalculateLocalStress()
-            
-            // 2. Sync connection state with WebSocketManager
-            val connected = WebSocketManager.getInstance().isConnected()
-            isConnected.value = connected
-            connectionStatus.value = if (connected) {
-                "Connected to Hub"
-            } else {
-                "Searching for Hub..."
-            }
-            
-            // 3. Poll database buffer count
-            val db = RoomDatabase.getInstance(this@MainActivity)
-            bufferedEventsCount.value = db.getEventCount()
-            
-            // 4. Force check permissions
-            checkPermissionsState()
-            
-            // Simulating a delay for user feedback/refresh spinner animation
-            delay(1000)
-            showToast("Telemetry synced & refreshed!")
-            onComplete()
-        }
-    }
-
     private fun recalculateLocalStress() {
         // Evaluate dynamic stress offline via LocalFallbackEngine
         val result = LocalFallbackEngine.evaluateOfflineContext(
@@ -655,7 +633,6 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun MainContainer() {
         var activeTab by remember { mutableStateOf(0) }
-        var isRefreshing by remember { mutableStateOf(false) }
 
         Scaffold(
             bottomBar = {
@@ -695,9 +672,8 @@ class MainActivity : ComponentActivity() {
                         3 -> SettingsTab()
                     }
 
-                    if (showProactiveOverlay.value) {
-                        ProactiveOverlayScreen(onClose = { showProactiveOverlay.value = false })
-                    }
+                if (showProactiveOverlay.value) {
+                    ProactiveOverlayScreen(onClose = { showProactiveOverlay.value = false })
                 }
             }
         }
@@ -1481,6 +1457,69 @@ class MainActivity : ComponentActivity() {
                                     ) {
                                         Text("Dismiss", color = MaterialTheme.colorScheme.onSurface)
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Activity Feed (Bento style / Block Navy)
+            item {
+                val currentLoc = locationState.value
+                val memoryTitle = if (currentLoc.isEmpty() || currentLoc == "unknown") "Learning Routines" else currentLoc.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+                val memoryBody = if (currentLoc.isEmpty() || currentLoc == "unknown") {
+                    "Move around, let me know if you forget. I will map your focus triggers and routines here."
+                } else {
+                    "You typically activate 'Deep Focus' mode here. Repeat setup?"
+                }
+                Card(
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Text(
+                            text = "SYSTEM LOGS & ACTIVITY",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                        Text(
+                            text = memoryTitle,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = memoryBody,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                        )
+                        if (currentLoc.isNotEmpty() && currentLoc != "unknown") {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Button(
+                                    onClick = { /* TODO: Repeat focus setup */ },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.onSurface,
+                                        contentColor = MaterialTheme.colorScheme.surface
+                                    ),
+                                    shape = RoundedCornerShape(9999.dp)
+                                ) {
+                                    Text("Repeat Setup", color = MaterialTheme.colorScheme.surface)
+                                }
+                                Button(
+                                    onClick = { /* TODO: Dismiss memory moment */ },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                                    shape = RoundedCornerShape(9999.dp),
+                                    modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
+                                ) {
+                                    Text("Dismiss", color = MaterialTheme.colorScheme.onSurface)
                                 }
                             }
                         }
@@ -3445,7 +3484,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 else -> {
                                     Icon(
-                                        imageVector = Icons.Default.Mic,
+                                        imageVector = Icons.Default.Star,
                                         contentDescription = "Mic",
                                         tint = ColorBlockLime,
                                         modifier = Modifier.size(32.dp)

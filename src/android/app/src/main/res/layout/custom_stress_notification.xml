@@ -4,38 +4,34 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:background="@drawable/card_notif_bg"
-    android:padding="12dp">
+    android:padding="20dp">
 
     <!-- Header containing Icon, Title and Stable Pill -->
     <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="10dp">
+        android:layout_marginBottom="16dp">
 
         <ImageView
             android:id="@+id/notif_icon_bg"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:layout_alignParentStart="true"
             android:layout_centerVertical="true"
             android:background="@drawable/circle_icon_bg"
             android:src="@drawable/circle_trend_icon"
-            android:padding="8dp" />
+            android:padding="10dp" />
 
         <TextView
             android:id="@+id/notif_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_toEndOf="@id/notif_icon_bg"
-            android:layout_toStartOf="@id/notif_status_pill"
             android:layout_centerVertical="true"
-            android:layout_marginStart="10dp"
-            android:layout_marginEnd="8dp"
-            android:ellipsize="end"
-            android:singleLine="true"
+            android:layout_marginStart="12dp"
             android:text="Stress Level"
             android:textColor="#1A1A1A"
-            android:textSize="16sp"
+            android:textSize="18sp"
             android:textStyle="bold"
             android:fontFamily="sans-serif-medium" />
 
@@ -46,11 +42,11 @@
             android:layout_alignParentEnd="true"
             android:layout_centerVertical="true"
             android:background="@drawable/pill_status_bg"
-            android:paddingHorizontal="10dp"
-            android:paddingVertical="4dp"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="6dp"
             android:text="Stable"
             android:textColor="#666666"
-            android:textSize="11sp"
+            android:textSize="12sp"
             android:textStyle="bold"
             android:fontFamily="sans-serif-medium" />
     </RelativeLayout>
@@ -61,7 +57,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="bottom"
-        android:layout_marginBottom="10dp">
+        android:layout_marginBottom="16dp">
 
         <TextView
             android:id="@+id/notif_score"
@@ -69,7 +65,7 @@
             android:layout_height="wrap_content"
             android:text="74"
             android:textColor="#0077FF"
-            android:textSize="30sp"
+            android:textSize="38sp"
             android:textStyle="bold"
             android:includeFontPadding="false"
             android:fontFamily="sans-serif-medium" />
@@ -79,9 +75,9 @@
             android:layout_height="wrap_content"
             android:text="/100"
             android:textColor="#999999"
-            android:textSize="13sp"
+            android:textSize="16sp"
             android:layout_marginStart="2dp"
-            android:layout_marginBottom="3dp"
+            android:layout_marginBottom="4dp"
             android:includeFontPadding="false" />
     </LinearLayout>
 
@@ -91,76 +87,76 @@
         android:layout_height="46dp"
         android:orientation="horizontal"
         android:gravity="bottom"
-        android:layout_marginBottom="10dp">
+        android:layout_marginBottom="16dp">
 
         <!-- Bar 1 -->
         <ImageView
             android:id="@+id/notif_bar_1"
-            android:layout_width="12dp"
+            android:layout_width="14dp"
             android:layout_height="12dp"
-            android:layout_marginEnd="6dp"
+            android:layout_marginEnd="8dp"
             android:background="@drawable/capsule_grey" />
 
         <!-- Bar 2 -->
         <ImageView
             android:id="@+id/notif_bar_2"
-            android:layout_width="12dp"
+            android:layout_width="14dp"
             android:layout_height="18dp"
-            android:layout_marginEnd="6dp"
+            android:layout_marginEnd="8dp"
             android:background="@drawable/capsule_grey" />
 
         <!-- Bar 3 -->
         <ImageView
             android:id="@+id/notif_bar_3"
-            android:layout_width="12dp"
+            android:layout_width="14dp"
             android:layout_height="22dp"
-            android:layout_marginEnd="6dp"
+            android:layout_marginEnd="8dp"
             android:background="@drawable/capsule_grey" />
 
         <!-- Bar 4 -->
         <ImageView
             android:id="@+id/notif_bar_4"
-            android:layout_width="12dp"
+            android:layout_width="14dp"
             android:layout_height="32dp"
-            android:layout_marginEnd="6dp"
+            android:layout_marginEnd="8dp"
             android:background="@drawable/capsule_grey" />
 
         <!-- Bar 5 -->
         <ImageView
             android:id="@+id/notif_bar_5"
-            android:layout_width="12dp"
+            android:layout_width="14dp"
             android:layout_height="42dp"
-            android:layout_marginEnd="6dp"
+            android:layout_marginEnd="8dp"
             android:background="@drawable/capsule_grey" />
 
         <!-- Bar 6 -->
         <ImageView
             android:id="@+id/notif_bar_6"
-            android:layout_width="12dp"
+            android:layout_width="14dp"
             android:layout_height="22dp"
-            android:layout_marginEnd="6dp"
+            android:layout_marginEnd="8dp"
             android:background="@drawable/capsule_grey" />
 
         <!-- Bar 7 -->
         <ImageView
             android:id="@+id/notif_bar_7"
-            android:layout_width="12dp"
+            android:layout_width="14dp"
             android:layout_height="10dp"
-            android:layout_marginEnd="6dp"
+            android:layout_marginEnd="8dp"
             android:background="@drawable/capsule_grey" />
 
         <!-- Bar 8 -->
         <ImageView
             android:id="@+id/notif_bar_8"
-            android:layout_width="12dp"
+            android:layout_width="14dp"
             android:layout_height="20dp"
-            android:layout_marginEnd="6dp"
+            android:layout_marginEnd="8dp"
             android:background="@drawable/capsule_grey" />
 
         <!-- Bar 9 -->
         <ImageView
             android:id="@+id/notif_bar_9"
-            android:layout_width="12dp"
+            android:layout_width="14dp"
             android:layout_height="14dp"
             android:background="@drawable/capsule_grey" />
     </LinearLayout>
@@ -172,7 +168,7 @@
         android:layout_height="wrap_content"
         android:text="Stress is high but trending downward. Consider a 2-minute breathing exercise."
         android:textColor="#444444"
-        android:textSize="13sp"
-        android:lineSpacingExtra="2dp"
+        android:textSize="15sp"
+        android:lineSpacingExtra="4dp"
         android:fontFamily="sans-serif" />
 </LinearLayout>
