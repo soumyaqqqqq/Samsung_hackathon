@@ -14,6 +14,7 @@ __pycache__/
 # Chroma data
 chroma/
 data/chroma/
+src/backend/data/audio/
 
 # VS Code
 .vscode/
