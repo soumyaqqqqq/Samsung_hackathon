@@ -38,20 +38,21 @@ import kotlinx.coroutines.launch
 import com.friday.node.onboarding.model.SensorModule
 import com.friday.node.onboarding.model.OnboardingStep
 import com.friday.node.onboarding.viewmodel.OnboardingViewModel
+import androidx.compose.foundation.isSystemInDarkTheme
 
 // Theme colors from design.md (Collaborative Canvas style)
-val FigmaBg = Color(0xFFF9F9F9)
-val FigmaTextPrimary = Color(0xFF1B1B1B)
-val FigmaTextSecondary = Color(0xFF4C4546)
-val FigmaOutline = Color(0xFF7E7576)
-val FigmaOutlineVariant = Color(0xFFCFC4C5)
-val BlockLime = Color(0xFFD6FF3D)
-val BlockLilac = Color(0xFFC6BFFF)
-val BlockCream = Color(0xFFFFF9E3)
-val BlockMint = Color(0xFFB2FFD6)
-val BlockPink = Color(0xFFFFB8EB)
-val BlockCoral = Color(0xFFFF8C70)
-val BlockNavy = Color(0xFF10162F)
+val FigmaBg: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF121212) else Color(0xFFF9F9F9)
+val FigmaTextPrimary: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFFF1F1F1) else Color(0xFF1B1B1B)
+val FigmaTextSecondary: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFFB0B0B0) else Color(0xFF4C4546)
+val FigmaOutline: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF8E8586) else Color(0xFF7E7576)
+val FigmaOutlineVariant: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF2A2A2A) else Color(0xFFCFC4C5)
+val BlockLime: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF2A3600) else Color(0xFFD6FF3D)
+val BlockLilac: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF1B1437) else Color(0xFFC6BFFF)
+val BlockCream: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF252216) else Color(0xFFFFF9E3)
+val BlockMint: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF092416) else Color(0xFFB2FFD6)
+val BlockPink: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF321028) else Color(0xFFFFB8EB)
+val BlockCoral: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF3E120A) else Color(0xFFFF8C70)
+val BlockNavy: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF0C1022) else Color(0xFF10162F)
 
 @Composable
 fun OnboardingScreen(
@@ -467,16 +468,17 @@ fun IdentityStepContent(
                             enabled = false,
                             trailingIcon = {
                                 // Calendar icon
+                                val iconColor = FigmaTextSecondary
                                 Canvas(modifier = Modifier.size(20.dp)) {
                                     drawRect(
-                                        color = FigmaTextSecondary,
+                                        color = iconColor,
                                         topLeft = Offset(0f, 4.dp.toPx()),
                                         size = androidx.compose.ui.geometry.Size(size.width, size.height - 4.dp.toPx()),
                                         style = Stroke(width = 2.dp.toPx())
                                     )
-                                    drawLine(FigmaTextSecondary, Offset(4.dp.toPx(), 0f), Offset(4.dp.toPx(), 6.dp.toPx()), strokeWidth = 2.dp.toPx())
-                                    drawLine(FigmaTextSecondary, Offset(size.width - 4.dp.toPx(), 0f), Offset(size.width - 4.dp.toPx(), 6.dp.toPx()), strokeWidth = 2.dp.toPx())
-                                    drawLine(FigmaTextSecondary, Offset(0f, 10.dp.toPx()), Offset(size.width, 10.dp.toPx()), strokeWidth = 1.5f.dp.toPx())
+                                    drawLine(iconColor, Offset(4.dp.toPx(), 0f), Offset(4.dp.toPx(), 6.dp.toPx()), strokeWidth = 2.dp.toPx())
+                                    drawLine(iconColor, Offset(size.width - 4.dp.toPx(), 0f), Offset(size.width - 4.dp.toPx(), 6.dp.toPx()), strokeWidth = 2.dp.toPx())
+                                    drawLine(iconColor, Offset(0f, 10.dp.toPx()), Offset(size.width, 10.dp.toPx()), strokeWidth = 1.5f.dp.toPx())
                                 }
                             },
                             textStyle = androidx.compose.ui.text.TextStyle(
@@ -620,7 +622,7 @@ fun IdentityStepContent(
                     },
                     enabled = name.isNotEmpty(),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = FigmaTextPrimary),
+                    colors = ButtonDefaults.buttonColors(containerColor = FigmaTextPrimary, contentColor = FigmaBg),
                     modifier = Modifier
                         .weight(0.7f)
                         .height(56.dp)
@@ -631,7 +633,6 @@ fun IdentityStepContent(
                     ) {
                         Text(
                             text = "Begin Initialization",
-                            color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
@@ -760,14 +761,13 @@ fun PermissionsStepContent(
                         Button(
                             onClick = onRequestPermissions,
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = FigmaTextPrimary),
+                            colors = ButtonDefaults.buttonColors(containerColor = FigmaTextPrimary, contentColor = FigmaBg),
                             modifier = Modifier
                                 .weight(0.7f)
                                 .height(56.dp)
                         ) {
                             Text(
                                 text = "GRANT SENSES",
-                                color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace
                             )
@@ -776,14 +776,13 @@ fun PermissionsStepContent(
                         Button(
                             onClick = onNext,
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = FigmaTextPrimary),
+                            colors = ButtonDefaults.buttonColors(containerColor = FigmaTextPrimary, contentColor = FigmaBg),
                             modifier = Modifier
                                 .weight(0.7f)
                                 .height(56.dp)
                         ) {
                             Text(
                                 text = "INITIALIZE FRIDAY",
-                                color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace
                             )
@@ -837,20 +836,21 @@ fun FigmaPermissionCard(
             }
             
             // Customized Vector Draw scope
+            val drawColor = FigmaTextPrimary
             Canvas(modifier = Modifier.size(36.dp)) {
                 when (module.title) {
                     "Location & Environment" -> {
                         // Ring nodes sensors
-                        drawCircle(Color.Black, radius = 4.dp.toPx(), center = Offset(size.width/2, size.height/2))
-                        drawCircle(Color.Black, radius = 10.dp.toPx(), center = Offset(size.width/2, size.height/2), style = Stroke(width = 2.dp.toPx()))
-                        drawCircle(Color.Black, radius = 16.dp.toPx(), center = Offset(size.width/2, size.height/2), style = Stroke(width = 1.5f.dp.toPx()))
+                        drawCircle(drawColor, radius = 4.dp.toPx(), center = Offset(size.width/2, size.height/2))
+                        drawCircle(drawColor, radius = 10.dp.toPx(), center = Offset(size.width/2, size.height/2), style = Stroke(width = 2.dp.toPx()))
+                        drawCircle(drawColor, radius = 16.dp.toPx(), center = Offset(size.width/2, size.height/2), style = Stroke(width = 1.5f.dp.toPx()))
                     }
                     "Accessibility & Touch" -> {
                         // Hand gestures
-                        drawCircle(Color.Black, radius = 6.dp.toPx(), center = Offset(size.width/2, size.height/2), style = Stroke(width = 2.dp.toPx()))
-                        drawCircle(Color.Black, radius = 12.dp.toPx(), center = Offset(size.width/2, size.height/2), style = Stroke(width = 1.dp.toPx()))
-                        drawLine(Color.Black, Offset(size.width/2, size.height * 0.1f), Offset(size.width/2, size.height * 0.3f), strokeWidth = 2.dp.toPx())
-                        drawLine(Color.Black, Offset(size.width * 0.1f, size.height / 2), Offset(size.width * 0.3f, size.height / 2), strokeWidth = 2.dp.toPx())
+                        drawCircle(drawColor, radius = 6.dp.toPx(), center = Offset(size.width/2, size.height/2), style = Stroke(width = 2.dp.toPx()))
+                        drawCircle(drawColor, radius = 12.dp.toPx(), center = Offset(size.width/2, size.height/2), style = Stroke(width = 1.dp.toPx()))
+                        drawLine(drawColor, Offset(size.width/2, size.height * 0.1f), Offset(size.width/2, size.height * 0.3f), strokeWidth = 2.dp.toPx())
+                        drawLine(drawColor, Offset(size.width * 0.1f, size.height / 2), Offset(size.width * 0.3f, size.height / 2), strokeWidth = 2.dp.toPx())
                     }
                     "Notification & Activity" -> {
                         // EKG / Heart graph
@@ -862,7 +862,7 @@ fun FigmaPermissionCard(
                             lineTo(size.width * 0.6f, size.height / 2)
                             lineTo(size.width, size.height / 2)
                         }
-                        drawPath(path, Color.Black, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+                        drawPath(path, drawColor, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
                     }
                 }
             }
@@ -883,7 +883,7 @@ fun FigmaPermissionCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color.White.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                .background(if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color.White.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
@@ -914,7 +914,7 @@ fun CustomSwitch(
     onCheckedChange: () -> Unit
 ) {
     val trackColor by animateColorAsState(
-        targetValue = if (checked) BlockMint else Color(0xFFE2E2E2),
+        targetValue = if (checked) BlockMint else (if (isSystemInDarkTheme()) Color(0xFF2A2A2A) else Color(0xFFE2E2E2)),
         animationSpec = tween(250),
         label = "trackColor"
     )
@@ -966,7 +966,7 @@ fun BentoCard(
             }
             Text(
                 text = title,
-                color = Color.Black,
+                color = FigmaTextPrimary,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = (-0.5).sp,
@@ -984,19 +984,21 @@ fun BentoCard(
 
 @Composable
 fun EyeIcon() {
+    val drawColor = FigmaTextPrimary
     Canvas(modifier = Modifier.size(36.dp)) {
         val path = Path().apply {
             moveTo(size.width * 0.1f, size.height / 2)
             quadraticTo(size.width / 2, size.height * 0.15f, size.width * 0.9f, size.height / 2)
             quadraticTo(size.width / 2, size.height * 0.85f, size.width * 0.1f, size.height / 2)
         }
-        drawPath(path, Color.Black, style = Stroke(width = 2.dp.toPx()))
-        drawCircle(Color.Black, radius = 5.dp.toPx(), center = Offset(size.width / 2, size.height / 2))
+        drawPath(path, drawColor, style = Stroke(width = 2.dp.toPx()))
+        drawCircle(drawColor, radius = 5.dp.toPx(), center = Offset(size.width / 2, size.height / 2))
     }
 }
 
 @Composable
 fun BoltIcon() {
+    val drawColor = FigmaTextPrimary
     Canvas(modifier = Modifier.size(36.dp)) {
         val path = Path().apply {
             moveTo(size.width * 0.6f, size.height * 0.1f)
@@ -1007,16 +1009,17 @@ fun BoltIcon() {
             lineTo(size.width * 0.5f, size.height * 0.45f)
             close()
         }
-        drawPath(path, Color.Black, style = Stroke(width = 2.dp.toPx()))
+        drawPath(path, drawColor, style = Stroke(width = 2.dp.toPx()))
     }
 }
 
 @Composable
 fun DevicesIcon() {
+    val drawColor = FigmaTextPrimary
     Canvas(modifier = Modifier.size(36.dp)) {
         // Laptop screen outline
         drawRoundRect(
-            color = Color.Black,
+            color = drawColor,
             topLeft = Offset(size.width * 0.1f, size.height * 0.25f),
             size = androidx.compose.ui.geometry.Size(size.width * 0.55f, size.height * 0.45f),
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx(), 4.dp.toPx()),
@@ -1024,14 +1027,14 @@ fun DevicesIcon() {
         )
         // Laptop keyboard base line
         drawLine(
-            color = Color.Black,
+            color = drawColor,
             start = Offset(size.width * 0.05f, size.height * 0.7f),
             end = Offset(size.width * 0.7f, size.height * 0.7f),
             strokeWidth = 3.dp.toPx()
         )
         // Mobile phone
         drawRoundRect(
-            color = Color.Black,
+            color = drawColor,
             topLeft = Offset(size.width * 0.65f, size.height * 0.45f),
             size = androidx.compose.ui.geometry.Size(size.width * 0.25f, size.height * 0.35f),
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx(), 3.dp.toPx()),
@@ -1042,11 +1045,12 @@ fun DevicesIcon() {
 
 @Composable
 fun FingerprintIcon() {
+    val drawColor = FigmaTextPrimary
     Canvas(modifier = Modifier.size(24.dp)) {
         for (i in 1..4) {
             val radius = i * 4.dp.toPx()
             drawArc(
-                color = Color.Black,
+                color = drawColor,
                 startAngle = 180f,
                 sweepAngle = 180f,
                 useCenter = false,
@@ -1056,7 +1060,7 @@ fun FingerprintIcon() {
             )
         }
         drawLine(
-            color = Color.Black,
+            color = drawColor,
             start = Offset(size.width / 2, size.height / 2),
             end = Offset(size.width / 2, size.height * 0.85f),
             strokeWidth = 1.5f.dp.toPx(),
@@ -1130,7 +1134,7 @@ fun InitializationStepContent(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.White, RoundedCornerShape(12.dp))
+                    .background(if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color.White, RoundedCornerShape(12.dp))
                     .border(1.dp, FigmaOutlineVariant, RoundedCornerShape(12.dp))
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1172,7 +1176,7 @@ fun InitializationStepContent(
             
             Text(
                 text = "INITIALIZATION CORRUPTED",
-                color = Color.Black,
+                color = FigmaTextPrimary,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace
@@ -1201,13 +1205,14 @@ fun CompleteStepContent(onFinish: () -> Unit) {
         verticalArrangement = Arrangement.Center
     ) {
         // Success checkmark animation ring
+        val strokeColor = FigmaTextPrimary
         Box(
             modifier = Modifier.size(100.dp),
             contentAlignment = Alignment.Center
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 drawCircle(
-                    color = Color.Black,
+                    color = strokeColor,
                     style = Stroke(width = 3.dp.toPx())
                 )
                 
@@ -1219,7 +1224,7 @@ fun CompleteStepContent(onFinish: () -> Unit) {
                 }
                 drawPath(
                     path = path,
-                    color = Color.Black,
+                    color = strokeColor,
                     style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
                 )
             }
@@ -1229,7 +1234,7 @@ fun CompleteStepContent(onFinish: () -> Unit) {
 
         Text(
             text = "COGNITIVE SYNAPSE ACTIVE",
-            color = Color.Black,
+            color = FigmaTextPrimary,
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.Monospace,
@@ -1252,14 +1257,13 @@ fun CompleteStepContent(onFinish: () -> Unit) {
         Button(
             onClick = onFinish,
             shape = RoundedCornerShape(99.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = FigmaTextPrimary),
+            colors = ButtonDefaults.buttonColors(containerColor = FigmaTextPrimary, contentColor = FigmaBg),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(54.dp)
         ) {
             Text(
                 text = "ENTER PORTAL",
-                color = Color.White,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,

@@ -81,8 +81,25 @@ class DecisionAgent:
         if mem_result.get("alignment_score", 0) >= 60:
             memories = mem_result.get("memories", [])
             if memories:
-                top_mem   = memories[0].get("text", "")
-                mem_text  = f"I remember something similar — {top_mem[:120]}. Ring a bell?"
+                top_mem = memories[0]
+                top_mem_text = top_mem.get("text", "")
+                top_metadata = top_mem.get("metadata") or {}
+                
+                prev_action = top_metadata.get("action")
+                prev_location = top_metadata.get("location", "home")
+                
+                if not prev_action:
+                    if "Action: " in top_mem_text:
+                        prev_action = top_mem_text.split("Action: ")[-1].strip()
+                
+                if prev_action:
+                    if "I remember" in prev_action:
+                        mem_text = "I noticed similar stress levels earlier today. How are you holding up?"
+                    else:
+                        mem_text = f"Earlier when you were at {prev_location}, we tried: '{prev_action}'. Would you like to do that again?"
+                else:
+                    mem_text = "I noticed similar patterns in your activity earlier. How are you feeling?"
+
                 aq, intr  = _RESPONSE_PROFILES["MEMORY_PROMPT"]
                 candidates.append({
                     "text":           mem_text,

@@ -8,13 +8,20 @@ __pycache__/
 
 # Databases
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
 *.db-wal
 *.db-shm
 .env
 # Chroma data
 chroma/
 data/chroma/
+data/chroma_backup/
 src/backend/data/audio/
+*.wav
+*.aac
+*.pcm
 
 # VS Code
 .vscode/

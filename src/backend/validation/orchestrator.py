@@ -67,6 +67,32 @@ class Orchestrator:
         battery    = ctx["sensor_data"].get("battery_level", 100)
         mode       = BatteryMode.from_level(battery)
 
+        # Push real-time telemetry updates to laptop if connected
+        ws = self.laptop_connections.get(session_id)
+        if ws:
+            # 1. Interruption Shield (focus preservation)
+            stress_score = ctx.get("user_state", {}).get("stress_score", 0)
+            try:
+                await ws.send_json({
+                    "type": "INTERRUPTION_SHIELD",
+                    "stress_score": stress_score
+                })
+                logger.info(f"Pushed interruption shield (stress: {stress_score}) to laptop session: {session_id}")
+            except Exception as e:
+                logger.warning(f"Failed to push interruption shield: {e}")
+
+            # 2. Media Handoff (if active media is present)
+            active_media = ctx.get("sensor_data", {}).get("active_media")
+            if active_media:
+                try:
+                    await ws.send_json({
+                        "type": "MEDIA_HANDOFF",
+                        "active_media": active_media
+                    })
+                    logger.info(f"Pushed media handoff to laptop session: {session_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to push media handoff: {e}")
+
         # Ghost mode: no inference, just log
         if mode == BatteryMode.GHOST:
             logger.info(f"Ghost mode active (battery {battery}%) — skipping inference")
@@ -107,6 +133,7 @@ class Orchestrator:
             "message":   response_text,
             "agent":     agent_used,
             "timestamp": ctx["metadata"]["timestamp"],
+            "laptop_active": len(self.laptop_connections) > 0,
         }
 
         # Persist KPI log
@@ -124,7 +151,7 @@ class Orchestrator:
         await self._push_to_laptop(session_id, response, ctx)
 
         # Store memory episode in ChromaDB (async, don't block response)
-        asyncio.create_task(self._store_memory(ctx, response_text))
+        asyncio.create_task(self._store_memory(ctx, response_text, agent_used))
 
         return response
 
@@ -361,8 +388,11 @@ class Orchestrator:
     # Memory storage
     # ──────────────────────────────────────────────────────────────────────────
 
-    async def _store_memory(self, ctx: dict, response_text: str):
+    async def _store_memory(self, ctx: dict, response_text: str, agent_used: str = ""):
         """Compress and store a memory episode in ChromaDB."""
+        if agent_used == "memory" or "I remember" in response_text:
+            logger.info("Skipping memory storage for recall prompt to prevent recursion")
+            return
         try:
             meta = ctx["metadata"]
             state  = ctx.get("user_state", {})
@@ -386,6 +416,7 @@ class Orchestrator:
                     "emotion":      state.get("emotion_label", "unknown"),
                     "stress_score": str(state.get("stress_score", 0)),
                     "location":     sensor.get("location", "unknown"),
+                    "action":       response_text,
                 },
             )
         except Exception as exc:

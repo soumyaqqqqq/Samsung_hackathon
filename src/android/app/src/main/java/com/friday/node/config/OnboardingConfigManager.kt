@@ -90,6 +90,15 @@ class OnboardingConfigManager(private val context: Context) {
         val key = getModuleKey(moduleName)
         return prefs.getBoolean(key, false)
     }
+
+    /**
+     * Enable or disable a module by name
+     */
+    fun setModuleEnabled(moduleName: String, enabled: Boolean) {
+        val key = getModuleKey(moduleName)
+        prefs.edit().putBoolean(key, enabled).apply()
+        Log.d(TAG, "Module $moduleName ($key) set to: $enabled")
+    }
     
     /**
      * Get current configuration as map
