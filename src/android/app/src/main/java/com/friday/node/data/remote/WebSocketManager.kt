@@ -55,6 +55,10 @@ class WebSocketManager private constructor() {
         return serverUrl?.replace("ws://", "http://")?.replace("wss://", "https://")?.replace("/ws/android", "")
     }
 
+    fun getVoiceWebSocketUrl(): String? {
+        return serverUrl?.replace("/ws/android", "/ws/voice")
+    }
+
     private fun attemptReconnection() {
         val url = serverUrl ?: return
         CoroutineScope(Dispatchers.IO).launch {

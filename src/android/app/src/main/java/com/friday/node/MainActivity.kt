@@ -33,6 +33,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -61,6 +68,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import com.friday.node.data.local.RoomDatabase
 import com.friday.node.data.remote.WebSocketManager
+import com.friday.node.data.remote.VoiceAssistantManager
+import com.friday.node.data.remote.VoiceState
 import com.friday.node.service.FRIDAYForegroundService
 import com.friday.node.utils.DiscoveryManager
 import com.friday.node.utils.LocalFallbackEngine
@@ -89,12 +98,18 @@ data class TimelineEvent(
 class MainActivity : ComponentActivity() {
 
     private val TAG = "FRIDAY_MainActivity"
+    private lateinit var voiceAssistantManager: VoiceAssistantManager
 
     private fun showToast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
     
     // Live UI State variables using Compose states
+    private var showProactiveOverlay = mutableStateOf(false)
+    private var assistantState = mutableStateOf(VoiceState.IDLE)
+    private var transcriptText = mutableStateOf("")
+    private var assistantResponse = mutableStateOf("")
+    private var errorMessage = mutableStateOf("")
     private var connectionStatus = mutableStateOf("Searching for Hub...")
     private var isConnected = mutableStateOf(false)
     private var stressScore = mutableStateOf(0)
@@ -275,6 +290,24 @@ class MainActivity : ComponentActivity() {
         
         // 1. Initialize WebSocket context binding
         WebSocketManager.getInstance().init(this)
+        voiceAssistantManager = VoiceAssistantManager(this).apply {
+            onStateChanged = { newState ->
+                assistantState.value = newState
+            }
+            onResultReceived = { transcript, response ->
+                transcriptText.value = transcript
+                assistantResponse.value = response
+                if (!showProactiveOverlay.value) {
+                    showToast("FRIDAY: $response")
+                }
+            }
+            onErrorOccurred = { error ->
+                errorMessage.value = error
+                if (!showProactiveOverlay.value) {
+                    showToast("FRIDAY Error: $error")
+                }
+            }
+        }
         
         val configManager = OnboardingConfigManager(this)
         val isOnboardingComplete = configManager.isOnboardingComplete()
@@ -382,6 +415,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        try {
+            voiceAssistantManager.cancel()
+        } catch (e: Exception) {}
         try {
             unregisterReceiver(telemetryReceiver)
         } catch (e: Exception) {
@@ -586,7 +622,6 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun MainContainer() {
         var activeTab by remember { mutableStateOf(0) }
-        var showProactiveOverlay by remember { mutableStateOf(false) }
 
         Scaffold(
             bottomBar = {
@@ -594,10 +629,10 @@ class MainActivity : ComponentActivity() {
                     activeTab = activeTab,
                     onTabSelected = { tab ->
                         activeTab = tab
-                        showProactiveOverlay = false
+                        showProactiveOverlay.value = false
                     },
                     onSparkClicked = {
-                        showProactiveOverlay = !showProactiveOverlay
+                        showProactiveOverlay.value = !showProactiveOverlay.value
                     }
                 )
             },
@@ -616,8 +651,8 @@ class MainActivity : ComponentActivity() {
                     3 -> SettingsTab()
                 }
 
-                if (showProactiveOverlay) {
-                    ProactiveOverlayScreen(onClose = { showProactiveOverlay = false })
+                if (showProactiveOverlay.value) {
+                    ProactiveOverlayScreen(onClose = { showProactiveOverlay.value = false })
                 }
             }
         }
@@ -1381,7 +1416,7 @@ class MainActivity : ComponentActivity() {
                                     ),
                                     shape = RoundedCornerShape(9999.dp)
                                 ) {
-                                    Text("Repeat Setup")
+                                    Text("Repeat Setup", color = MaterialTheme.colorScheme.surface)
                                 }
                                 Button(
                                     onClick = { /* TODO: Dismiss memory moment */ },
@@ -3167,10 +3202,30 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun ProactiveOverlayScreen(onClose: () -> Unit) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        
+        val assistantState by this@MainActivity.assistantState
+        val transcriptText by this@MainActivity.transcriptText
+        val assistantResponse by this@MainActivity.assistantResponse
+        val errorMessage by this@MainActivity.errorMessage
+        
+        DisposableEffect(Unit) {
+            if (voiceAssistantManager.state == VoiceState.IDLE) {
+                val hasMicPermission = context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (hasMicPermission) {
+                    voiceAssistantManager.startRecording()
+                }
+            }
+            
+            onDispose {
+                // Background execution: Do not cancel voiceAssistantManager on screen close/dispose
+            }
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background.copy(alpha = 0.96f))
+                .background(MaterialTheme.colorScheme.background.copy(alpha = 0.98f))
                 .clickable { /* Block clicks */ }
         ) {
             Column(
@@ -3204,15 +3259,22 @@ class MainActivity : ComponentActivity() {
 
                 // Listening header
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    val statusColor = when (assistantState) {
+                        VoiceState.RECORDING -> ColorBlockLime
+                        VoiceState.TRANSCRIBING -> ColorBlockLilac
+                        VoiceState.RESPONDING -> ColorBlockMint
+                        VoiceState.ERROR -> ColorBlockCoral
+                        else -> MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
+                    }
                     Box(
                         modifier = Modifier
                             .size(10.dp)
                             .clip(CircleShape)
-                            .background(ColorBlockLime)
+                            .background(statusColor)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "STATUS: ACTIVE LISTENING",
+                        text = "STATUS: ${assistantState.name}",
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.onBackground,
@@ -3223,7 +3285,13 @@ class MainActivity : ComponentActivity() {
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "FRIDAY is listening...",
+                    text = when (assistantState) {
+                        VoiceState.IDLE -> "Speak to FRIDAY"
+                        VoiceState.RECORDING -> "FRIDAY is listening..."
+                        VoiceState.TRANSCRIBING -> "FRIDAY is thinking..."
+                        VoiceState.RESPONDING -> "FRIDAY's Response"
+                        VoiceState.ERROR -> "Voice Error"
+                    },
                     fontSize = 44.sp,
                     fontFamily = FontFamily.SansSerif,
                     fontWeight = FontWeight.W300,
@@ -3234,92 +3302,237 @@ class MainActivity : ComponentActivity() {
 
                 Spacer(modifier = Modifier.height(40.dp))
 
-                // Bento Grid
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = ColorBlockLilac),
-                    modifier = Modifier.fillMaxWidth()
+                // Central Mic Button with Pulsing Wave
+                val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+                val scale by infiniteTransition.animateFloat(
+                    initialValue = 1f,
+                    targetValue = 1.35f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(1200, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                        repeatMode = RepeatMode.Restart
+                    ),
+                    label = "scale"
+                )
+                val alpha by infiniteTransition.animateFloat(
+                    initialValue = 0.6f,
+                    targetValue = 0f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(1200, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                        repeatMode = RepeatMode.Restart
+                    ),
+                    label = "alpha"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .size(120.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Column(modifier = Modifier.padding(24.dp)) {
-                        Text(
-                            text = stringResource(R.string.title_cognitive_pulse),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    if (assistantState == VoiceState.RECORDING) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer(scaleX = scale, scaleY = scale)
+                                .clip(CircleShape)
+                                .background(ColorBlockLime.copy(alpha = alpha))
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Row(verticalAlignment = Alignment.Bottom) {
-                            Text(
-                                text = "84%",
-                                fontSize = 48.sp,
-                                fontWeight = FontWeight.Black,
-                                color = MaterialTheme.colorScheme.onSurface
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (assistantState == VoiceState.RECORDING) ColorBlockLime else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Focus",
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                modifier = Modifier.padding(bottom = 8.dp)
-                            )
+                            .clickable {
+                                if (assistantState == VoiceState.IDLE || assistantState == VoiceState.RESPONDING || assistantState == VoiceState.ERROR) {
+                                    val hasMicPermission = context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                    if (hasMicPermission) {
+                                        voiceAssistantManager.startRecording()
+                                    } else {
+                                        requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 102)
+                                    }
+                                } else if (assistantState == VoiceState.RECORDING) {
+                                    voiceAssistantManager.stopRecordingAndTranscribe()
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Crossfade(targetState = assistantState, label = "mic_state_transition") { state ->
+                            when (state) {
+                                VoiceState.RECORDING -> {
+                                    val recordingColor = if (isDarkThemeGlobal) Color(0xFFD6FF3D) else Color.Black
+                                    PulsatingDotsCompose(color = recordingColor)
+                                }
+                                VoiceState.TRANSCRIBING -> {
+                                    CircularProgressIndicator(
+                                        color = if (isDarkThemeGlobal) Color(0xFFD6FF3D) else Color.Black,
+                                        strokeWidth = 3.dp,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                                VoiceState.RESPONDING -> {
+                                    RippleWaveLoaderCompose()
+                                }
+                                else -> {
+                                    Icon(
+                                        imageVector = Icons.Default.Star,
+                                        contentDescription = "Mic",
+                                        tint = ColorBlockLime,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                            }
                         }
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "Your flow state is peak right now. I've silenced all non-critical nodes and optimized your workspace luminance for deep focus.",
-                            fontSize = 15.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = ColorBlockNavy),
+                Text(
+                    text = when (assistantState) {
+                        VoiceState.IDLE -> "Tap button to start recording."
+                        VoiceState.RECORDING -> "Tap button again when done speaking."
+                        VoiceState.TRANSCRIBING -> "Analyzing speech buffers via whisper.cpp..."
+                        VoiceState.RESPONDING -> "Ready for next query."
+                        VoiceState.ERROR -> "Tap to try again."
+                    },
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                    textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(56.dp)
-                                .border(2.dp, ColorBlockLime, CircleShape),
-                            contentAlignment = Alignment.Center
+                )
+
+                Spacer(modifier = Modifier.height(40.dp))
+
+                // Results or suggestion box
+                when (assistantState) {
+                    VoiceState.RESPONDING -> {
+                        // User transcript
+                        Card(
+                            shape = RoundedCornerShape(24.dp),
+                            colors = CardDefaults.cardColors(containerColor = ColorBlockLilac),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(imageVector = Icons.Default.Favorite, contentDescription = null, tint = ColorBlockLime, modifier = Modifier.size(24.dp))
+                            Column(modifier = Modifier.padding(20.dp)) {
+                                Text(
+                                    text = "YOU",
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "\"$transcriptText\"",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Assistant Response
+                        Card(
+                            shape = RoundedCornerShape(24.dp),
+                            colors = CardDefaults.cardColors(containerColor = ColorBlockLime),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(20.dp)) {
+                                Text(
+                                    text = "FRIDAY AI",
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = assistantResponse,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        Button(
+                            onClick = { voiceAssistantManager.cancel() },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onBackground),
+                            shape = RoundedCornerShape(9999.dp),
+                            modifier = Modifier.fillMaxWidth().height(48.dp)
+                        ) {
+                            Text("Clear & Ask Something Else", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.background)
+                        }
+                    }
+                    
+                    VoiceState.ERROR -> {
+                        Card(
+                            shape = RoundedCornerShape(24.dp),
+                            colors = CardDefaults.cardColors(containerColor = ColorBlockCoral),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(20.dp)) {
+                                Text(
+                                    text = "ENGINE ERROR",
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White.copy(alpha = 0.7f)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = errorMessage,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        Button(
+                            onClick = { voiceAssistantManager.cancel() },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onBackground),
+                            shape = RoundedCornerShape(9999.dp),
+                            modifier = Modifier.fillMaxWidth().height(48.dp)
+                        ) {
+                            Text("Reset", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.background)
+                        }
+                    }
+
+                    else -> {
+                        // Show suggestions
                         Text(
-                            text = "BRAIN SYNC",
+                            text = "SUGGESTED COMMANDS",
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            color = ColorBlockLime
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(bottom = 12.dp)
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Delta waves detected. Deep integration active.",
-                            fontSize = 12.sp,
-                            color = Color.White.copy(alpha = 0.7f),
-                            textAlign = TextAlign.Center
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OverlayActionButton(text = "Silence all alerts") {
+                                voiceAssistantManager.sendTextQuery("Silence all alerts")
+                            }
+                            OverlayActionButton(text = "Prepare Evening Brief") {
+                                voiceAssistantManager.sendTextQuery("Prepare Evening Brief")
+                            }
+                            OverlayActionButton(text = "Explain Current Stress") {
+                                voiceAssistantManager.sendTextQuery("Explain Current Stress")
+                            }
+                            OverlayActionButton(text = "Start Focus Mode") {
+                                voiceAssistantManager.sendTextQuery("Start Focus Mode")
+                            }
+                        }
                     }
-                }
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                // Action suggestions
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OverlayActionButton(text = stringResource(R.string.btn_silence_all))
-                    OverlayActionButton(text = "Prepare Evening Brief")
-                    OverlayActionButton(text = "Check Node Connectivity")
-                    OverlayActionButton(text = "Explain Current Stress")
                 }
 
                 Spacer(modifier = Modifier.height(40.dp))
@@ -3328,19 +3541,114 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun OverlayActionButton(text: String) {
+    fun OverlayActionButton(text: String, onClick: () -> Unit) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(9999.dp))
                 .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(9999.dp))
-                .clickable { /* Action placeholder */ }
+                .clickable(onClick = onClick)
                 .padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(text = text, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
             Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
+        }
+    }
+
+    @Composable
+    private fun PulsatingDotsCompose(color: Color) {
+        val transition = rememberInfiniteTransition(label = "dots")
+        val dot1Scale by transition.animateFloat(
+            initialValue = 0.5f,
+            targetValue = 1.3f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "dot1"
+        )
+        val dot2Scale by transition.animateFloat(
+            initialValue = 0.5f,
+            targetValue = 1.3f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+                initialStartOffset = androidx.compose.animation.core.StartOffset(200)
+            ),
+            label = "dot2"
+        )
+        val dot3Scale by transition.animateFloat(
+            initialValue = 0.5f,
+            targetValue = 1.3f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+                initialStartOffset = androidx.compose.animation.core.StartOffset(400)
+            ),
+            label = "dot3"
+        )
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .graphicsLayer(scaleX = dot1Scale, scaleY = dot1Scale)
+                    .background(color, CircleShape)
+            )
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .graphicsLayer(scaleX = dot2Scale, scaleY = dot2Scale)
+                    .background(color, CircleShape)
+            )
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .graphicsLayer(scaleX = dot3Scale, scaleY = dot3Scale)
+                    .background(color, CircleShape)
+            )
+        }
+    }
+
+    @Composable
+    private fun RippleWaveLoaderCompose() {
+        val transition = rememberInfiniteTransition(label = "wave")
+        val animVals = (0 until 7).map { index ->
+            transition.animateFloat(
+                initialValue = 0.4f,
+                targetValue = 1.6f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(500, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse,
+                    initialStartOffset = androidx.compose.animation.core.StartOffset(index * 80)
+                ),
+                label = "wave_$index"
+            )
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            animVals.forEachIndexed { index, animVal ->
+                val barColor = if (isDarkThemeGlobal) {
+                    if (index % 2 == 0) Color(0xFFD6FF3D) else Color.White
+                } else {
+                    Color.Black
+                }
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(18.dp)
+                        .graphicsLayer(scaleY = animVal.value)
+                        .background(barColor, RoundedCornerShape(99.dp))
+                )
+            }
         }
     }
 

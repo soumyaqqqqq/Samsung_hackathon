@@ -170,6 +170,10 @@ AGENT_REGISTRY = {
         "module": "detection.notif",
         "class": "NotifAgent"
     },
+    "voice": {
+        "module": "agents.voice",
+        "class": "VoiceAgent"
+    },
 }
 
 # Routing rules: which signals trigger which agent chains
