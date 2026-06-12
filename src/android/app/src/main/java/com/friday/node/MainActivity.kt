@@ -87,6 +87,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import org.json.JSONObject
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 
 data class TimelineEvent(
     val title: String,
@@ -544,6 +546,34 @@ class MainActivity : ComponentActivity() {
         configManager.setModuleEnabled("Location & Environment", locationEnabled)
     }
 
+    private fun triggerTelemetryRefresh(onComplete: () -> Unit) {
+        CoroutineScope(Dispatchers.Main).launch {
+            // 1. Recalculate stress
+            recalculateLocalStress()
+            
+            // 2. Sync connection state with WebSocketManager
+            val connected = WebSocketManager.getInstance().isConnected()
+            isConnected.value = connected
+            connectionStatus.value = if (connected) {
+                "Connected to Hub"
+            } else {
+                "Searching for Hub..."
+            }
+            
+            // 3. Poll database buffer count
+            val db = RoomDatabase.getInstance(this@MainActivity)
+            bufferedEventsCount.value = db.getEventCount()
+            
+            // 4. Force check permissions
+            checkPermissionsState()
+            
+            // Simulating a delay for user feedback/refresh spinner animation
+            delay(1000)
+            showToast("Telemetry synced & refreshed!")
+            onComplete()
+        }
+    }
+
     private fun recalculateLocalStress() {
         // Evaluate dynamic stress offline via LocalFallbackEngine
         val result = LocalFallbackEngine.evaluateOfflineContext(
@@ -620,9 +650,11 @@ class MainActivity : ComponentActivity() {
     val ColorBackground get() = if (isDarkThemeGlobal) Color(0xFF121212) else Color(0xFFF9F9F9)
 
     // Compose Core UI Layout
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun MainContainer() {
         var activeTab by remember { mutableStateOf(0) }
+        var isRefreshing by remember { mutableStateOf(false) }
 
         Scaffold(
             bottomBar = {
@@ -640,20 +672,31 @@ class MainActivity : ComponentActivity() {
             containerColor = MaterialTheme.colorScheme.background,
             modifier = Modifier.fillMaxSize()
         ) { innerPadding ->
-            Box(
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = {
+                    isRefreshing = true
+                    triggerTelemetryRefresh {
+                        isRefreshing = false
+                    }
+                },
                 modifier = Modifier
                     .padding(innerPadding)
                     .fillMaxSize()
             ) {
-                when (activeTab) {
-                    0 -> DashboardTab()
-                    1 -> MindTab()
-                    2 -> ContinuityTab()
-                    3 -> SettingsTab()
-                }
+                Box(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    when (activeTab) {
+                        0 -> DashboardTab()
+                        1 -> MindTab()
+                        2 -> ContinuityTab()
+                        3 -> SettingsTab()
+                    }
 
-                if (showProactiveOverlay.value) {
-                    ProactiveOverlayScreen(onClose = { showProactiveOverlay.value = false })
+                    if (showProactiveOverlay.value) {
+                        ProactiveOverlayScreen(onClose = { showProactiveOverlay.value = false })
+                    }
                 }
             }
         }
