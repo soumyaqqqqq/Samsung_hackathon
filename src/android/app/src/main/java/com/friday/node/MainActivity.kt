@@ -58,6 +58,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Phone
@@ -825,14 +826,14 @@ class MainActivity : ComponentActivity() {
                 Button(
                     onClick = onSparkClicked,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = CircleShape,
                     modifier = Modifier
                         .size(56.dp)
-                        .border(2.dp, ColorBlockLime, RoundedCornerShape(16.dp)),
+                        .border(2.dp, ColorBlockLime, CircleShape),
                     contentPadding = PaddingValues(0.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Star,
+                        imageVector = Icons.Default.Mic,
                         contentDescription = "AI Assistant",
                         tint = ColorBlockLime,
                         modifier = Modifier.size(24.dp)
@@ -3444,7 +3445,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 else -> {
                                     Icon(
-                                        imageVector = Icons.Default.Star,
+                                        imageVector = Icons.Default.Mic,
                                         contentDescription = "Mic",
                                         tint = ColorBlockLime,
                                         modifier = Modifier.size(32.dp)
