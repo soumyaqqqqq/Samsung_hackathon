@@ -19,22 +19,6 @@ try:
     import chromadb
     from chromadb.config import Settings as ChromaSettings
     CHROMA_AVAILABLE = True
-
-    # Patch chromadb sqlite _decode_seq_id issue where it gets an int instead of bytes
-    try:
-        import chromadb.segment.impl.metadata.sqlite as chromadb_sqlite
-        _orig_decode_seq_id = chromadb_sqlite._decode_seq_id
-
-        def _patched_decode_seq_id(seq_id_bytes):
-            if isinstance(seq_id_bytes, int):
-                return seq_id_bytes
-            return _orig_decode_seq_id(seq_id_bytes)
-
-        chromadb_sqlite._decode_seq_id = _patched_decode_seq_id
-        logger.info("Successfully patched chromadb._decode_seq_id to handle integer values.")
-    except Exception as patch_err:
-        logger.warning(f"Could not patch chromadb._decode_seq_id: {patch_err}")
-
 except ImportError:
     CHROMA_AVAILABLE = False
     logger.warning(
