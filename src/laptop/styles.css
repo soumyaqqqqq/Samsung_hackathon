@@ -1,0 +1,1030 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0..1,0&display=swap');
+
+:host {
+    --color-background: #f9f9f9;
+    --color-on-background: #1b1b1b;
+    --color-surface: #ffffff;
+    --color-surface-dim: #dadada;
+    --color-surface-bright: #f9f9f9;
+    --color-surface-container-lowest: #ffffff;
+    --color-surface-container-low: #f3f3f3;
+    --color-surface-container: #eeeeee;
+    --color-surface-container-high: #e8e8e8;
+    --color-surface-container-highest: #e2e2e2;
+    --color-on-surface: #1b1b1b;
+    --color-on-surface-variant: #4c4546;
+    --color-outline: #7e7576;
+    --color-outline-variant: rgba(0, 0, 0, 0.08);
+    --color-primary: #000000;
+    --color-on-primary: #ffffff;
+    --color-secondary: #5d5f5f;
+    --color-error: #ba1a1a;
+    
+    --block-lime: #D6FF3D;
+    --block-lilac: #C6BFFF;
+    --block-cream: #FFF9E3;
+    --block-mint: #B2FFD6;
+    --block-pink: #FFB8EB;
+    --block-coral: #FF8C70;
+    --block-navy: #10162F;
+    
+    --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+    
+    --z-index-max: 2147483647;
+}
+
+.material-symbols-outlined {
+    font-family: 'Material Symbols Outlined' !important;
+    font-weight: normal;
+    font-style: normal;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+.friday-toggle-handle {
+    position: fixed;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 44px;
+    height: 52px;
+    background: #000000;
+    border-radius: 26px 0 0 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: calc(var(--z-index-max) - 2);
+    box-shadow: -4px 0 16px rgba(0, 0, 0, 0.15);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-right: none;
+}
+
+.friday-toggle-handle:hover {
+    width: 52px;
+    background: #1b1b1b;
+}
+
+.friday-toggle-handle span.icon {
+    color: #ffffff;
+    font-size: 24px;
+    transition: transform 0.3s;
+}
+
+.friday-toggle-handle:hover span.icon {
+    transform: scale(1.1);
+}
+
+.friday-toggle-handle .status-dot {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--block-mint);
+    box-shadow: 0 0 8px var(--block-mint);
+    transition: background-color 0.3s, box-shadow 0.3s;
+}
+
+.friday-toggle-handle.disconnected .status-dot {
+    background: #7e7576;
+    box-shadow: none;
+}
+
+.friday-sidebar {
+    position: fixed;
+    top: 0;
+    right: -420px;
+    width: 400px;
+    height: 100vh;
+    background: var(--color-background);
+    border-left: 1px solid var(--color-outline-variant);
+    box-shadow: -10px 0 40px rgba(0, 0, 0, 0.08);
+    z-index: calc(var(--z-index-max) - 1);
+    transition: right 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    color: var(--color-on-background);
+    font-family: var(--font-sans);
+}
+
+.friday-sidebar.open {
+    right: 0;
+}
+
+.friday-sidebar-header {
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--color-outline-variant);
+    background: #ffffff;
+}
+
+.friday-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.friday-logo {
+    font-family: var(--font-sans);
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: -0.05em;
+    color: var(--color-primary);
+}
+
+.friday-conn-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 12px;
+    background: var(--color-surface-container-low);
+    border: 1px solid var(--color-outline-variant);
+}
+
+.friday-conn-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--block-mint);
+    box-shadow: 0 0 6px var(--block-mint);
+    animation: pulse-soft 2s infinite;
+}
+
+.friday-conn-badge.disconnected .friday-conn-dot {
+    background: #7e7576;
+    box-shadow: none;
+    animation: none;
+}
+
+.friday-conn-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    color: var(--color-secondary);
+    text-transform: uppercase;
+}
+
+.friday-close-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--color-secondary);
+    transition: all 0.2s;
+}
+
+.friday-close-btn:hover {
+    background: var(--color-surface-container);
+    color: var(--color-primary);
+    transform: rotate(90deg);
+}
+
+.friday-tabs {
+    display: flex;
+    padding: 12px 24px;
+    gap: 8px;
+    background: #ffffff;
+    border-bottom: 1px solid var(--color-outline-variant);
+}
+
+.friday-tab-btn {
+    flex: 1;
+    height: 38px;
+    border-radius: 19px;
+    border: 1px solid transparent;
+    background: transparent;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-secondary);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.friday-tab-btn:hover {
+    background: var(--color-surface-container-low);
+    color: var(--color-primary);
+}
+
+.friday-tab-btn.active {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+}
+
+.friday-tab-btn span.material-symbols-outlined {
+    font-size: 16px;
+}
+
+.friday-content-pane {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.friday-content-pane::-webkit-scrollbar {
+    width: 0px;
+    background: transparent;
+}
+.friday-content-pane {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.friday-card-block {
+    border-radius: 24px;
+    padding: 24px;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+    background: #ffffff;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.01);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.friday-card-block:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.04);
+}
+
+.friday-card-block.bg-mint {
+    background: var(--block-mint);
+}
+.friday-card-block.bg-lilac {
+    background: var(--block-lilac);
+}
+.friday-card-block.bg-cream {
+    background: var(--block-cream);
+}
+.friday-card-block.bg-pink {
+    background: var(--block-pink);
+}
+.friday-card-block.bg-coral {
+    background: var(--block-coral);
+}
+.friday-card-block.bg-navy {
+    background: var(--block-navy);
+    color: #ffffff;
+    border: none;
+}
+.friday-card-block.bg-lime {
+    background: var(--block-lime);
+}
+
+.friday-card-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(27, 27, 27, 0.6);
+    margin-bottom: 16px;
+}
+
+.friday-card-block.bg-navy .friday-card-eyebrow {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.friday-card-title {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
+    margin-bottom: 8px;
+}
+
+.friday-card-body {
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.5;
+    color: rgba(27, 27, 27, 0.8);
+    margin-bottom: 16px;
+}
+
+.friday-card-block.bg-navy .friday-card-body {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.friday-metric-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 16px;
+}
+
+.friday-metric-value-container {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+}
+
+.friday-metric-value {
+    font-size: 48px;
+    font-weight: 900;
+    letter-spacing: -0.04em;
+    line-height: 1;
+}
+
+.friday-metric-scale {
+    font-size: 16px;
+    font-weight: 500;
+    color: rgba(27, 27, 27, 0.5);
+}
+
+.friday-card-block.bg-navy .friday-metric-scale {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.friday-state-badge {
+    padding: 6px 12px;
+    border-radius: 14px;
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.friday-card-block.bg-navy .friday-state-badge {
+    background: #ffffff;
+    color: var(--color-primary);
+}
+
+.friday-graph-container {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.friday-graph-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: rgba(27, 27, 27, 0.5);
+}
+
+.friday-card-block.bg-navy .friday-graph-label {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.friday-graph-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    height: 52px;
+    padding-top: 8px;
+}
+
+.friday-graph-bar {
+    flex: 1;
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 4px;
+    transition: height 0.5s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.3s;
+}
+
+.friday-card-block.bg-navy .friday-graph-bar {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.friday-graph-bar.active {
+    background: var(--color-primary);
+}
+
+.friday-card-block.bg-navy .friday-graph-bar.active {
+    background: var(--block-lime);
+}
+
+.friday-progress-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+}
+
+.friday-progress-track {
+    flex-grow: 1;
+    height: 6px;
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.friday-card-block.bg-navy .friday-progress-track {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.friday-progress-fill {
+    height: 100%;
+    background: var(--color-primary);
+    border-radius: 3px;
+    transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.friday-card-block.bg-navy .friday-progress-fill {
+    background: var(--block-lime);
+}
+
+.friday-card-block.bg-lilac .friday-progress-fill {
+    background: var(--color-primary);
+}
+
+.friday-progress-pct {
+    font-size: 16px;
+    font-weight: 800;
+    min-width: 38px;
+    text-align: right;
+}
+
+.friday-segments-track {
+    display: flex;
+    gap: 4px;
+    margin-top: 8px;
+}
+
+.friday-segment {
+    height: 4px;
+    flex: 1;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 2px;
+}
+
+.friday-segment.active {
+    background: var(--color-primary);
+}
+
+.friday-pill-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 44px;
+    padding: 0 20px;
+    border-radius: 22px;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    width: max-content;
+    text-decoration: none;
+}
+
+.friday-pill-btn.primary {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+}
+
+.friday-pill-btn.primary:hover {
+    transform: scale(1.02);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.friday-pill-btn.secondary {
+    background: #ffffff;
+    color: var(--color-primary);
+    border: 1px solid var(--color-primary);
+}
+
+.friday-pill-btn.secondary:hover {
+    background: var(--color-surface-container-low);
+    transform: scale(1.02);
+}
+
+.friday-pill-btn span.material-symbols-outlined {
+    font-size: 18px;
+}
+
+.friday-checklist {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.friday-check-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.friday-check-item span.icon {
+    font-size: 16px;
+}
+
+.friday-check-item.checked {
+    color: rgba(27, 27, 27, 0.4);
+    text-decoration: line-through;
+}
+
+.friday-apps-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.friday-app-card {
+    background: #ffffff;
+    border: 1px solid var(--color-outline-variant);
+    border-radius: 16px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    transition: all 0.2s;
+}
+
+.friday-app-card:hover {
+    border-color: var(--color-primary);
+    transform: translateY(-1px);
+}
+
+.friday-app-icon-container {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: var(--color-surface-container-low);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.friday-app-icon-container span.material-symbols-outlined {
+    font-size: 20px;
+}
+
+.friday-app-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--color-primary);
+}
+
+.friday-app-time {
+    font-size: 11px;
+    color: var(--color-secondary);
+}
+
+.friday-tabs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.friday-tab-card {
+    background: var(--block-cream);
+    border: 1px solid rgba(0, 0, 0, 0.04);
+    border-radius: 16px;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+    color: inherit;
+}
+
+.friday-tab-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    border-color: rgba(0,0,0,0.1);
+}
+
+.friday-tab-card span.main-icon {
+    color: var(--color-secondary);
+    font-size: 20px;
+}
+
+.friday-tab-card-content {
+    flex-grow: 1;
+    min-width: 0;
+}
+
+.friday-tab-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--color-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+}
+
+.friday-tab-url {
+    font-size: 11px;
+    color: var(--color-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+}
+
+.friday-tab-card span.action-icon {
+    color: var(--color-secondary);
+    font-size: 18px;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+
+.friday-tab-card:hover span.action-icon {
+    opacity: 1;
+}
+
+.friday-bookmarks-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.friday-bookmark-card {
+    border-radius: 16px;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.friday-bookmark-card.bg-mint { background: var(--block-mint); }
+.friday-bookmark-card.bg-coral { background: var(--block-coral); }
+
+.friday-bookmark-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.friday-bookmark-left span.icon {
+    font-size: 22px;
+    color: var(--color-primary);
+}
+
+.friday-bookmark-details {
+    min-width: 0;
+}
+
+.friday-bookmark-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--color-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+}
+
+.friday-bookmark-status {
+    font-size: 11px;
+    color: var(--color-secondary);
+}
+
+.friday-bookmark-btn {
+    height: 28px;
+    padding: 0 12px;
+    border-radius: 14px;
+    background: #ffffff;
+    color: var(--color-primary);
+    border: none;
+    font-family: var(--font-sans);
+    font-size: 10px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.05em;
+}
+
+.friday-bookmark-btn:hover {
+    background: var(--color-primary);
+    color: #ffffff;
+}
+
+@keyframes pulse-soft {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.95); }
+}
+
+@keyframes slide-in-right {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+.friday-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(12px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: var(--z-index-max);
+}
+
+.friday-modal-card {
+    background: #ffffff;
+    border-radius: 24px;
+    width: 380px;
+    overflow: hidden;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.15);
+    display: flex;
+    flex-direction: column;
+    font-family: var(--font-sans);
+}
+
+.friday-modal-hero {
+    background: var(--block-mint);
+    padding: 32px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.friday-modal-icon-circle {
+    width: 60px;
+    height: 60px;
+    background: #ffffff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    margin-bottom: 16px;
+}
+
+.friday-modal-icon-circle span {
+    font-size: 32px;
+    color: var(--color-primary);
+}
+
+.friday-modal-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    color: rgba(27, 27, 27, 0.6);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+
+.friday-modal-title {
+    font-size: 22px;
+    font-weight: 900;
+    color: var(--color-primary);
+    letter-spacing: -0.03em;
+}
+
+.friday-modal-content {
+    padding: 32px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.friday-modal-desc {
+    font-size: 13px;
+    color: var(--color-secondary);
+    line-height: 1.5;
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.friday-modal-pin {
+    font-family: var(--font-mono);
+    font-size: 38px;
+    font-weight: 800;
+    letter-spacing: 12px;
+    text-align: center;
+    color: var(--color-primary);
+    background: var(--block-cream);
+    border: 1px dashed rgba(0, 0, 0, 0.15);
+    padding: 18px 24px;
+    border-radius: 16px;
+    text-indent: 6px;
+    width: 100%;
+}
+
+.friday-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 16px;
+    border-top: 1px solid var(--color-outline-variant);
+    background: var(--color-surface-container-low);
+    opacity: 0.6;
+}
+
+.friday-modal-footer span.icon {
+    font-size: 14px;
+}
+
+.friday-modal-footer span.text {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-primary);
+}
+
+.friday-toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: #ffffff;
+    border-radius: 20px;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.1);
+    width: 340px;
+    padding: 20px;
+    z-index: calc(var(--z-index-max) - 2);
+    font-family: var(--font-sans);
+    animation: slide-in-right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.friday-toast-header {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--color-primary);
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.friday-toast-header span.icon {
+    font-size: 18px;
+}
+
+.friday-toast-body {
+    font-size: 12px;
+    color: var(--color-secondary);
+    line-height: 1.4;
+}
+
+.friday-toast-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.friday-toast-btn {
+    height: 32px;
+    padding: 0 16px;
+    border-radius: 16px;
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s;
+}
+
+.friday-toast-btn.primary {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+}
+
+.friday-toast-btn.primary:hover {
+    transform: scale(1.03);
+}
+
+.friday-toast-btn.secondary {
+    background: transparent;
+    color: var(--color-primary);
+    border: 1px solid var(--color-primary);
+}
+
+.friday-toast-btn.secondary:hover {
+    background: var(--color-surface-container-low);
+}
+
+#friday-focus-shield-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    background: var(--block-navy);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 600;
+    z-index: var(--z-index-max);
+    border-bottom: 2px solid var(--block-lime);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    padding: 0 20px;
+}
+
+#friday-focus-shield-banner span.dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--block-lime);
+    box-shadow: 0 0 6px var(--block-lime);
+    animation: pulse-soft 1.5s infinite;
+}
+
+#friday-focus-shield-banner span.text {
+    letter-spacing: -0.01em;
+}
+
+.friday-desaturate-mode {
+    filter: grayscale(0.8) contrast(0.95);
+    transition: filter 0.6s ease-in-out;
+}
+
+.friday-svg-icon {
+    display: inline-block;
+    vertical-align: middle;
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+    flex-shrink: 0;
+}
+
+.friday-tab-btn svg.friday-svg-icon {
+    width: 18px;
+    height: 18px;
+    margin-right: 6px;
+}
+
+.friday-pill-btn svg.friday-svg-icon {
+    width: 18px;
+    height: 18px;
+    margin-left: 6px;
+}
+
+.friday-app-icon-container svg.friday-svg-icon {
+    width: 24px;
+    height: 24px;
+}
+
+.friday-toggle-handle svg.friday-svg-icon {
+    width: 24px;
+    height: 24px;
+    color: #ffffff;
+}
+
+.friday-bookmark-card svg.friday-svg-icon {
+    color: var(--color-primary);
+}
+
+.friday-toast-header svg.friday-svg-icon {
+    margin-right: 8px;
+}

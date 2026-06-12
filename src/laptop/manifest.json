@@ -1,0 +1,40 @@
+{
+    "manifest_version": 3,
+    "name": "FRIDAY Continuity Client",
+    "version": "1.0.0",
+    "description": "Ambient intelligence overlay layer for the FRIDAY ecosystem.",
+    "permissions": [
+        "activeTab",
+        "storage"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "config.js",
+                "content.js"
+            ],
+            "css": [
+                "styles.css"
+            ]
+        }
+    ],
+    "action": {
+        "default_title": "FRIDAY Status Sidebar"
+    },
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "styles.css"
+            ],
+            "matches": [
+                "<all_urls>"
+            ]
+        }
+    ]
+}
