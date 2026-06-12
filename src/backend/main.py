@@ -766,14 +766,14 @@ async def generate_voice_response(text: str) -> str:
     )
     
     try:
-        async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
                 f"{settings.OLLAMA_BASE_URL}/api/generate",
                 json={
                     "model": settings.PRIMARY_LLM_MODEL,
                     "prompt": f"<system>{system_prompt}</system>\nUser voice command: {text}",
                     "stream": False,
-                    "options": {"temperature": 0.7, "num_predict": 100},
+                    "options": {"temperature": 0.7, "num_predict": 45},
                 },
             )
             resp.raise_for_status()
@@ -781,15 +781,43 @@ async def generate_voice_response(text: str) -> str:
             if response_text:
                 return response_text
     except Exception as e:
-        logger.warning(f"Ollama voice response generation failed: {e}")
+        logger.warning(f"Ollama voice response generation failed or timed out: {e}")
     
-    # Fallbacks
+    # Fallbacks (smart and context-aware)
     text_lower = text.lower()
+    stress_val = 42
+    location_val = "home"
+    task_val = "None"
+    
+    if latest_contexts:
+        try:
+            ctx = list(latest_contexts.values())[-1]
+            sensor = ctx.get("sensor_data", {})
+            user_state = ctx.get("user_state", {})
+            active_task = ctx.get("active_task")
+            stress_val = user_state.get("stress_score", 42)
+            location_val = sensor.get("location", "home")
+            if active_task:
+                task_val = active_task.get("name") or active_task.get("description", "active task")
+        except Exception:
+            pass
+
+    if "stress" in text_lower or "how am i" in text_lower:
+        if stress_val >= 65:
+            return f"Your stress score is elevated at {stress_val}/100. I suggest taking a brief break from '{task_val}'."
+        else:
+            return f"You are doing great! Your stress level is comfortable at {stress_val}/100. Keep up the good work."
+    if "task" in text_lower or "work" in text_lower or "doing" in text_lower:
+        if task_val != "None":
+            return f"You are currently working on '{task_val}' at the '{location_val}'. Let me know if you need focus adjustments."
+        else:
+            return f"You don't have any active task registered right now. You are at the '{location_val}'."
+    if "location" in text_lower or "where am i" in text_lower:
+        return f"According to your sensors, you are currently at the '{location_val}'."
     if "focus" in text_lower:
         return "I will adjust your workspace to block distractions and help you focus."
-    if "stress" in text_lower or "how am i" in text_lower:
-        return "You seem to be handling your tasks well. Take a deep breath."
-    return f"I heard you say: '{text}'. I'm processing it now."
+        
+    return f"I heard you say: '{text}'. I'll monitor your status and keep you updated."
 
 
 # ──────────────────────────────────────────────────────────────────────────────

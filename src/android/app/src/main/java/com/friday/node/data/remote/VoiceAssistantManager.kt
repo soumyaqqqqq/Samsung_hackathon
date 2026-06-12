@@ -47,10 +47,11 @@ class VoiceAssistantManager(private val context: Context) {
     private var webSocket: WebSocket? = null
     
     private val client = OkHttpClient.Builder()
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
+        .writeTimeout(120, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
         .build()
+
 
     fun startRecording() {
         if (state != VoiceState.IDLE) return

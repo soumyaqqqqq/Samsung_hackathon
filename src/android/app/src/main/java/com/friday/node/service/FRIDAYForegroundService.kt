@@ -19,6 +19,7 @@ import com.friday.node.data.remote.WebSocketManager
 import com.friday.node.utils.BatteryOptimizer
 import com.friday.node.utils.DiscoveryManager
 import com.friday.node.utils.HealthKitManager
+import com.friday.node.utils.WakeWordEngine
 import com.friday.node.config.OnboardingConfigManager
 import kotlinx.coroutines.*
 import org.json.JSONObject
@@ -31,6 +32,7 @@ class FRIDAYForegroundService : Service() {
     private val DIGEST_NOTIFICATION_ID = 5005
 
     private lateinit var discoveryManager: DiscoveryManager
+    private lateinit var wakeWordEngine: WakeWordEngine
     private var contextBuilder: ContextObjectBuilder? = null
     private var contextPushJob: Job? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -102,6 +104,7 @@ class FRIDAYForegroundService : Service() {
 
         // Initialize the ContextObject builder
         contextBuilder = ContextObjectBuilder(this)
+        wakeWordEngine = WakeWordEngine(this)
 
         discoveryManager = DiscoveryManager(this) { ipAddress, port ->
             Log.i(TAG, "Target Compute Hub found! Connecting to $ipAddress:$port")
@@ -186,10 +189,188 @@ class FRIDAYForegroundService : Service() {
                     val rawMissedText = it.getStringExtra("EXTRA_BATCH_RAW_TEXT") ?: ""
                     requestAIInactivitySummary(rawMissedText)
                 }
+                "ACTION_UPDATE_WAKE_WORD_STATE" -> {
+                    val sharedPrefs = getSharedPreferences("friday_settings", Context.MODE_PRIVATE)
+                    val wakeWordEnabled = sharedPrefs.getBoolean("wake_word_enabled", true)
+                    Log.i(TAG, "ACTION_UPDATE_WAKE_WORD_STATE: wakeWordEnabled=$wakeWordEnabled")
+                    if (wakeWordEnabled) {
+                        wakeWordEngine.startListening {
+                            startKeywordVerification()
+                        }
+                    } else {
+                        wakeWordEngine.stopListening()
+                    }
+                }
+                "ACTION_PAUSE_WAKE_WORD" -> {
+                    Log.i(TAG, "ACTION_PAUSE_WAKE_WORD: Pausing background wake-word listening loop.")
+                    wakeWordEngine.stopListening()
+                }
+                "ACTION_RESUME_WAKE_WORD" -> {
+                    val sharedPrefs = getSharedPreferences("friday_settings", Context.MODE_PRIVATE)
+                    val wakeWordEnabled = sharedPrefs.getBoolean("wake_word_enabled", true)
+                    Log.i(TAG, "ACTION_RESUME_WAKE_WORD: Resuming wake-word listening (enabled=$wakeWordEnabled)")
+                    if (wakeWordEnabled) {
+                        wakeWordEngine.startListening {
+                            startKeywordVerification()
+                        }
+                    } else {
+                        wakeWordEngine.stopListening()
+                    }
+                }
             }
         }
 
+        // Start listening for the wake word if enabled in settings
+        val sharedPrefs = getSharedPreferences("friday_settings", Context.MODE_PRIVATE)
+        val wakeWordEnabled = sharedPrefs.getBoolean("wake_word_enabled", true)
+        if (wakeWordEnabled) {
+            wakeWordEngine.startListening {
+                startKeywordVerification()
+            }
+        } else {
+            wakeWordEngine.stopListening()
+        }
+
         return START_STICKY
+    }
+
+    private var speechRecognizer: android.speech.SpeechRecognizer? = null
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var isVerifyingKeyword = false
+
+    private fun startKeywordVerification() {
+        if (isVerifyingKeyword) return
+        isVerifyingKeyword = true
+
+        // 1. Temporarily stop the wake word engine so it releases the microphone
+        wakeWordEngine.stopListening()
+
+        mainHandler.post {
+            try {
+                if (speechRecognizer == null) {
+                    speechRecognizer = android.speech.SpeechRecognizer.createSpeechRecognizer(this)
+                }
+
+                val recognizerIntent = Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "en-US")
+                    putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                    putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                }
+
+                speechRecognizer?.setRecognitionListener(object : android.speech.RecognitionListener {
+                    override fun onReadyForSpeech(params: android.os.Bundle?) {
+                        Log.i(TAG, "Keyword recognizer ready for speech.")
+                    }
+                    override fun onBeginningOfSpeech() {}
+                    override fun onRmsChanged(rmsdB: Float) {}
+                    override fun onBufferReceived(buffer: ByteArray?) {}
+                    override fun onEndOfSpeech() {
+                        Log.i(TAG, "Keyword recognizer end of speech.")
+                    }
+
+                    override fun onError(error: Int) {
+                        Log.w(TAG, "Keyword recognizer error: $error")
+                        cleanupAndRestartWakeWord()
+                    }
+
+                    override fun onResults(results: android.os.Bundle?) {
+                        val matches = results?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)
+                        var keywordDetected = false
+                        if (matches != null) {
+                            for (match in matches) {
+                                Log.i(TAG, "Recognized text candidate: $match")
+                                val text = match.lowercase()
+                                if (text.contains("friday") || text.contains("hey friday") || text.contains("hi friday")) {
+                                    keywordDetected = true
+                                    break
+                                }
+                            }
+                        }
+
+                        if (keywordDetected) {
+                            Log.i(TAG, "Keyword 'Hey Friday' confirmed!")
+                            triggerWakeWordEvent()
+                            isVerifyingKeyword = false
+                        } else {
+                            Log.i(TAG, "Keyword not found in recognized text. Restarting wake word engine.")
+                            cleanupAndRestartWakeWord()
+                        }
+                    }
+
+                    override fun onPartialResults(partialResults: android.os.Bundle?) {}
+                    override fun onEvent(eventType: Int, params: android.os.Bundle?) {}
+                })
+
+                speechRecognizer?.startListening(recognizerIntent)
+
+                // Timeout safety: if SpeechRecognizer hangs or doesn't return, stop it after 5 seconds
+                mainHandler.postDelayed({
+                    if (isVerifyingKeyword) {
+                        Log.w(TAG, "Keyword recognizer safety timeout reached.")
+                        cleanupAndRestartWakeWord()
+                    }
+                }, 5000)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to initialize/start SpeechRecognizer: ${e.message}")
+                cleanupAndRestartWakeWord()
+            }
+        }
+    }
+
+    private fun cleanupAndRestartWakeWord() {
+        mainHandler.post {
+            try {
+                speechRecognizer?.destroy()
+                speechRecognizer = null
+            } catch (e: Exception) {}
+            isVerifyingKeyword = false
+            
+            val sharedPrefs = getSharedPreferences("friday_settings", Context.MODE_PRIVATE)
+            val wakeWordEnabled = sharedPrefs.getBoolean("wake_word_enabled", true)
+            if (wakeWordEnabled) {
+                wakeWordEngine.startListening {
+                    startKeywordVerification()
+                }
+            }
+        }
+    }
+
+    private fun triggerWakeWordEvent() {
+        Log.i(TAG, "Wake-word triggered! Launching FRIDAY voice assistant...")
+        
+        // 1. Send broadcast to MainActivity (if active)
+        val broadcastIntent = Intent("com.friday.node.WAKE_WORD_DETECTED")
+        sendBroadcast(broadcastIntent)
+        
+        // 2. Play a brief haptic feedback (vibration)
+        try {
+            val vibrator = getSystemService(VIBRATOR_SERVICE) as? android.os.Vibrator
+            if (vibrator != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(android.os.VibrationEffect.createOneShot(100, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator.vibrate(100)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to vibrate: ${e.message}")
+        }
+
+        // 3. Launch MainActivity with trigger_voice_assistant extra to show overlay
+        try {
+            val activityIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra("trigger_voice_assistant", true)
+            }
+            if (activityIntent != null) {
+                startActivity(activityIntent)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to auto-launch MainActivity: ${e.message}")
+        }
     }
 
     private fun transmitLiveTelemetryFrame(pkg: String, title: String, content: String, ts: Double) {
@@ -421,6 +602,11 @@ class FRIDAYForegroundService : Service() {
     override fun onDestroy() {
         contextPushJob?.cancel()
         serviceScope.cancel()
+        try {
+            wakeWordEngine.stopListening()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to stop wake-word engine: ${e.message}")
+        }
         try {
             unregisterReceiver(sensorFeedReceiver)
         } catch (e: Exception) {
