@@ -20,6 +20,7 @@ let refreshInterval = null;
 function getIconSvg(name, size = 20) {
     const paths = {
         close: '<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>',
+        refresh: '<path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>',
         sensors: '<path d="M12 2C6.48 2 2 6.48 2 12c0 2.76 1.12 5.26 2.93 7.07l1.41-1.41C4.95 16.27 4 14.24 4 12c0-4.42 3.58-8 8-8s8 3.58 8 8c0 2.24-.95 4.27-2.34 5.66l1.41 1.41C20.88 17.26 22 14.76 22 12c0-5.52-4.48-10-10-10zm0 4c-3.31 0-6 2.69-6 6 0 1.66.67 3.16 1.76 4.24l1.42-1.42C8.4 14.05 8 13.08 8 12c0-2.21 1.79-4 4-4s4 1.79 4 4c0 1.08-.4 2.05-1.18 2.82l1.42 1.42C17.33 15.16 18 13.66 18 12c0-3.31-2.69-6-6-6zm0 4c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>',
         sync: '<path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.68 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.68-2.8L5.22 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>',
         drafts: '<path d="M21.99 8c0-.72-.37-1.35-.94-1.7L12 1 2.95 6.3c-.57.35-.95.98-.95 1.7v10c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8zm-2 0l-8 5-8-5 8-5 8 5z"/>',
@@ -94,7 +95,10 @@ function createSidebar() {
 
     sidebarElement.innerHTML = `
         <div class="friday-sidebar-header">
-            <div class="friday-brand">
+            <button class="friday-refresh-btn" id="friday-refresh-data" title="Refresh Telemetry">
+                ${getIconSvg("refresh", 20)}
+            </button>
+            <div class="friday-brand" style="margin-right: auto; margin-left: 12px;">
                 <span class="friday-logo">FRIDAY</span>
                 <div class="friday-conn-badge disconnected" id="friday-conn-badge">
                     <div class="friday-conn-dot"></div>
@@ -124,6 +128,27 @@ function createSidebar() {
     shadowRoot.appendChild(sidebarElement);
 
     shadowRoot.getElementById("friday-close-sidebar").onclick = () => toggleSidebar(false);
+
+    const refreshBtn = shadowRoot.getElementById("friday-refresh-data");
+    if (refreshBtn) {
+        refreshBtn.onclick = () => {
+            refreshBtn.classList.add("spinning");
+            loadBackendData(() => {
+                const contentPane = shadowRoot.getElementById("friday-content-pane");
+                if (contentPane) {
+                    if (FRIDAY_STATE.activeTab === 'sense') {
+                        contentPane.innerHTML = renderSensePane();
+                    } else {
+                        contentPane.innerHTML = renderContinuityPane();
+                        setupContinuityHooks();
+                    }
+                }
+                setTimeout(() => {
+                    refreshBtn.classList.remove("spinning");
+                }, 800);
+            });
+        };
+    }
 
     const senseTabBtn = shadowRoot.getElementById("tab-btn-sense");
     const continuityTabBtn = shadowRoot.getElementById("tab-btn-continuity");
