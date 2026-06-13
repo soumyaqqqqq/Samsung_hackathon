@@ -2,6 +2,12 @@ package com.friday.node.data.remote
 
 import android.content.Context
 import android.content.Intent
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.net.Uri
+import android.os.Build
 import android.util.Log
 import com.friday.node.data.local.EventEntity
 import com.friday.node.data.local.RoomDatabase
@@ -47,6 +53,16 @@ class WebSocketManager private constructor() {
 
     fun init(context: Context) {
         this.context = context.applicationContext
+        
+        val filter = IntentFilter().apply {
+            addAction("com.friday.node.RESUME_HANDOFF_NOTIFICATION")
+            addAction("com.friday.node.DISMISS_HANDOFF_NOTIFICATION")
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            this.context?.registerReceiver(notificationActionReceiver, filter, Context.RECEIVER_EXPORTED)
+        } else {
+            this.context?.registerReceiver(notificationActionReceiver, filter)
+        }
     }
 
     fun isConnected(): Boolean = isConnected
@@ -197,6 +213,67 @@ class WebSocketManager private constructor() {
                     ctx.sendBroadcast(intent)
                 }
 
+                "MEDIA_HANDOFF", "PAGE_HANDOFF" -> {
+                    val actionId = json.optString("action_id", "act_handoff_${System.currentTimeMillis()}")
+                    val message = json.optString("message", "Resume leftover task")
+                    val url = if (type == "MEDIA_HANDOFF") {
+                        val videoId = json.optString("video_id", "")
+                        val timestamp = json.optInt("playback_timestamp_seconds", 0)
+                        "https://www.youtube.com/watch?v=${videoId}&t=${timestamp}s"
+                    } else {
+                        json.optString("url", "")
+                    }
+
+                    Log.i(TAG, "Handoff received: action=$actionId, message=$message, url=$url")
+
+                    // Broadcast detailed action to UI
+                    val intent = Intent("com.friday.node.ACTION_RECEIVED").apply {
+                        putExtra("action_payload", text)
+                        putExtra("action_id", actionId)
+                        putExtra("suggested_action", message)
+                    }
+                    ctx.sendBroadcast(intent)
+
+                    // Post high-priority system notification
+                    val manager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                    
+                    val resumeIntent = Intent("com.friday.node.RESUME_HANDOFF_NOTIFICATION").apply {
+                        putExtra("action_id", actionId)
+                        putExtra("type", type)
+                        putExtra("url", url)
+                    }
+                    val resumePending = PendingIntent.getBroadcast(
+                        ctx,
+                        actionId.hashCode() + 1,
+                        resumeIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+
+                    val dismissIntent = Intent("com.friday.node.DISMISS_HANDOFF_NOTIFICATION").apply {
+                        putExtra("action_id", actionId)
+                        putExtra("type", type)
+                    }
+                    val dismissPending = PendingIntent.getBroadcast(
+                        ctx,
+                        actionId.hashCode() + 2,
+                        dismissIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+
+                    val notification = androidx.core.app.NotificationCompat.Builder(ctx, "FRIDAY_CORE_TELEMETRY")
+                        .setContentTitle(if (type == "MEDIA_HANDOFF") "Resume Watching Video" else "Resume Reading Page")
+                        .setContentText(message)
+                        .setSmallIcon(android.R.drawable.ic_media_play)
+                        .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                        .setDefaults(androidx.core.app.NotificationCompat.DEFAULT_ALL)
+                        .setAutoCancel(true)
+                        .addAction(android.R.drawable.ic_menu_slideshow, "Resume", resumePending)
+                        .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Dismiss", dismissPending)
+                        .build()
+
+                    manager.notify(actionId.hashCode(), notification)
+                }
+
                 "INACTIVITY_DIGEST_RESPONSE" -> {
                     val summary = json.optString("summary", "")
                     Log.i(TAG, "INACTIVITY_DIGEST_RESPONSE received: summary=$summary")
@@ -338,6 +415,52 @@ class WebSocketManager private constructor() {
         serverUrl = null
         isConnected = false
         onConnectionStateChanged?.invoke(false)
+        try {
+            this.context?.unregisterReceiver(notificationActionReceiver)
+        } catch (e: Exception) {
+            // Ignore if not registered
+        }
     }
 
+    private val notificationActionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context?, intent: Intent?) {
+            val actionId = intent?.getStringExtra("action_id") ?: return
+            val type = intent.getStringExtra("type") ?: ""
+            val url = intent.getStringExtra("url") ?: ""
+            val manager = ctx?.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+
+            manager?.cancel(actionId.hashCode())
+
+            if (intent.action == "com.friday.node.RESUME_HANDOFF_NOTIFICATION") {
+                sendFeedback(actionId, "helpful")
+
+                if (url.isNotEmpty()) {
+                    try {
+                        val openIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        ctx?.startActivity(openIntent)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to launch handoff URL: ${e.message}")
+                    }
+                }
+
+                ctx?.sendBroadcast(Intent("com.friday.node.ACTION_RECEIVED").apply {
+                    putExtra("action_payload", JSONObject().apply {
+                        put("type", "CLEAR_HANDOFF")
+                        put("action_id", actionId)
+                    }.toString())
+                })
+            } else if (intent.action == "com.friday.node.DISMISS_HANDOFF_NOTIFICATION") {
+                sendFeedback(actionId, "dismissed")
+
+                ctx?.sendBroadcast(Intent("com.friday.node.ACTION_RECEIVED").apply {
+                    putExtra("action_payload", JSONObject().apply {
+                        put("type", "CLEAR_HANDOFF")
+                        put("action_id", actionId)
+                    }.toString())
+                })
+            }
+        }
+    }
 }
