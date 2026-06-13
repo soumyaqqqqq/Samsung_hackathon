@@ -58,6 +58,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Phone
@@ -87,6 +88,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import org.json.JSONObject
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 
 data class TimelineEvent(
     val title: String,
@@ -94,6 +97,7 @@ data class TimelineEvent(
     val time: String,
     val type: String
 )
+
 
 class MainActivity : ComponentActivity() {
 
@@ -123,6 +127,7 @@ class MainActivity : ComponentActivity() {
     private var lastPromptUpdateTimeMs = 0L
     private var isGhostMode = mutableStateOf(false)
     private var activeActionCard = mutableStateOf<JSONObject?>(null)
+    private var isMemoryMomentDismissed = mutableStateOf(false)
     
     // Dynamic user profile and metrics
     private var userName = mutableStateOf("")
@@ -145,6 +150,9 @@ class MainActivity : ComponentActivity() {
     private val activityIntensities = mutableStateListOf<Float>().apply {
         repeat(16) { add(0.02f) }
     }
+    // Stores the last 3 sites received from LAPTOP_STATUS recent_tabs
+    private val recentLaptopSites = mutableStateListOf<Triple<String, String, String>>() // title, displayUrl, fullUrl
+    private var lastDeviceSwitchSite = mutableStateOf<String?>(null)
     
     // Active task journey states
     private var activeTaskName = mutableStateOf("")
@@ -242,13 +250,51 @@ class MainActivity : ComponentActivity() {
                     try {
                         val json = JSONObject(payload)
                         val type = json.optString("type", "")
-                        
-                        // Parse laptop active status
+
+                        // Parse laptop active status + recent_tabs from LAPTOP_STATUS
                         if (json.has("laptop_active")) {
-                            isLaptopConnected.value = json.optBoolean("laptop_active", false)
+                            val wasConnected = isLaptopConnected.value
+                            val nowConnected = json.optBoolean("laptop_active", false)
+                            isLaptopConnected.value = nowConnected
+
+                            // Parse recent_tabs from the LAPTOP_STATUS broadcast
+                            val recentTabsArr = json.optJSONArray("recent_tabs")
+                            if (recentTabsArr != null && recentTabsArr.length() > 0) {
+                                recentLaptopSites.clear()
+                                for (i in 0 until minOf(recentTabsArr.length(), 3)) {
+                                    val tabObj = recentTabsArr.optJSONObject(i) ?: continue
+                                    val title = tabObj.optString("title", "Untitled")
+                                    val displayUrl = tabObj.optString("url", "")
+                                    val fullUrl = tabObj.optString("link", displayUrl)
+                                    recentLaptopSites.add(Triple(title, displayUrl, fullUrl))
+                                }
+                                // The most recent site is the one left before device switch
+                                val topSite = recentLaptopSites.firstOrNull()
+                                if (topSite != null && topSite.first != lastDeviceSwitchSite.value) {
+                                    lastDeviceSwitchSite.value = topSite.first
+                                    timelineEvents.add(0, TimelineEvent(
+                                        "Device Switch",
+                                        "Last on Laptop: ${topSite.first}",
+                                        timeStr,
+                                        "continuity"
+                                    ))
+                                }
+                            }
                         }
-                        
-                        if (type == "FRIDAY_CARD") {
+
+                        if (type == "CLEAR_HANDOFF") {
+                            val actionId = json.optString("action_id", "")
+                            val reason = json.optString("reason", "dismissed")
+                            if (actionId.isNotEmpty()) {
+                                attentionTasks.removeAll { it.optString("action_id") == actionId }
+                                if (activeActionCard.value?.optString("action_id") == actionId) {
+                                    activeActionCard.value = null
+                                }
+                                val eventTitle = if (reason == "resumed") "Handoff Resumed" else "Handoff Dismissed"
+                                val eventMsg = if (reason == "resumed") "Resumed laptop task" else "Dismissed laptop task"
+                                timelineEvents.add(0, TimelineEvent(eventTitle, eventMsg, timeStr, "continuity"))
+                            }
+                        } else if (type == "FRIDAY_CARD") {
                             activeActionCard.value = json
                             val message = json.optString("message", "")
                             if (message.isNotEmpty()) {
@@ -260,6 +306,20 @@ class MainActivity : ComponentActivity() {
                                 val agent = json.optString("agent", "Orchestrator")
                                 timelineEvents.add(0, TimelineEvent("FRIDAY Action", "[$agent Agent] $message", timeStr, "suggestion"))
                             }
+                        } else if (type == "MEDIA_HANDOFF" || type == "PAGE_HANDOFF") {
+                            activeActionCard.value = json
+                            val message = json.optString("message", "")
+                            if (message.isNotEmpty()) {
+                                wellbeingPrompt.value = message
+                                val alreadyHas = attentionTasks.any { it.optString("action_id") == json.optString("action_id") }
+                                if (!alreadyHas) {
+                                    attentionTasks.add(json)
+                                }
+                                val agent = json.optString("agent", "Continuity")
+                                timelineEvents.add(0, TimelineEvent("Continuity Shift", "[$agent Agent] $message", timeStr, "continuity"))
+                            }
+                        } else if (type == "LAPTOP_STATUS") {
+                            // Handled above via the laptop_active branch; ignore duplicate processing
                         } else {
                             val suggestion = json.optString("suggested_action")
                             if (!suggestion.isNullOrEmpty()) {
@@ -403,6 +463,10 @@ class MainActivity : ComponentActivity() {
             "Connected to Hub"
         } else {
             "Searching for Hub..."
+        }
+        
+        if (connected) {
+            triggerTelemetryRefresh {}
         }
         
         // Check permission statuses
@@ -588,6 +652,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun triggerTelemetryRefresh(onComplete: () -> Unit) {
+        CoroutineScope(Dispatchers.Main).launch {
+            val connected = WebSocketManager.getInstance().isConnected()
+            isConnected.value = connected
+            connectionStatus.value = if (connected) "Connected to Hub" else "Searching for Hub..."
+            checkPermissionsState()
+            recalculateLocalStress()
+            val db = RoomDatabase.getInstance(this@MainActivity)
+            bufferedEventsCount.value = db.getEventCount()
+            if (connected) {
+                try {
+                    val syncMsg = JSONObject().apply {
+                        put("type", "sync_request")
+                        put("timestamp", System.currentTimeMillis())
+                    }
+                    WebSocketManager.getInstance().sendEvent(syncMsg.toString())
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to send sync request to hub: ${e.message}")
+                }
+            }
+            delay(800)
+            onComplete()
+        }
+    }
+
     private fun isAccessibilityServiceEnabled(context: Context, service: Class<out AccessibilityService>): Boolean {
         val expectedComponentName = ComponentName(context, service)
         val enabledServicesSetting = Settings.Secure.getString(
@@ -619,9 +708,11 @@ class MainActivity : ComponentActivity() {
     val ColorBackground get() = if (isDarkThemeGlobal) Color(0xFF121212) else Color(0xFFF9F9F9)
 
     // Compose Core UI Layout
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun MainContainer() {
         var activeTab by remember { mutableStateOf(0) }
+        var isRefreshing by remember { mutableStateOf(false) }
 
         Scaffold(
             bottomBar = {
@@ -639,23 +730,34 @@ class MainActivity : ComponentActivity() {
             containerColor = MaterialTheme.colorScheme.background,
             modifier = Modifier.fillMaxSize()
         ) { innerPadding ->
-            Box(
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = {
+                    isRefreshing = true
+                    triggerTelemetryRefresh {
+                        isRefreshing = false
+                    }
+                },
                 modifier = Modifier
                     .padding(innerPadding)
                     .fillMaxSize()
             ) {
-                when (activeTab) {
-                    0 -> DashboardTab()
-                    1 -> MindTab()
-                    2 -> ContinuityTab()
-                    3 -> SettingsTab()
-                }
+                Box(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    when (activeTab) {
+                        0 -> DashboardTab()
+                        1 -> MindTab()
+                        2 -> ContinuityTab()
+                        3 -> SettingsTab()
+                    }
 
                 if (showProactiveOverlay.value) {
                     ProactiveOverlayScreen(onClose = { showProactiveOverlay.value = false })
                 }
             }
         }
+    }
     }
 
     @Composable
@@ -781,14 +883,14 @@ class MainActivity : ComponentActivity() {
                 Button(
                     onClick = onSparkClicked,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = CircleShape,
                     modifier = Modifier
                         .size(56.dp)
-                        .border(2.dp, ColorBlockLime, RoundedCornerShape(16.dp)),
+                        .border(2.dp, ColorBlockLime, CircleShape),
                     contentPadding = PaddingValues(0.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Star,
+                        imageVector = Icons.Default.Mic,
                         contentDescription = "AI Assistant",
                         tint = ColorBlockLime,
                         modifier = Modifier.size(24.dp)
@@ -910,11 +1012,21 @@ class MainActivity : ComponentActivity() {
                 item {
                     val card = activeActionCard.value!!
                     val actionId = card.optString("action_id", "")
+                    val type = card.optString("type", "")
                     val message = card.optString("message", "")
                     val score = card.optDouble("score", 0.0)
                     val condition = card.optString("condition", "default")
                     val agentName = card.optString("agent", "Orchestrator")
                         .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+
+                    val isHandoff = type == "MEDIA_HANDOFF" || type == "PAGE_HANDOFF"
+                    val url = if (type == "MEDIA_HANDOFF") {
+                        val videoId = card.optString("video_id", "")
+                        val timestamp = card.optInt("playback_timestamp_seconds", 0)
+                        "https://www.youtube.com/watch?v=${videoId}&t=${timestamp}s"
+                    } else {
+                        card.optString("url", "")
+                    }
 
                     Card(
                         shape = RoundedCornerShape(24.dp),
@@ -985,9 +1097,13 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 TextButton(
                                     onClick = {
+                                        val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
+                                        val timeStr = sdf.format(Date())
                                         WebSocketManager.getInstance().sendFeedback(actionId, "dismissed")
+                                        attentionTasks.removeAll { it.optString("action_id") == actionId }
                                         activeActionCard.value = null
                                         wellbeingPrompt.value = "Ambient tracking active. System stable."
+                                        timelineEvents.add(0, TimelineEvent("Handoff Dismissed", "Dismissed laptop task", timeStr, "continuity"))
                                         showToast("Recommendation dismissed")
                                     }
                                 ) {
@@ -996,23 +1112,39 @@ class MainActivity : ComponentActivity() {
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Button(
                                     onClick = {
+                                        val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
+                                        val timeStr = sdf.format(Date())
                                         WebSocketManager.getInstance().sendFeedback(actionId, "helpful")
+                                        attentionTasks.removeAll { it.optString("action_id") == actionId }
                                         activeActionCard.value = null
+
+                                        if (isHandoff && url.isNotEmpty()) {
+                                            try {
+                                                val openIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                }
+                                                this@MainActivity.startActivity(openIntent)
+                                            } catch (e: Exception) {
+                                                Log.e(TAG, "Failed to launch handoff URL: ${e.message}")
+                                            }
+                                        }
+
                                         wellbeingPrompt.value = "Feedback logged. Optimizing model."
-                                        showToast("Thank you for your feedback!")
+                                        timelineEvents.add(0, TimelineEvent("Handoff Resumed", "Resumed laptop task", timeStr, "continuity"))
+                                        showToast(if (isHandoff) "Task resumed!" else "Thank you for your feedback!")
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
                                     shape = RoundedCornerShape(12.dp)
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(
-                                            imageVector = Icons.Default.Check,
+                                            imageVector = if (isHandoff) Icons.Default.PlayArrow else Icons.Default.Check,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.surface,
                                             modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Helpful", color = MaterialTheme.colorScheme.surface, fontWeight = FontWeight.Bold)
+                                        Text(if (isHandoff) "Resume" else "Helpful", color = MaterialTheme.colorScheme.surface, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -1370,6 +1502,80 @@ class MainActivity : ComponentActivity() {
             }
 
             // Memory Moment Card
+            if (!isMemoryMomentDismissed.value) {
+                item {
+                    val currentLoc = locationState.value
+                    val memoryTitle = if (currentLoc.isEmpty() || currentLoc == "unknown") "Learning Routines" else currentLoc.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+                    val memoryBody = if (currentLoc.isEmpty() || currentLoc == "unknown") {
+                        "Move around, let me know if you forget. I will map your focus triggers and routines here."
+                    } else {
+                        "You typically activate 'Deep Focus' mode here. Repeat setup?"
+                    }
+                    Card(
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "MEMORY MOMENT",
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                            Text(
+                                text = memoryTitle,
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = memoryBody,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                            )
+                            if (currentLoc.isNotEmpty() && currentLoc != "unknown") {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Button(
+                                        onClick = {
+                                            isFocusModeActive.value = true
+                                            sessionStartTimeMs = System.currentTimeMillis()
+                                            focusTimeDisplay.value = "0s"
+                                            showToast("Focus mode activated from routine memory!")
+                                            isMemoryMomentDismissed.value = true
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.onSurface,
+                                            contentColor = MaterialTheme.colorScheme.surface
+                                        ),
+                                        shape = RoundedCornerShape(9999.dp)
+                                    ) {
+                                        Text("Repeat Setup", color = MaterialTheme.colorScheme.surface)
+                                    }
+                                    Button(
+                                        onClick = {
+                                            isMemoryMomentDismissed.value = true
+                                            showToast("Routine suggestion dismissed")
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                                        shape = RoundedCornerShape(9999.dp),
+                                        modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
+                                    ) {
+                                        Text("Dismiss", color = MaterialTheme.colorScheme.onSurface)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Activity Feed (Bento style / Block Navy)
             item {
                 val currentLoc = locationState.value
                 val memoryTitle = if (currentLoc.isEmpty() || currentLoc == "unknown") "Learning Routines" else currentLoc.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
@@ -1385,10 +1591,10 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Column(
                         modifier = Modifier.padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Text(
-                            text = "MEMORY MOMENT",
+                            text = "SYSTEM LOGS & ACTIVITY",
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
@@ -1975,54 +2181,159 @@ class MainActivity : ComponentActivity() {
             // Behavioral Anomaly & Memory Correlation
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    val anomalyPercentage = remember(appSwitchesCount.value, averageTypingCadenceMs.value, stressScore.value) {
+                        (appSwitchesCount.value * 2 + (averageTypingCadenceMs.value / 200).toInt() + stressScore.value / 4).coerceIn(2, 98)
+                    }
+                    val dayOfWeek = SimpleDateFormat("EEEE", Locale.getDefault()).format(Date())
+                    
+                    val anomalyLabel: String
+                    val anomalyColor: Color
+                    val anomalyBg: Color
+                    val anomalyDesc: String
+                    
+                    if (anomalyPercentage > 60) {
+                        anomalyLabel = "ELEVATED DEVIATION"
+                        anomalyColor = Color(0xFFE57373)
+                        anomalyBg = Color(0x1AE57373)
+                        anomalyDesc = "Frequent app switching and altered cadence indicate context fatigue."
+                    } else if (anomalyPercentage > 35) {
+                        anomalyLabel = "MODERATE DEVIATION"
+                        anomalyColor = Color(0xFFFFB74D)
+                        anomalyBg = Color(0x1AFFB74D)
+                        anomalyDesc = "Mild pacing variation detected. Monitor focus cadence."
+                    } else {
+                        anomalyLabel = "STABLE SYSTEM PATTERN"
+                        anomalyColor = Color(0xFF81C784)
+                        anomalyBg = Color(0x1A81C784)
+                        anomalyDesc = "Current usage aligns cleanly with historical baseline."
+                    }
+
                     Card(
                         shape = RoundedCornerShape(24.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(24.dp))
+                            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), RoundedCornerShape(24.dp))
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.title_behavioral_anomaly),
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(anomalyBg)
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = anomalyLabel,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = anomalyColor
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = stringResource(R.string.title_behavioral_anomaly),
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Pattern Analysis: 12% deviation from standard Thursday baseline.",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
+                                text = "Pattern Analysis: $anomalyPercentage% deviation from standard $dayOfWeek baseline.",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = anomalyDesc,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
 
+                    val cal = java.util.Calendar.getInstance()
+                    cal.add(java.util.Calendar.MONTH, -3)
+                    val pastMonth = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(cal.time)
+                    val matchPctStr = memoryMatchPercentage.value
+                    val matchPctInt = matchPctStr.replace("%", "").toIntOrNull() ?: 0
+                    
+                    val matchLabel: String
+                    val matchColor: Color
+                    val matchBg: Color
+                    
+                    if (matchPctInt > 75) {
+                        matchLabel = "HIGH HISTORICAL FIT"
+                        matchColor = Color(0xFF64B5F6)
+                        matchBg = Color(0x1A64B5F6)
+                    } else if (matchPctInt > 45) {
+                        matchLabel = "MODERATE FIT"
+                        matchColor = Color(0xFFBA68C8)
+                        matchBg = Color(0x1ABA68C8)
+                    } else {
+                        matchLabel = "NOVEL PATTERNFLOW"
+                        matchColor = Color(0xFF90A4AE)
+                        matchBg = Color(0x1A90A4AE)
+                    }
+
+
                     Card(
                         shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                        modifier = Modifier.fillMaxWidth()
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), RoundedCornerShape(24.dp))
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.title_memory_correlation),
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(matchBg)
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = matchLabel,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = matchColor
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = stringResource(R.string.title_memory_correlation),
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Similar Past Events: ${memoryMatchPercentage.value} Match to Mid-Semester Week (March 2026).",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
+                                text = "Similar Past Events: $matchPctStr Match to $pastMonth Baseline.",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
+                            val memoryOutcome = if (stressScore.value >= 75) {
+                                "Outcome: High cognitive load detected. Recommend task transition."
+                            } else if (stressScore.value >= 50) {
+                                "Outcome: Moderate stress. High focus but stable output."
+                            } else {
+                                "Outcome: Balanced flow state. Smooth task transitions."
+                            }
                             Text(
-                                text = "Outcome: High stress, but assignment successfully completed.",
+                                text = memoryOutcome,
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -2440,6 +2751,76 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // Recent Sites from Laptop (device switch leftover)
+            if (recentLaptopSites.isNotEmpty()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text = "RECENT SITES · LAPTOP",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Bold
+                        )
+                        recentLaptopSites.take(3).forEach { (title, displayUrl, fullUrl) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
+                                    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        if (fullUrl.isNotEmpty()) {
+                                            try {
+                                                val openIntent = Intent(Intent.ACTION_VIEW, Uri.parse(fullUrl)).apply {
+                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                }
+                                                this@MainActivity.startActivity(openIntent)
+                                            } catch (e: Exception) {
+                                                Log.e(TAG, "Failed to open URL: ${e.message}")
+                                            }
+                                        }
+                                    }
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .background(ColorBlockLilac, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = title,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = displayUrl.ifEmpty { fullUrl },
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if (timelineEvents.isNotEmpty()) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -2452,7 +2833,7 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            timelineEvents.forEach { event ->
+                            timelineEvents.take(10).forEach { event ->
                                 TimelineRowItem(event = event)
                             }
                         }
@@ -2473,6 +2854,7 @@ class MainActivity : ComponentActivity() {
             "notification" -> Icons.Default.Notifications
             "location" -> Icons.Default.Home
             "suggestion" -> Icons.Default.Star
+            "continuity" -> Icons.Default.PlayArrow
             else -> Icons.Default.Info
         }
 

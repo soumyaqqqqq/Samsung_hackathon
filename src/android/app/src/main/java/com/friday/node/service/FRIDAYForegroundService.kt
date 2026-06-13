@@ -77,6 +77,9 @@ class FRIDAYForegroundService : Service() {
                         discoveryManager.startSearching()
                     }
                 }
+                "com.friday.node.TRIGGER_CONTEXT_PUSH" -> {
+                    triggerImmediatePush()
+                }
             }
         }
     }
@@ -103,15 +106,14 @@ class FRIDAYForegroundService : Service() {
         // Initialize the ContextObject builder
         contextBuilder = ContextObjectBuilder(this)
 
-        discoveryManager = DiscoveryManager(this) { ipAddress, port ->
-            Log.i(TAG, "Target Compute Hub found! Connecting to $ipAddress:$port")
+        discoveryManager = DiscoveryManager(this) { wsUrl ->
+            Log.i(TAG, "Target Compute Hub found! Connecting to $wsUrl")
 
             // Stop scanning once found to save battery
             discoveryManager.stopSearching()
 
             // Initialize the WebSocket connection via Singleton
-            val targetUrl = "ws://$ipAddress:$port/ws/android"
-            WebSocketManager.getInstance().connect(targetUrl)
+            WebSocketManager.getInstance().connect(wsUrl)
         }
 
         // Register receiver to listen for sensor events from Accessibility and Notification services
@@ -120,6 +122,7 @@ class FRIDAYForegroundService : Service() {
             addAction("com.friday.node.TYPING_CADENCE_DETECTED")
             addAction("com.friday.node.NOTIFICATION_INTERCEPTED")
             addAction("com.friday.node.CONNECTION_STATE_CHANGED")
+            addAction("com.friday.node.TRIGGER_CONTEXT_PUSH")
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(sensorFeedReceiver, filter, Context.RECEIVER_EXPORTED)
@@ -133,6 +136,12 @@ class FRIDAYForegroundService : Service() {
             registerReceiver(digestReceiver, digestFilter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             registerReceiver(digestReceiver, digestFilter)
+        }
+
+        // Initialize Local Fallback Intelligence engine (ONNX Phi-3 Mini INT4)
+        // Runs asynchronously on IO thread — does not block service startup
+        serviceScope.launch {
+            LocalFallbackEngine.initializeEngine(this@FRIDAYForegroundService)
         }
     }
 
@@ -406,6 +415,21 @@ class FRIDAYForegroundService : Service() {
         }
     }
 
+    private fun triggerImmediatePush() {
+        val builder = contextBuilder ?: return
+        val wsManager = WebSocketManager.getInstance()
+        if (!wsManager.isConnected()) return
+        serviceScope.launch {
+            try {
+                val contextObject = builder.buildAndReset()
+                wsManager.sendEvent(contextObject.toString())
+                Log.d(TAG, "Immediate context snapshot pushed to hub.")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to push immediate context: ${e.message}")
+            }
+        }
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val serviceChannel = NotificationChannel(
@@ -433,6 +457,7 @@ class FRIDAYForegroundService : Service() {
         }
         discoveryManager.stopSearching()
         WebSocketManager.getInstance().disconnect()
+        LocalFallbackEngine.releaseEngine()
         super.onDestroy()
     }
 

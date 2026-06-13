@@ -74,5 +74,14 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <receiver
+            android:name=".receiver.HandoffNotificationReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.friday.node.RESUME_HANDOFF_NOTIFICATION" />
+                <action android:name="com.friday.node.DISMISS_HANDOFF_NOTIFICATION" />
+            </intent-filter>
+        </receiver>
+
     </application>
 </manifest>
