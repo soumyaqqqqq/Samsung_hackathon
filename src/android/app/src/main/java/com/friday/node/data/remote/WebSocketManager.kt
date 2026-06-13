@@ -11,6 +11,7 @@ import android.os.Build
 import android.util.Log
 import com.friday.node.data.local.EventEntity
 import com.friday.node.data.local.RoomDatabase
+import com.friday.node.utils.LocalFallbackEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -362,12 +363,57 @@ class WebSocketManager private constructor() {
                     val db = RoomDatabase.getInstance(ctx)
                     val event = EventEntity(messageId, type, jsonPayload, timestamp)
                     db.insertEvent(event)
+
+                    // ── Local Fallback Intelligence ──
+                    // If the payload is a full ContextObject (has sensor_data),
+                    // run the local inference engine and surface the result as
+                    // a FRIDAY_CARD so the UI stays responsive in offline mode.
+                    if (json.has("sensor_data")) {
+                        handleOfflineFallbackInference(ctx, json)
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error caching event locally: ${e.message}")
                 }
             }
         } else {
             Log.e(TAG, "Context not initialized in WebSocketManager, cannot cache event!")
+        }
+    }
+
+    /**
+     * Invokes the local fallback engine when the hub is unreachable.
+     *
+     * Runs Phi-3 Mini INT4 via ONNX Runtime if the model is loaded,
+     * otherwise falls back to rule-based heuristics. The result is
+     * broadcast as a FRIDAY_CARD so the UI overlay renders coaching
+     * in degraded mode.
+     */
+    private suspend fun handleOfflineFallbackInference(ctx: Context, contextPayload: JSONObject) {
+        try {
+            val result = LocalFallbackEngine.processOfflineContext(contextPayload)
+
+            val cardPayload = JSONObject().apply {
+                put("type", "FRIDAY_CARD")
+                put("action_id", "act_offline_${System.currentTimeMillis()}")
+                put("message", result.message)
+                put("agent", result.agent)
+                put("score", result.stressScore ?: 50)
+                put("condition", "offline_fallback")
+                put("tier", result.tier)
+                put("timestamp", System.currentTimeMillis())
+            }
+
+            val intent = Intent("com.friday.node.ACTION_RECEIVED").apply {
+                putExtra("action_payload", cardPayload.toString())
+                putExtra("action_id", cardPayload.getString("action_id"))
+                putExtra("suggested_action", result.message)
+                putExtra("agent", result.agent)
+            }
+            ctx.sendBroadcast(intent)
+
+            Log.i(TAG, "Offline fallback [${result.tier}/${result.agent}]: ${result.message.take(80)}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Offline fallback inference failed: ${e.message}")
         }
     }
 

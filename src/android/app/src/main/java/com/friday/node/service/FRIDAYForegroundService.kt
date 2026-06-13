@@ -137,6 +137,12 @@ class FRIDAYForegroundService : Service() {
         } else {
             registerReceiver(digestReceiver, digestFilter)
         }
+
+        // Initialize Local Fallback Intelligence engine (ONNX Phi-3 Mini INT4)
+        // Runs asynchronously on IO thread — does not block service startup
+        serviceScope.launch {
+            LocalFallbackEngine.initializeEngine(this@FRIDAYForegroundService)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -451,6 +457,7 @@ class FRIDAYForegroundService : Service() {
         }
         discoveryManager.stopSearching()
         WebSocketManager.getInstance().disconnect()
+        LocalFallbackEngine.releaseEngine()
         super.onDestroy()
     }
 
