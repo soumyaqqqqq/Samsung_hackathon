@@ -136,7 +136,10 @@ class VoiceAssistantManager(private val context: Context) {
         }
 
         Log.i(TAG, "Connecting to voice socket for text query: $voiceUrl")
-        val request = Request.Builder().url(voiceUrl).build()
+        val request = Request.Builder()
+            .url(voiceUrl)
+            .header("ngrok-skip-browser-warning", "true")
+            .build()
         
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -204,7 +207,10 @@ class VoiceAssistantManager(private val context: Context) {
         }
 
         Log.i(TAG, "Connecting to voice socket: $voiceUrl")
-        val request = Request.Builder().url(voiceUrl).build()
+        val request = Request.Builder()
+            .url(voiceUrl)
+            .header("ngrok-skip-browser-warning", "true")
+            .build()
         
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {

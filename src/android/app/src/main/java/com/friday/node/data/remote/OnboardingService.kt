@@ -69,6 +69,7 @@ class OnboardingService(
                 val body = payload.toString().toRequestBody(mediaType)
                 val request = Request.Builder()
                     .url(targetUrl)
+                    .header("ngrok-skip-browser-warning", "true")
                     .post(body)
                     .build()
                 
