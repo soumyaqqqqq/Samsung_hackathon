@@ -150,6 +150,9 @@ class MainActivity : ComponentActivity() {
     private val activityIntensities = mutableStateListOf<Float>().apply {
         repeat(16) { add(0.02f) }
     }
+    // Stores the last 3 sites received from LAPTOP_STATUS recent_tabs
+    private val recentLaptopSites = mutableStateListOf<Triple<String, String, String>>() // title, displayUrl, fullUrl
+    private var lastDeviceSwitchSite = mutableStateOf<String?>(null)
     
     // Active task journey states
     private var activeTaskName = mutableStateOf("")
@@ -251,19 +254,49 @@ class MainActivity : ComponentActivity() {
                     try {
                         val json = JSONObject(payload)
                         val type = json.optString("type", "")
-                        
-                        // Parse laptop active status
+
+                        // Parse laptop active status + recent_tabs from LAPTOP_STATUS
                         if (json.has("laptop_active")) {
-                            isLaptopConnected.value = json.optBoolean("laptop_active", false)
+                            val wasConnected = isLaptopConnected.value
+                            val nowConnected = json.optBoolean("laptop_active", false)
+                            isLaptopConnected.value = nowConnected
+
+                            // Parse recent_tabs from the LAPTOP_STATUS broadcast
+                            val recentTabsArr = json.optJSONArray("recent_tabs")
+                            if (recentTabsArr != null && recentTabsArr.length() > 0) {
+                                recentLaptopSites.clear()
+                                for (i in 0 until minOf(recentTabsArr.length(), 3)) {
+                                    val tabObj = recentTabsArr.optJSONObject(i) ?: continue
+                                    val title = tabObj.optString("title", "Untitled")
+                                    val displayUrl = tabObj.optString("url", "")
+                                    val fullUrl = tabObj.optString("link", displayUrl)
+                                    recentLaptopSites.add(Triple(title, displayUrl, fullUrl))
+                                }
+                                // The most recent site is the one left before device switch
+                                val topSite = recentLaptopSites.firstOrNull()
+                                if (topSite != null && topSite.first != lastDeviceSwitchSite.value) {
+                                    lastDeviceSwitchSite.value = topSite.first
+                                    timelineEvents.add(0, TimelineEvent(
+                                        "Device Switch",
+                                        "Last on Laptop: ${topSite.first}",
+                                        timeStr,
+                                        "continuity"
+                                    ))
+                                }
+                            }
                         }
-                        
+
                         if (type == "CLEAR_HANDOFF") {
                             val actionId = json.optString("action_id", "")
+                            val reason = json.optString("reason", "dismissed")
                             if (actionId.isNotEmpty()) {
                                 attentionTasks.removeAll { it.optString("action_id") == actionId }
                                 if (activeActionCard.value?.optString("action_id") == actionId) {
                                     activeActionCard.value = null
                                 }
+                                val eventTitle = if (reason == "resumed") "Handoff Resumed" else "Handoff Dismissed"
+                                val eventMsg = if (reason == "resumed") "Resumed laptop task" else "Dismissed laptop task"
+                                timelineEvents.add(0, TimelineEvent(eventTitle, eventMsg, timeStr, "continuity"))
                             }
                         } else if (type == "FRIDAY_CARD") {
                             activeActionCard.value = json
@@ -289,6 +322,8 @@ class MainActivity : ComponentActivity() {
                                 val agent = json.optString("agent", "Continuity")
                                 timelineEvents.add(0, TimelineEvent("Continuity Shift", "[$agent Agent] $message", timeStr, "continuity"))
                             }
+                        } else if (type == "LAPTOP_STATUS") {
+                            // Handled above via the laptop_active branch; ignore duplicate processing
                         } else {
                             val suggestion = json.optString("suggested_action")
                             if (!suggestion.isNullOrEmpty()) {
@@ -446,6 +481,10 @@ class MainActivity : ComponentActivity() {
             "Connected to Hub"
         } else {
             "Searching for Hub..."
+        }
+        
+        if (connected) {
+            triggerTelemetryRefresh {}
         }
         
         // Check permission statuses
@@ -1054,10 +1093,13 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 TextButton(
                                     onClick = {
+                                        val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
+                                        val timeStr = sdf.format(Date())
                                         WebSocketManager.getInstance().sendFeedback(actionId, "dismissed")
                                         attentionTasks.removeAll { it.optString("action_id") == actionId }
                                         activeActionCard.value = null
                                         wellbeingPrompt.value = "Ambient tracking active. System stable."
+                                        timelineEvents.add(0, TimelineEvent("Handoff Dismissed", "Dismissed laptop task", timeStr, "continuity"))
                                         showToast("Recommendation dismissed")
                                     }
                                 ) {
@@ -1066,6 +1108,8 @@ class MainActivity : ComponentActivity() {
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Button(
                                     onClick = {
+                                        val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
+                                        val timeStr = sdf.format(Date())
                                         WebSocketManager.getInstance().sendFeedback(actionId, "helpful")
                                         attentionTasks.removeAll { it.optString("action_id") == actionId }
                                         activeActionCard.value = null
@@ -1082,6 +1126,7 @@ class MainActivity : ComponentActivity() {
                                         }
 
                                         wellbeingPrompt.value = "Feedback logged. Optimizing model."
+                                        timelineEvents.add(0, TimelineEvent("Handoff Resumed", "Resumed laptop task", timeStr, "continuity"))
                                         showToast(if (isHandoff) "Task resumed!" else "Thank you for your feedback!")
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
@@ -2523,6 +2568,76 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // Recent Sites from Laptop (device switch leftover)
+            if (recentLaptopSites.isNotEmpty()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text = "RECENT SITES · LAPTOP",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Bold
+                        )
+                        recentLaptopSites.take(3).forEach { (title, displayUrl, fullUrl) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
+                                    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        if (fullUrl.isNotEmpty()) {
+                                            try {
+                                                val openIntent = Intent(Intent.ACTION_VIEW, Uri.parse(fullUrl)).apply {
+                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                }
+                                                this@MainActivity.startActivity(openIntent)
+                                            } catch (e: Exception) {
+                                                Log.e(TAG, "Failed to open URL: ${e.message}")
+                                            }
+                                        }
+                                    }
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .background(ColorBlockLilac, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = title,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = displayUrl.ifEmpty { fullUrl },
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if (timelineEvents.isNotEmpty()) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -2535,7 +2650,7 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            timelineEvents.forEach { event ->
+                            timelineEvents.take(10).forEach { event ->
                                 TimelineRowItem(event = event)
                             }
                         }
@@ -2556,6 +2671,7 @@ class MainActivity : ComponentActivity() {
             "notification" -> Icons.Default.Notifications
             "location" -> Icons.Default.Home
             "suggestion" -> Icons.Default.Star
+            "continuity" -> Icons.Default.PlayArrow
             else -> Icons.Default.Info
         }
 

@@ -55,6 +55,28 @@ latest_contexts:     dict[str, dict] = {}        # session_id → latest Context
 recent_apps_history: list[dict] = []
 recent_tabs_history: list[dict] = []
 
+last_notified_laptop_url: Optional[str] = None
+last_notified_laptop_timestamp: float = 0
+
+async def broadcast_laptop_status():
+    status_payload = {
+        "type": "LAPTOP_STATUS",
+        "laptop_active": len(laptop_connections) > 0,
+        "recent_tabs": [
+            {
+                "title": tab["title"],
+                "url": tab["url"],
+                "link": tab["link"]
+            } for tab in recent_tabs_history[:3]
+        ],
+        "timestamp": int(time.time() * 1000)
+    }
+    for dev_id, android_ws in list(android_connections.items()):
+        try:
+            await android_ws.send_json(status_payload)
+        except Exception:
+            pass
+
 def get_app_details(package_name: str) -> dict:
     mapping = {
         "com.android.chrome": {"name": "Chrome", "icon": "language", "color": "#4285F4"},
@@ -108,32 +130,96 @@ def update_recent_tabs(title: str, url: str):
     # Remove existing matching URLs
     recent_tabs_history = [tab for tab in recent_tabs_history if tab["link"] != url]
     recent_tabs_history.insert(0, details)
-    recent_tabs_history = recent_tabs_history[:5]
+    recent_tabs_history = recent_tabs_history[:3]
+
+async def push_laptop_leftover_notification(device_id: str, android_ws: WebSocket):
+    global last_notified_laptop_url, last_notified_laptop_timestamp
+    
+    lm = getattr(orchestrator, "last_laptop_media", None)
+    lp = getattr(orchestrator, "last_laptop_page", None)
+    
+    tasks = []
+    if lm:
+        vid = lm.get("video_id", "")
+        m_url = f"https://www.youtube.com/watch?v={vid}" if vid else ""
+        tasks.append((lm.get("timestamp", 0), "media", lm, m_url))
+    if lp:
+        tasks.append((lp.get("timestamp", 0), "page", lp, lp.get("url", "")))
+        
+    if not tasks:
+        return
+        
+    tasks.sort(key=lambda x: x[0], reverse=True)
+    ts, task_type, task_data, target_url = tasks[0]
+    
+    if target_url == last_notified_laptop_url:
+        return
+        
+    last_notified_laptop_url = target_url
+    last_notified_laptop_timestamp = ts
+    
+    title = task_data.get("title", "YouTube Video" if task_type == "media" else "Webpage")
+    update_recent_tabs(title, target_url)
+    
+    await broadcast_laptop_status()
+    
+    if task_type == "media":
+        try:
+            payload = {
+                "type": "MEDIA_HANDOFF",
+                "action_id": f"act_media_handoff_{int(time.time())}",
+                "message": f"Resume watching: {title}",
+                "agent": "Continuity",
+                "score": 95.0,
+                "provider": "youtube",
+                "video_id": task_data.get("video_id", ""),
+                "playback_timestamp_seconds": task_data.get("playback_timestamp_seconds", 0),
+                "timestamp": int(time.time() * 1000)
+            }
+            await android_ws.send_json(payload)
+            logger.info(f"Pushed laptop media handoff to Android {device_id} on device switch")
+        except Exception as e:
+            logger.warning(f"Failed to push media handoff on device switch: {e}")
+    else:
+        try:
+            payload = {
+                "type": "PAGE_HANDOFF",
+                "action_id": f"act_page_handoff_{int(time.time())}",
+                "message": f"Resume reading: {title}",
+                "agent": "Continuity",
+                "score": 95.0,
+                "url": target_url,
+                "timestamp": int(time.time() * 1000)
+            }
+            await android_ws.send_json(payload)
+            logger.info(f"Pushed laptop page handoff to Android {device_id} on device switch")
+        except Exception as e:
+            logger.warning(f"Failed to push page handoff on device switch: {e}")
 
 def get_dynamic_pending_states(ctx: Optional[dict]) -> list[dict]:
     pending = []
     sensor = ctx.get("sensor_data", {}) if ctx else {}
     
-    # 1. Active Page from Phone (if present)
-    active_page = sensor.get("active_page")
-    if active_page:
+    # 1. Last Phone Page (if present)
+    last_phone_page = getattr(orchestrator, "last_phone_page", None) if orchestrator else None
+    if last_phone_page:
         pending.append({
             "type": "drafts",
-            "name": active_page.get("title", "Active Webpage"),
+            "name": last_phone_page.get("title", "Active Webpage"),
             "status": "Left off on Phone",
-            "link": active_page.get("url", "")
+            "link": last_phone_page.get("url", "")
         })
         
-    # 2. Active Media from Phone (if present)
-    active_media = sensor.get("active_media")
-    if active_media:
-        vid = active_media.get("video_id")
-        t = active_media.get("playback_timestamp_seconds", 0)
+    # 2. Last Phone Media (if present)
+    last_phone_media = getattr(orchestrator, "last_phone_media", None) if orchestrator else None
+    if last_phone_media:
+        vid = last_phone_media.get("video_id")
+        t = last_phone_media.get("playback_timestamp_seconds", 0)
         link = f"https://www.youtube.com/watch?v={vid}&t={t}s" if vid else ""
         time_str = f"Paused at {t // 60}:{t % 60:02d}" if t > 0 else "Ready to play"
         pending.append({
             "type": "play_circle",
-            "name": active_media.get("title", "YouTube video"),
+            "name": last_phone_media.get("title", "YouTube video"),
             "status": f"Left off on Phone • {time_str}",
             "link": link
         })
@@ -200,6 +286,8 @@ async def lifespan(app: FastAPI):
     orchestrator = Orchestrator(db=db, chroma=chroma, laptop_connections=laptop_connections)
     orchestrator.last_laptop_media = None
     orchestrator.last_laptop_page = None
+    orchestrator.last_phone_media = None
+    orchestrator.last_phone_page = None
 
     # Initialize voice transcription agent (whisper.cpp)
     try:
@@ -423,23 +511,24 @@ async def get_telemetry(session_id: Optional[str] = Query(None)):
 
         # Map media handoff
         media_handoff_payload = None
-        active_media = sensor.get("active_media")
-        if active_media:
+        last_phone_media = getattr(orchestrator, "last_phone_media", None) if orchestrator else None
+        if last_phone_media:
             media_handoff_payload = {
-                "provider": active_media.get("provider", "youtube"),
-                "video_id": active_media.get("video_id", ""),
-                "playback_timestamp_seconds": int(active_media.get("playback_timestamp_seconds", 0))
+                "provider": last_phone_media.get("provider", "youtube"),
+                "video_id": last_phone_media.get("video_id", ""),
+                "title": last_phone_media.get("title", "YouTube Video"),
+                "playback_timestamp_seconds": int(last_phone_media.get("playback_timestamp_seconds", 0))
             }
 
         # Map active reading (page handoff from phone)
         active_reading_payload = None
-        active_page = sensor.get("active_page")
-        if active_page:
+        last_phone_page = getattr(orchestrator, "last_phone_page", None) if orchestrator else None
+        if last_phone_page:
             active_reading_payload = {
-                "title": active_page.get("title", "Active Webpage"),
+                "title": last_phone_page.get("title", "Active Webpage"),
                 "timeLabel": "Resume reading",
                 "completionPct": 50,
-                "url": active_page.get("url", "")
+                "url": last_phone_page.get("url", "")
             }
 
         # Format recent apps list from history with relative times
@@ -566,6 +655,31 @@ async def android_ws(websocket: WebSocket):
 
     logger.info("Android WebSocket connected")
 
+    # On connect: send enriched LAPTOP_STATUS with last 3 recent_tabs so phone
+    # immediately knows what the user left open on the laptop (device switch moment).
+    try:
+        await websocket.send_json({
+            "type": "LAPTOP_STATUS",
+            "laptop_active": len(laptop_connections) > 0,
+            "recent_tabs": [
+                {"title": tab["title"], "url": tab["url"], "link": tab["link"]}
+                for tab in recent_tabs_history[:3]
+            ],
+            "timestamp": int(time.time() * 1000)
+        })
+    except Exception:
+        pass
+
+    # If laptop has leftover media/page, push the handoff notification immediately
+    # so Android can surface it as a device-switch continuity alert.
+    lm = getattr(orchestrator, "last_laptop_media", None) if orchestrator else None
+    lp = getattr(orchestrator, "last_laptop_page", None) if orchestrator else None
+    if lm or lp:
+        try:
+            await push_laptop_leftover_notification("connecting_device", websocket)
+        except Exception as e:
+            logger.warning(f"Failed to push leftover on connect: {e}")
+
     try:
         while True:
             raw = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
@@ -616,6 +730,57 @@ async def android_ws(websocket: WebSocket):
                 await websocket.send_json(response_frame)
                 continue
 
+            if msg_type == "sync_request":
+                logger.info("Sync request received from Android app")
+                lm = getattr(orchestrator, "last_laptop_media", None)
+                lp = getattr(orchestrator, "last_laptop_page", None)
+                
+                tasks = []
+                if lm:
+                    tasks.append((lm.get("timestamp", 0), "media", lm))
+                if lp:
+                    tasks.append((lp.get("timestamp", 0), "page", lp))
+                
+                if tasks:
+                    tasks.sort(key=lambda x: x[0], reverse=True)
+                    most_recent = tasks[0]
+                    
+                    if most_recent[1] == "media":
+                        lm = most_recent[2]
+                        try:
+                            payload = {
+                                "type": "MEDIA_HANDOFF",
+                                "action_id": f"act_media_handoff_{int(time.time())}",
+                                "message": f"Resume watching: {lm.get('title')}",
+                                "agent": "Continuity",
+                                "score": 95.0,
+                                "provider": "youtube",
+                                "video_id": lm.get("video_id", ""),
+                                "playback_timestamp_seconds": lm.get("playback_timestamp_seconds", 0),
+                                "timestamp": int(time.time() * 1000)
+                            }
+                            await websocket.send_json(payload)
+                            logger.info("Sent last laptop media to Android sync request (most recent)")
+                        except Exception as e:
+                            logger.warning(f"Failed to send media handoff during sync: {e}")
+                    else:
+                        lp = most_recent[2]
+                        try:
+                            payload = {
+                                "type": "PAGE_HANDOFF",
+                                "action_id": f"act_page_handoff_{int(time.time())}",
+                                "message": f"Resume reading: {lp.get('title')}",
+                                "agent": "Continuity",
+                                "score": 95.0,
+                                "url": lp.get("url", ""),
+                                "timestamp": int(time.time() * 1000)
+                            }
+                            await websocket.send_json(payload)
+                            logger.info("Sent last laptop page to Android sync request (most recent)")
+                        except Exception as e:
+                            logger.warning(f"Failed to send page handoff during sync: {e}")
+                continue
+
             # ── Handle individual sensor events (not full ContextObjects) ──
             # The Android side also sends raw events like app_switch,
             # typing_metrics, notification. Log them but don't orchestrate.
@@ -643,6 +808,8 @@ async def android_ws(websocket: WebSocket):
             device_id = data["metadata"]["device_id"]
             android_connections[device_id] = websocket
             session_id = data["metadata"]["session_id"]
+            
+            prev_context = latest_contexts.get(session_id)
             latest_contexts[session_id] = data
 
             # Extract focused app and active page/media from the context to keep recent histories up-to-date
@@ -653,6 +820,73 @@ async def android_ws(websocket: WebSocket):
             active_page = sensor.get("active_page")
             if active_page:
                 update_recent_tabs(active_page.get("title"), active_page.get("url"))
+                if orchestrator:
+                    orchestrator.last_phone_page = active_page
+            active_media = sensor.get("active_media")
+            if active_media:
+                if orchestrator:
+                    orchestrator.last_phone_media = active_media
+
+            # Notify all connected laptops to refresh their UI
+            for l_sid, l_ws in list(laptop_connections.items()):
+                try:
+                    await l_ws.send_json({
+                        "type": "TELEMETRY_UPDATE",
+                        "timestamp": int(time.time() * 1000)
+                    })
+                except Exception:
+                    pass
+
+            prev_sensor = prev_context.get("sensor_data", {}) if prev_context else {}
+            prev_page = prev_sensor.get("active_page")
+            
+            # Transition: left a page on phone
+            if prev_page and not active_page:
+                title = prev_page.get("title", "Active Page")
+                url = prev_page.get("url", "")
+                action_id = f"act_page_handoff_{int(time.time())}"
+                logger.info(f"Phone left page: {title} -> Pushing handoff to laptops")
+                for l_sid, l_ws in list(laptop_connections.items()):
+                    try:
+                        payload = {
+                            "type": "SHOW_CONTINUITY",
+                            "action_id": action_id,
+                            "url": url,
+                            "content": {
+                                "title": "Leftover Task on Phone",
+                                "message": f"Resume reading: {title}"
+                            },
+                            "timestamp": int(time.time() * 1000)
+                        }
+                        await l_ws.send_json(payload)
+                    except Exception as e:
+                        logger.warning(f"Failed to push page handoff to laptop {l_sid}: {e}")
+
+            # Transition: left a video/media on phone
+            prev_media = prev_sensor.get("active_media")
+            active_media = sensor.get("active_media")
+            if prev_media and not active_media:
+                title = prev_media.get("title", "Active Video")
+                vid = prev_media.get("video_id", "")
+                playback_time = prev_media.get("playback_timestamp_seconds", 0)
+                url = f"https://www.youtube.com/watch?v={vid}&t={playback_time}s" if vid else "https://www.youtube.com"
+                action_id = f"act_media_handoff_{int(time.time())}"
+                logger.info(f"Phone left media: {title} -> Pushing handoff to laptops")
+                for l_sid, l_ws in list(laptop_connections.items()):
+                    try:
+                        payload = {
+                            "type": "SHOW_CONTINUITY",
+                            "action_id": action_id,
+                            "url": url,
+                            "content": {
+                                "title": "Leftover Video on Phone",
+                                "message": f"Resume watching: {title}"
+                            },
+                            "timestamp": int(time.time() * 1000)
+                        }
+                        await l_ws.send_json(payload)
+                    except Exception as e:
+                        logger.warning(f"Failed to push media handoff to laptop {l_sid}: {e}")
 
             # Track offline replays
             is_offline_replay = data.get("is_offline_replay", False)
@@ -727,6 +961,7 @@ async def laptop_ws(websocket: WebSocket):
         laptop_connections[session_id] = websocket
         logger.info(f"Laptop registered session: {session_id}")
         await websocket.send_json({"type": "REGISTERED", "session_id": session_id})
+        await broadcast_laptop_status()
 
         while True:
             raw = await asyncio.wait_for(websocket.receive_text(), timeout=120.0)
@@ -739,50 +974,12 @@ async def laptop_ws(websocket: WebSocket):
                 if active_media:
                     orchestrator.last_laptop_media = active_media
                     logger.info(f"Updated last laptop media: {active_media}")
-                    
-                    # Push MEDIA_HANDOFF to connected Android devices immediately if paused
-                    if not active_media.get("is_playing", True):
-                        for dev_id, android_ws in android_connections.items():
-                            try:
-                                payload = {
-                                    "type": "MEDIA_HANDOFF",
-                                    "action_id": f"act_media_handoff_{int(time.time())}",
-                                    "message": f"Resume watching: {active_media.get('title')}",
-                                    "agent": "Continuity",
-                                    "score": 95.0,
-                                    "provider": "youtube",
-                                    "video_id": active_media.get("video_id", ""),
-                                    "playback_timestamp_seconds": active_media.get("playback_timestamp_seconds", 0),
-                                    "timestamp": int(time.time() * 1000)
-                                }
-                                await android_ws.send_json(payload)
-                                logger.info(f"Pushed laptop media handoff to Android {dev_id}")
-                            except Exception as e:
-                                logger.warning(f"Failed to push media handoff to Android: {e}")
 
             elif msg_type == "LAPTOP_PAGE_UPDATE":
                 active_page = reaction.get("active_page")
                 if active_page:
                     orchestrator.last_laptop_page = active_page
                     logger.info(f"Updated last laptop page: {active_page}")
-                    update_recent_tabs(active_page.get("title"), active_page.get("url"))
-                    
-                    # Push PAGE_HANDOFF to connected Android devices immediately
-                    for dev_id, android_ws in android_connections.items():
-                        try:
-                            payload = {
-                                "type": "PAGE_HANDOFF",
-                                "action_id": f"act_page_handoff_{int(time.time())}",
-                                "message": f"Resume reading: {active_page.get('title')}",
-                                "agent": "Continuity",
-                                "score": 95.0,
-                                "url": active_page.get("url", ""),
-                                "timestamp": int(time.time() * 1000)
-                            }
-                            await android_ws.send_json(payload)
-                            logger.info(f"Pushed laptop page handoff to Android {dev_id}")
-                        except Exception as e:
-                            logger.warning(f"Failed to push page handoff to Android: {e}")
 
             elif msg_type == "USER_FEEDBACK_LOOP":
                 event_name = reaction.get("event")
@@ -798,6 +995,8 @@ async def laptop_ws(websocket: WebSocket):
                             sensor["active_media"] = None
                     if getattr(orchestrator, "last_laptop_media", None) and orchestrator.last_laptop_media.get("video_id") == vid:
                         orchestrator.last_laptop_media = None
+                    if getattr(orchestrator, "last_phone_media", None) and orchestrator.last_phone_media.get("video_id") == vid:
+                        orchestrator.last_phone_media = None
                         
                 elif event_name == "PAGE_HANDOFF_EXECUTED":
                     url = metadata.get("url")
@@ -808,6 +1007,8 @@ async def laptop_ws(websocket: WebSocket):
                             sensor["active_page"] = None
                     if getattr(orchestrator, "last_laptop_page", None) and orchestrator.last_laptop_page.get("url") == url:
                         orchestrator.last_laptop_page = None
+                    if getattr(orchestrator, "last_phone_page", None) and orchestrator.last_phone_page.get("url") == url:
+                        orchestrator.last_phone_page = None
 
             # Handle user feedback / RLHF
             action_id    = reaction.get("action_id")
@@ -816,6 +1017,14 @@ async def laptop_ws(websocket: WebSocket):
             if action_id and user_reaction:
                 orchestrator.record_feedback(action_id=action_id, reaction=user_reaction)
                 logger.info(f"Feedback recorded: {action_id} → {user_reaction}")
+                
+                # Clear active phone tasks on reaction
+                if action_id.startswith("act_media_handoff"):
+                    if getattr(orchestrator, "last_phone_media", None):
+                        orchestrator.last_phone_media = None
+                elif action_id.startswith("act_page_handoff"):
+                    if getattr(orchestrator, "last_phone_page", None):
+                        orchestrator.last_phone_page = None
 
     except asyncio.TimeoutError:
         logger.warning(f"Laptop connection timed out: {session_id}")
@@ -826,6 +1035,7 @@ async def laptop_ws(websocket: WebSocket):
     finally:
         if session_id and session_id in laptop_connections:
             del laptop_connections[session_id]
+            await broadcast_laptop_status()
 
 
 # ──────────────────────────────────────────────────────────────────────────────

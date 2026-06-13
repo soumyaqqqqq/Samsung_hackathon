@@ -79,6 +79,9 @@ class FRIDAYForegroundService : Service() {
                         discoveryManager.startSearching()
                     }
                 }
+                "com.friday.node.TRIGGER_CONTEXT_PUSH" -> {
+                    triggerImmediatePush()
+                }
             }
         }
     }
@@ -123,6 +126,7 @@ class FRIDAYForegroundService : Service() {
             addAction("com.friday.node.TYPING_CADENCE_DETECTED")
             addAction("com.friday.node.NOTIFICATION_INTERCEPTED")
             addAction("com.friday.node.CONNECTION_STATE_CHANGED")
+            addAction("com.friday.node.TRIGGER_CONTEXT_PUSH")
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(sensorFeedReceiver, filter, Context.RECEIVER_EXPORTED)
@@ -583,6 +587,21 @@ class FRIDAYForegroundService : Service() {
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to push context snapshot: ${e.message}")
                 }
+            }
+        }
+    }
+
+    private fun triggerImmediatePush() {
+        val builder = contextBuilder ?: return
+        val wsManager = WebSocketManager.getInstance()
+        if (!wsManager.isConnected()) return
+        serviceScope.launch {
+            try {
+                val contextObject = builder.buildAndReset()
+                wsManager.sendEvent(contextObject.toString())
+                Log.d(TAG, "Immediate context snapshot pushed to hub.")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to push immediate context: ${e.message}")
             }
         }
     }
