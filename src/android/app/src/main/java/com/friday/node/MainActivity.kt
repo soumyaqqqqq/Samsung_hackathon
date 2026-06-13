@@ -257,7 +257,15 @@ class MainActivity : ComponentActivity() {
                             isLaptopConnected.value = json.optBoolean("laptop_active", false)
                         }
                         
-                        if (type == "FRIDAY_CARD") {
+                        if (type == "CLEAR_HANDOFF") {
+                            val actionId = json.optString("action_id", "")
+                            if (actionId.isNotEmpty()) {
+                                attentionTasks.removeAll { it.optString("action_id") == actionId }
+                                if (activeActionCard.value?.optString("action_id") == actionId) {
+                                    activeActionCard.value = null
+                                }
+                            }
+                        } else if (type == "FRIDAY_CARD") {
                             activeActionCard.value = json
                             val message = json.optString("message", "")
                             if (message.isNotEmpty()) {
@@ -268,6 +276,18 @@ class MainActivity : ComponentActivity() {
                                 }
                                 val agent = json.optString("agent", "Orchestrator")
                                 timelineEvents.add(0, TimelineEvent("FRIDAY Action", "[$agent Agent] $message", timeStr, "suggestion"))
+                            }
+                        } else if (type == "MEDIA_HANDOFF" || type == "PAGE_HANDOFF") {
+                            activeActionCard.value = json
+                            val message = json.optString("message", "")
+                            if (message.isNotEmpty()) {
+                                wellbeingPrompt.value = message
+                                val alreadyHas = attentionTasks.any { it.optString("action_id") == json.optString("action_id") }
+                                if (!alreadyHas) {
+                                    attentionTasks.add(json)
+                                }
+                                val agent = json.optString("agent", "Continuity")
+                                timelineEvents.add(0, TimelineEvent("Continuity Shift", "[$agent Agent] $message", timeStr, "continuity"))
                             }
                         } else {
                             val suggestion = json.optString("suggested_action")
@@ -949,11 +969,21 @@ class MainActivity : ComponentActivity() {
                 item {
                     val card = activeActionCard.value!!
                     val actionId = card.optString("action_id", "")
+                    val type = card.optString("type", "")
                     val message = card.optString("message", "")
                     val score = card.optDouble("score", 0.0)
                     val condition = card.optString("condition", "default")
                     val agentName = card.optString("agent", "Orchestrator")
                         .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+
+                    val isHandoff = type == "MEDIA_HANDOFF" || type == "PAGE_HANDOFF"
+                    val url = if (type == "MEDIA_HANDOFF") {
+                        val videoId = card.optString("video_id", "")
+                        val timestamp = card.optInt("playback_timestamp_seconds", 0)
+                        "https://www.youtube.com/watch?v=${videoId}&t=${timestamp}s"
+                    } else {
+                        card.optString("url", "")
+                    }
 
                     Card(
                         shape = RoundedCornerShape(24.dp),
@@ -1025,6 +1055,7 @@ class MainActivity : ComponentActivity() {
                                 TextButton(
                                     onClick = {
                                         WebSocketManager.getInstance().sendFeedback(actionId, "dismissed")
+                                        attentionTasks.removeAll { it.optString("action_id") == actionId }
                                         activeActionCard.value = null
                                         wellbeingPrompt.value = "Ambient tracking active. System stable."
                                         showToast("Recommendation dismissed")
@@ -1036,22 +1067,35 @@ class MainActivity : ComponentActivity() {
                                 Button(
                                     onClick = {
                                         WebSocketManager.getInstance().sendFeedback(actionId, "helpful")
+                                        attentionTasks.removeAll { it.optString("action_id") == actionId }
                                         activeActionCard.value = null
+
+                                        if (isHandoff && url.isNotEmpty()) {
+                                            try {
+                                                val openIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                }
+                                                this@MainActivity.startActivity(openIntent)
+                                            } catch (e: Exception) {
+                                                Log.e(TAG, "Failed to launch handoff URL: ${e.message}")
+                                            }
+                                        }
+
                                         wellbeingPrompt.value = "Feedback logged. Optimizing model."
-                                        showToast("Thank you for your feedback!")
+                                        showToast(if (isHandoff) "Task resumed!" else "Thank you for your feedback!")
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
                                     shape = RoundedCornerShape(12.dp)
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(
-                                            imageVector = Icons.Default.Check,
+                                            imageVector = if (isHandoff) Icons.Default.PlayArrow else Icons.Default.Check,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.surface,
                                             modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Helpful", color = MaterialTheme.colorScheme.surface, fontWeight = FontWeight.Bold)
+                                        Text(if (isHandoff) "Resume" else "Helpful", color = MaterialTheme.colorScheme.surface, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }

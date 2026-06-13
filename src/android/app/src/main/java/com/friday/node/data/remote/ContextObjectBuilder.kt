@@ -150,6 +150,8 @@ class ContextObjectBuilder(private val context: Context) {
                 put("typo_rate", typoRate.toDouble())
                 put("screen_on_time", screenOnTimeSeconds)
                 put("focused_app", lastFocusedPackage)
+                activeMedia?.let { put("active_media", it) }
+                activePage?.let { put("active_page", it) }
             })
         }
 
@@ -191,5 +193,10 @@ class ContextObjectBuilder(private val context: Context) {
             Log.e(TAG, "Failed to read battery level: ${e.message}")
             100
         }
+    }
+
+    companion object {
+        @Volatile var activeMedia: JSONObject? = null
+        @Volatile var activePage: JSONObject? = null
     }
 }

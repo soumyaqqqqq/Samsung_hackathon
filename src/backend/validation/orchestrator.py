@@ -93,6 +93,18 @@ class Orchestrator:
                 except Exception as e:
                     logger.warning(f"Failed to push media handoff: {e}")
 
+            # 3. Page Handoff (if active page is present)
+            active_page = ctx.get("sensor_data", {}).get("active_page")
+            if active_page:
+                try:
+                    await ws.send_json({
+                        "type": "PAGE_HANDOFF",
+                        "active_page": active_page
+                    })
+                    logger.info(f"Pushed page handoff to laptop session: {session_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to push page handoff: {e}")
+
         # Ghost mode: no inference, just log
         if mode == BatteryMode.GHOST:
             logger.info(f"Ghost mode active (battery {battery}%) — skipping inference")

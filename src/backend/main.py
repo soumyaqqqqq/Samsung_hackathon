@@ -51,6 +51,133 @@ android_connections: dict[str, WebSocket] = {}   # device_id → ws
 laptop_connections:  dict[str, WebSocket] = {}   # session_id → ws
 latest_contexts:     dict[str, dict] = {}        # session_id → latest ContextObject dict
 
+# Shared history lists for telemetry sync
+recent_apps_history: list[dict] = []
+recent_tabs_history: list[dict] = []
+
+def get_app_details(package_name: str) -> dict:
+    mapping = {
+        "com.android.chrome": {"name": "Chrome", "icon": "language", "color": "#4285F4"},
+        "com.sec.android.app.sbrowser": {"name": "Samsung Internet", "icon": "language", "color": "#0c32cf"},
+        "org.mozilla.firefox": {"name": "Firefox", "icon": "language", "color": "#FF7139"},
+        "com.google.android.youtube": {"name": "YouTube", "icon": "play_circle", "color": "#FF0000"},
+        "com.google.android.gm": {"name": "Gmail", "icon": "drafts", "color": "#EA4335"},
+        "com.whatsapp": {"name": "WhatsApp", "icon": "messages", "color": "#25D366"},
+        "com.slack": {"name": "Slack", "icon": "category", "color": "#4A154B"},
+        "com.android.settings": {"name": "Settings", "icon": "settings", "color": "#757575"},
+        "com.friday.node": {"name": "FRIDAY", "icon": "category", "color": "#00E676"}
+    }
+    if package_name in mapping:
+        return mapping[package_name].copy()
+    
+    # Generic fallback
+    name = package_name.split(".")[-1].capitalize()
+    return {"name": name, "icon": "category", "color": "#757575"}
+
+def update_recent_apps(package_name: str):
+    global recent_apps_history
+    if not package_name:
+        return
+    details = get_app_details(package_name)
+    details["timestamp"] = time.time()
+    # Remove existing
+    recent_apps_history = [app for app in recent_apps_history if app["name"] != details["name"]]
+    recent_apps_history.insert(0, details)
+    recent_apps_history = recent_apps_history[:4]
+
+def update_recent_tabs(title: str, url: str):
+    global recent_tabs_history
+    if not url or not title:
+        return
+    # Clean up url format for display: e.g. remove protocol and long path
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        display_url = parsed.netloc + parsed.path
+        if len(display_url) > 40:
+            display_url = display_url[:37] + "..."
+    except Exception:
+        display_url = url
+    
+    details = {
+        "title": title,
+        "url": display_url,
+        "link": url,
+        "timestamp": time.time()
+    }
+    # Remove existing matching URLs
+    recent_tabs_history = [tab for tab in recent_tabs_history if tab["link"] != url]
+    recent_tabs_history.insert(0, details)
+    recent_tabs_history = recent_tabs_history[:5]
+
+def get_dynamic_pending_states(ctx: Optional[dict]) -> list[dict]:
+    pending = []
+    sensor = ctx.get("sensor_data", {}) if ctx else {}
+    
+    # 1. Active Page from Phone (if present)
+    active_page = sensor.get("active_page")
+    if active_page:
+        pending.append({
+            "type": "drafts",
+            "name": active_page.get("title", "Active Webpage"),
+            "status": "Left off on Phone",
+            "link": active_page.get("url", "")
+        })
+        
+    # 2. Active Media from Phone (if present)
+    active_media = sensor.get("active_media")
+    if active_media:
+        vid = active_media.get("video_id")
+        t = active_media.get("playback_timestamp_seconds", 0)
+        link = f"https://www.youtube.com/watch?v={vid}&t={t}s" if vid else ""
+        time_str = f"Paused at {t // 60}:{t % 60:02d}" if t > 0 else "Ready to play"
+        pending.append({
+            "type": "play_circle",
+            "name": active_media.get("title", "YouTube video"),
+            "status": f"Left off on Phone • {time_str}",
+            "link": link
+        })
+        
+    # 3. Last Laptop Page (if present and not already in pending)
+    last_laptop_page = getattr(orchestrator, "last_laptop_page", None) if orchestrator else None
+    if last_laptop_page:
+        url = last_laptop_page.get("url")
+        if url and not any(p["link"] == url for p in pending):
+            pending.append({
+                "type": "language",
+                "name": last_laptop_page.get("title", "Laptop Webpage"),
+                "status": "Left off on Laptop",
+                "link": url
+            })
+            
+    # 4. Last Laptop Media (if present and not already in pending)
+    last_laptop_media = getattr(orchestrator, "last_laptop_media", None) if orchestrator else None
+    if last_laptop_media:
+        vid = last_laptop_media.get("video_id")
+        t = last_laptop_media.get("playback_timestamp_seconds", 0)
+        link = f"https://www.youtube.com/watch?v={vid}&t={t}s" if vid else ""
+        if link and not any(p["link"] == link for p in pending):
+            time_str = f"Paused at {t // 60}:{t % 60:02d}" if t > 0 else "Ready to play"
+            pending.append({
+                "type": "play_circle",
+                "name": last_laptop_media.get("title", "YouTube Video"),
+                "status": f"Left off on Laptop • {time_str}",
+                "link": link
+            })
+    
+    # 5. Active workspace task in progress (if present)
+    active_task = ctx.get("active_task") if ctx else None
+    if active_task:
+        desc = active_task.get("description", "Active Task")
+        pending.append({
+            "type": "terminal",
+            "name": desc,
+            "status": "In progress",
+            "link": "https://github.com/friday-ecosystem"
+        })
+
+    return pending
+
 db:           Optional[SQLiteStore]  = None
 chroma:       Optional[ChromaStore]  = None
 orchestrator: Optional[Orchestrator] = None
@@ -71,6 +198,8 @@ async def lifespan(app: FastAPI):
     db      = SQLiteStore(settings.SQLITE_PATH)
     chroma  = ChromaStore(settings.CHROMA_PATH)
     orchestrator = Orchestrator(db=db, chroma=chroma, laptop_connections=laptop_connections)
+    orchestrator.last_laptop_media = None
+    orchestrator.last_laptop_page = None
 
     # Initialize voice transcription agent (whisper.cpp)
     try:
@@ -302,86 +431,64 @@ async def get_telemetry(session_id: Optional[str] = Query(None)):
                 "playback_timestamp_seconds": int(active_media.get("playback_timestamp_seconds", 0))
             }
 
-        # Build dynamic recent apps based on location
-        loc = sensor.get("location", "home")
-        if loc == "library":
-            recent_apps = [
-                {"name": "VS Code", "icon": "terminal", "time": "2m ago", "color": "#007ACC"},
-                {"name": "GitHub", "icon": "hub", "time": "5m ago", "color": "#181717"},
-                {"name": "Slack", "icon": "category", "time": "15m ago", "color": "#4A154B"},
-                {"name": "Gmail", "icon": "drafts", "time": "1h ago", "color": "#EA4335"}
-            ]
-        else:
-            recent_apps = [
-                {"name": "WhatsApp", "icon": "messages", "time": "2m ago", "color": "#25D366"},
-                {"name": "YouTube", "icon": "play_circle", "time": "10m ago", "color": "#FF0000"},
-                {"name": "Gmail", "icon": "drafts", "time": "15m ago", "color": "#EA4335"},
-                {"name": "Slack", "icon": "category", "time": "1h ago", "color": "#4A154B"}
-            ]
+        # Map active reading (page handoff from phone)
+        active_reading_payload = None
+        active_page = sensor.get("active_page")
+        if active_page:
+            active_reading_payload = {
+                "title": active_page.get("title", "Active Webpage"),
+                "timeLabel": "Resume reading",
+                "completionPct": 50,
+                "url": active_page.get("url", "")
+            }
+
+        # Format recent apps list from history with relative times
+        recent_apps = []
+        for app in recent_apps_history:
+            elapsed = int(time.time() - app["timestamp"])
+            if elapsed < 60:
+                time_str = "Just now"
+            elif elapsed < 3600:
+                time_str = f"{elapsed // 60}m ago"
+            else:
+                time_str = f"{elapsed // 3600}h ago"
+            recent_apps.append({
+                "name": app["name"],
+                "icon": app["icon"],
+                "time": time_str,
+                "color": app["color"]
+            })
+
+        # Format recent tabs
+        recent_tabs = []
+        for tab in recent_tabs_history:
+            recent_tabs.append({
+                "title": tab["title"],
+                "url": tab["url"],
+                "link": tab["link"]
+            })
 
         payload = {
             "stressScore": int(user_state.get("stress_score", 42)),
             "focusEfficiency": focus_efficiency,
             "activeTask": active_task_payload,
             "mediaHandoff": media_handoff_payload,
-            "activeReading": {
-                "title": "Designing Empathetic Ambient Intelligence",
-                "timeLabel": "15 mins remaining",
-                "completionPct": 75
-            },
-            "pendingStates": [
-                {"type": "terminal", "name": "Ethics Lab Assignment Draft", "status": "Draft saved 10m ago", "link": "https://docs.google.com"},
-                {"type": "play_circle", "name": "Deep Learning Lecture 4", "status": "Paused at 12:04", "link": "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=724s"}
-            ],
+            "activeReading": active_reading_payload,
+            "pendingStates": get_dynamic_pending_states(ctx),
             "recentApps": recent_apps,
-            "recentTabs": [
-                {"title": "FastAPI WebSockets Documentation", "url": "fastapi.tiangolo.com/advanced/websockets", "link": "https://fastapi.tiangolo.com/advanced/websockets/"},
-                {"title": "Chrome Extension Developer Guide", "url": "developer.chrome.com/docs/extensions", "link": "https://developer.chrome.com/docs/extensions/"}
-            ]
+            "recentTabs": recent_tabs
         }
         return payload
     else:
-        # Full mockup payload representing realistic active workspace state
         return {
             "stressScore": 42,
-            "focusEfficiency": 85,
-            "activeTask": {
-                "title": "Samsung Hackathon Development",
-                "timeLeft": "1h 45m left",
-                "completionPct": 60,
-                "totalSegments": 5,
-                "activeSegments": 3,
-                "checklist": [
-                    {"name": "Setup FastAPI Backend", "completed": True},
-                    {"name": "Implement Chrome Extension UI", "completed": True},
-                    {"name": "Establish WebSocket Coupling", "completed": False},
-                    {"name": "Run End-to-End Validation", "completed": False}
-                ]
-            },
-            "mediaHandoff": {
-                "provider": "youtube",
-                "video_id": "dQw4w9WgXcQ",
-                "playback_timestamp_seconds": 420
-            },
-            "activeReading": {
-                "title": "Designing Empathetic Ambient Intelligence",
-                "timeLabel": "15 mins remaining",
-                "completionPct": 75
-            },
-            "pendingStates": [
-                {"type": "terminal", "name": "Ethics Lab Assignment Draft", "status": "Draft saved 10m ago", "link": "https://docs.google.com"},
-                {"type": "play_circle", "name": "Deep Learning Lecture 4", "status": "Paused at 12:04", "link": "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=724s"}
-            ],
-            "recentApps": [
-                {"name": "WhatsApp", "icon": "messages", "time": "2m ago", "color": "#25D366"},
-                {"name": "Gmail", "icon": "drafts", "time": "15m ago", "color": "#EA4335"},
-                {"name": "VS Code", "icon": "terminal", "time": "1h ago", "color": "#007ACC"},
-                {"name": "Slack", "icon": "category", "time": "3h ago", "color": "#4A154B"}
-            ],
-            "recentTabs": [
-                {"title": "FastAPI WebSockets Documentation", "url": "fastapi.tiangolo.com/advanced/websockets", "link": "https://fastapi.tiangolo.com/advanced/websockets/"},
-                {"title": "Chrome Extension Developer Guide", "url": "developer.chrome.com/docs/extensions", "link": "https://developer.chrome.com/docs/extensions/"}
-            ]
+            "focusEfficiency": 100,
+            "activeTask": None,
+            "mediaHandoff": None,
+            "activeReading": None,
+            "pendingStates": [],
+            "recentApps": [],
+            "recentTabs": []
         }
 
 
@@ -479,6 +586,19 @@ async def android_ws(websocket: WebSocket):
                 if action_id and user_reaction and orchestrator:
                     orchestrator.record_feedback(action_id=action_id, reaction=user_reaction)
                     logger.info(f"Android RLHF feedback: {action_id} → {user_reaction}")
+                    
+                    if action_id.startswith("act_media_handoff"):
+                        for sid, ctx in list(latest_contexts.items()):
+                            sensor = ctx.get("sensor_data", {})
+                            sensor["active_media"] = None
+                        if getattr(orchestrator, "last_laptop_media", None):
+                            orchestrator.last_laptop_media = None
+                    elif action_id.startswith("act_page_handoff"):
+                        for sid, ctx in list(latest_contexts.items()):
+                            sensor = ctx.get("sensor_data", {})
+                            sensor["active_page"] = None
+                        if getattr(orchestrator, "last_laptop_page", None):
+                            orchestrator.last_laptop_page = None
                 continue
 
             if msg_type == "LIVE_TRACKER_SIGNAL":
@@ -501,8 +621,10 @@ async def android_ws(websocket: WebSocket):
             # typing_metrics, notification. Log them but don't orchestrate.
             if msg_type in ("app_switch", "typing_metrics", "notification", "biometric_baseline"):
                 logger.debug(f"Individual sensor event received: {msg_type}")
-                # These are informational; the full ContextObject snapshot
-                # sent every 15s is what drives orchestration.
+                if msg_type == "app_switch":
+                    package_name = data.get("package_name") or data.get("package_id")
+                    if package_name:
+                        update_recent_apps(package_name)
                 continue
 
             # HMAC verification (optional; skip if sig absent for dev)
@@ -522,6 +644,15 @@ async def android_ws(websocket: WebSocket):
             android_connections[device_id] = websocket
             session_id = data["metadata"]["session_id"]
             latest_contexts[session_id] = data
+
+            # Extract focused app and active page/media from the context to keep recent histories up-to-date
+            sensor = data.get("sensor_data", {})
+            focused_app = sensor.get("focused_app")
+            if focused_app:
+                update_recent_apps(focused_app)
+            active_page = sensor.get("active_page")
+            if active_page:
+                update_recent_tabs(active_page.get("title"), active_page.get("url"))
 
             # Track offline replays
             is_offline_replay = data.get("is_offline_replay", False)
@@ -600,6 +731,83 @@ async def laptop_ws(websocket: WebSocket):
         while True:
             raw = await asyncio.wait_for(websocket.receive_text(), timeout=120.0)
             reaction = json.loads(raw)
+
+            # Handle telemetry updates from laptop
+            msg_type = reaction.get("type")
+            if msg_type == "LAPTOP_MEDIA_UPDATE":
+                active_media = reaction.get("active_media")
+                if active_media:
+                    orchestrator.last_laptop_media = active_media
+                    logger.info(f"Updated last laptop media: {active_media}")
+                    
+                    # Push MEDIA_HANDOFF to connected Android devices immediately if paused
+                    if not active_media.get("is_playing", True):
+                        for dev_id, android_ws in android_connections.items():
+                            try:
+                                payload = {
+                                    "type": "MEDIA_HANDOFF",
+                                    "action_id": f"act_media_handoff_{int(time.time())}",
+                                    "message": f"Resume watching: {active_media.get('title')}",
+                                    "agent": "Continuity",
+                                    "score": 95.0,
+                                    "provider": "youtube",
+                                    "video_id": active_media.get("video_id", ""),
+                                    "playback_timestamp_seconds": active_media.get("playback_timestamp_seconds", 0),
+                                    "timestamp": int(time.time() * 1000)
+                                }
+                                await android_ws.send_json(payload)
+                                logger.info(f"Pushed laptop media handoff to Android {dev_id}")
+                            except Exception as e:
+                                logger.warning(f"Failed to push media handoff to Android: {e}")
+
+            elif msg_type == "LAPTOP_PAGE_UPDATE":
+                active_page = reaction.get("active_page")
+                if active_page:
+                    orchestrator.last_laptop_page = active_page
+                    logger.info(f"Updated last laptop page: {active_page}")
+                    update_recent_tabs(active_page.get("title"), active_page.get("url"))
+                    
+                    # Push PAGE_HANDOFF to connected Android devices immediately
+                    for dev_id, android_ws in android_connections.items():
+                        try:
+                            payload = {
+                                "type": "PAGE_HANDOFF",
+                                "action_id": f"act_page_handoff_{int(time.time())}",
+                                "message": f"Resume reading: {active_page.get('title')}",
+                                "agent": "Continuity",
+                                "score": 95.0,
+                                "url": active_page.get("url", ""),
+                                "timestamp": int(time.time() * 1000)
+                            }
+                            await android_ws.send_json(payload)
+                            logger.info(f"Pushed laptop page handoff to Android {dev_id}")
+                        except Exception as e:
+                            logger.warning(f"Failed to push page handoff to Android: {e}")
+
+            elif msg_type == "USER_FEEDBACK_LOOP":
+                event_name = reaction.get("event")
+                metadata = reaction.get("metadata") or {}
+                logger.info(f"User feedback loop: event={event_name}, metadata={metadata}")
+                
+                if event_name == "MEDIA_HANDOFF_EXECUTED":
+                    vid = metadata.get("video_id")
+                    for sid, ctx in list(latest_contexts.items()):
+                        sensor = ctx.get("sensor_data", {})
+                        am = sensor.get("active_media")
+                        if am and am.get("video_id") == vid:
+                            sensor["active_media"] = None
+                    if getattr(orchestrator, "last_laptop_media", None) and orchestrator.last_laptop_media.get("video_id") == vid:
+                        orchestrator.last_laptop_media = None
+                        
+                elif event_name == "PAGE_HANDOFF_EXECUTED":
+                    url = metadata.get("url")
+                    for sid, ctx in list(latest_contexts.items()):
+                        sensor = ctx.get("sensor_data", {})
+                        ap = sensor.get("active_page")
+                        if ap and ap.get("url") == url:
+                            sensor["active_page"] = None
+                    if getattr(orchestrator, "last_laptop_page", None) and orchestrator.last_laptop_page.get("url") == url:
+                        orchestrator.last_laptop_page = None
 
             # Handle user feedback / RLHF
             action_id    = reaction.get("action_id")

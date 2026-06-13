@@ -488,6 +488,20 @@ function renderContinuityPane() {
         `;
     }
 
+    if (!mediaHandoffHTML && !activeReadingHTML && (!backendData.pendingStates || backendData.pendingStates.length === 0) && (!backendData.recentApps || backendData.recentApps.length === 0) && (!backendData.recentTabs || backendData.recentTabs.length === 0)) {
+        return `
+            <div class="friday-card-block" style="text-align: center; padding: 48px 24px; color: rgba(0,0,0,0.45); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; border: 1px dashed rgba(0,0,0,0.12); border-radius: 12px; margin-top: 20px; background: rgba(0,0,0,0.01);">
+                <div style="background: rgba(0, 0, 0, 0.05); padding: 12px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #6200EE;">
+                    ${getIconSvg("sync", 28)}
+                </div>
+                <div style="font-weight: 700; font-size: 15px; color: rgba(0,0,0,0.7); letter-spacing: -0.3px;">All Caught Up!</div>
+                <p style="font-size: 12px; margin: 0; line-height: 1.5; color: rgba(0,0,0,0.5); max-width: 200px;">
+                    No pending handoffs or recent activities detected. FRIDAY is coupled with your phone.
+                </p>
+            </div>
+        `;
+    }
+
     return `
         ${mediaHandoffHTML}
         ${activeReadingHTML}
@@ -512,7 +526,11 @@ function setupContinuityHooks() {
     const continueHubBtn = shadowRoot.getElementById("btn-continue-hub");
     if (continueHubBtn) {
         continueHubBtn.onclick = () => {
-            window.open("https://github.com/friday-ecosystem", "_blank");
+            const url = (backendData.activeReading && backendData.activeReading.url) || "https://github.com/friday-ecosystem";
+            window.open(url, "_blank");
+            if (backendData.activeReading && backendData.activeReading.url) {
+                sendFeedback("PAGE_HANDOFF_EXECUTED", { url: url });
+            }
         };
     }
 
@@ -523,10 +541,16 @@ function setupContinuityHooks() {
                 btn.onclick = () => {
                     if (item.link) {
                         window.open(item.link, "_blank");
-                    } else if (item.name.includes("Ethics")) {
-                        window.open("https://docs.google.com", "_blank");
-                    } else if (item.name.includes("Lecture")) {
-                        window.open("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=724s", "_blank");
+                        if (item.type === "play_circle" || item.link.includes("youtube.com")) {
+                            let vid = "";
+                            try {
+                                const urlObj = new URL(item.link);
+                                vid = urlObj.searchParams.get("v") || "";
+                            } catch (e) {}
+                            sendFeedback("MEDIA_HANDOFF_EXECUTED", { video_id: vid });
+                        } else {
+                            sendFeedback("PAGE_HANDOFF_EXECUTED", { url: item.link });
+                        }
                     }
                 };
             }
@@ -546,6 +570,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             break;
         case "MEDIA_HANDOFF":
             executeMediaHandoff(message.active_media);
+            break;
+        case "PAGE_HANDOFF":
+            executePageHandoff(message.active_page);
             break;
         case "INTERRUPTION_SHIELD":
             toggleFocusShield(message.stress_score);
@@ -641,11 +668,21 @@ function handleClipboardIngestion(snippet) {
     }, 10000);
 }
 
+let lastHandoffVideoId = null;
+let lastHandoffTimestamp = -1;
+
 function executeMediaHandoff(mediaData) {
+    if (!mediaData) return;
     FRIDAY_STATE.mediaHandoff = mediaData;
     if (FRIDAY_STATE.isOpen && FRIDAY_STATE.activeTab === 'continuity') {
         switchTab('continuity');
     }
+
+    if (mediaData.video_id === lastHandoffVideoId && Math.abs(mediaData.playback_timestamp_seconds - lastHandoffTimestamp) < 10) {
+        return; // skip duplicate toast
+    }
+    lastHandoffVideoId = mediaData.video_id;
+    lastHandoffTimestamp = mediaData.playback_timestamp_seconds;
 
     if (mediaData.provider === "youtube") {
         const toast = document.createElement("div");
@@ -688,6 +725,61 @@ function executeMediaHandoff(mediaData) {
             }
         }, 12000);
     }
+}
+
+let lastHandoffUrl = null;
+
+function executePageHandoff(pageData) {
+    if (!pageData) return;
+    FRIDAY_STATE.activeReading = pageData;
+    if (FRIDAY_STATE.isOpen && FRIDAY_STATE.activeTab === 'continuity') {
+        switchTab('continuity');
+    }
+
+    if (pageData.url === lastHandoffUrl) {
+        return; // skip duplicate toast
+    }
+    lastHandoffUrl = pageData.url;
+
+    const toast = document.createElement("div");
+    toast.className = "friday-toast";
+    toast.innerHTML = `
+        <div class="friday-toast-header">
+            ${getIconSvg("description", 20)}
+            Resume Reading Page
+        </div>
+        <div class="friday-toast-body">
+            Resume reading the document you left open on your mobile device: "${pageData.title || 'Active Webpage'}"?
+        </div>
+        <div class="friday-toast-actions">
+            <button id="dismiss-page" class="friday-toast-btn secondary">Dismiss</button>
+            <button id="resume-page" class="friday-toast-btn primary">Open Page</button>
+        </div>
+    `;
+
+    shadowRoot.appendChild(toast);
+
+    shadowRoot.getElementById("resume-page").onclick = () => {
+        window.open(pageData.url, "_blank");
+        sendFeedback("PAGE_HANDOFF_EXECUTED", { url: pageData.url });
+        toast.style.transform = "translateX(120%)";
+        toast.style.opacity = "0";
+        setTimeout(() => toast.remove(), 300);
+    };
+
+    shadowRoot.getElementById("dismiss-page").onclick = () => {
+        toast.style.transform = "translateX(120%)";
+        toast.style.opacity = "0";
+        setTimeout(() => toast.remove(), 300);
+    };
+
+    setTimeout(() => {
+        if (toast.parentNode) {
+            toast.style.transform = "translateX(120%)";
+            toast.style.opacity = "0";
+            setTimeout(() => toast.remove(), 300);
+        }
+    }, 12000);
 }
 
 function toggleFocusShield(stressScore) {
@@ -806,5 +898,74 @@ function showContinuityToast(message) {
         }
     }, 15000);
 }
+
+// YouTube video tracking logic
+let lastTrackedVideoId = null;
+let lastTrackedTime = -1;
+let lastTrackedIsPlaying = false;
+
+function trackYouTubePlayback() {
+    if (window.location.hostname.includes("youtube.com") && window.location.pathname.includes("watch")) {
+        const videoElement = document.querySelector("video");
+        const urlParams = new URLSearchParams(window.location.search);
+        const videoId = urlParams.get("v");
+        
+        if (videoElement && videoId) {
+            const currentTime = Math.floor(videoElement.currentTime);
+            const isPlaying = !videoElement.paused && !videoElement.ended;
+            const videoTitle = document.title.replace(" - YouTube", "");
+            
+            if (videoId !== lastTrackedVideoId || isPlaying !== lastTrackedIsPlaying || Math.abs(currentTime - lastTrackedTime) > 5) {
+                lastTrackedVideoId = videoId;
+                lastTrackedTime = currentTime;
+                lastTrackedIsPlaying = isPlaying;
+                
+                chrome.runtime.sendMessage({
+                    action: "send_to_backend",
+                    data: {
+                        type: "LAPTOP_MEDIA_UPDATE",
+                        active_media: {
+                            provider: "youtube",
+                            video_id: videoId,
+                            title: videoTitle,
+                            playback_timestamp_seconds: currentTime,
+                            is_playing: isPlaying,
+                            timestamp: Date.now()
+                        }
+                    }
+                });
+            }
+        }
+    }
+}
+
+let lastTrackedUrl = null;
+
+function trackPageContinuity() {
+    if (document.hasFocus()) {
+        const currentUrl = window.location.href;
+        const pageTitle = document.title;
+        
+        if (currentUrl !== lastTrackedUrl && !currentUrl.includes("youtube.com/watch")) {
+            lastTrackedUrl = currentUrl;
+            
+            chrome.runtime.sendMessage({
+                action: "send_to_backend",
+                data: {
+                    type: "LAPTOP_PAGE_UPDATE",
+                    active_page: {
+                        url: currentUrl,
+                        title: pageTitle,
+                        timestamp: Date.now()
+                    }
+                }
+            });
+        }
+    }
+}
+
+// Start tracking intervals (every 2 seconds)
+setInterval(trackYouTubePlayback, 2000);
+setInterval(trackPageContinuity, 2000);
 
 initShadowDOM();
