@@ -98,12 +98,6 @@ data class TimelineEvent(
     val type: String
 )
 
-data class TimelineEvent(
-    val title: String,
-    val description: String,
-    val time: String,
-    val type: String
-)
 
 class MainActivity : ComponentActivity() {
 
@@ -133,6 +127,7 @@ class MainActivity : ComponentActivity() {
     private var lastPromptUpdateTimeMs = 0L
     private var isGhostMode = mutableStateOf(false)
     private var activeActionCard = mutableStateOf<JSONObject?>(null)
+    private var isMemoryMomentDismissed = mutableStateOf(false)
     
     // Dynamic user profile and metrics
     private var userName = mutableStateOf("")
@@ -598,6 +593,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun triggerTelemetryRefresh(onComplete: () -> Unit) {
+        CoroutineScope(Dispatchers.Main).launch {
+            val connected = WebSocketManager.getInstance().isConnected()
+            isConnected.value = connected
+            connectionStatus.value = if (connected) "Connected to Hub" else "Searching for Hub..."
+            checkPermissionsState()
+            recalculateLocalStress()
+            val db = RoomDatabase.getInstance(this@MainActivity)
+            bufferedEventsCount.value = db.getEventCount()
+            if (connected) {
+                try {
+                    val syncMsg = JSONObject().apply {
+                        put("type", "sync_request")
+                        put("timestamp", System.currentTimeMillis())
+                    }
+                    WebSocketManager.getInstance().sendEvent(syncMsg.toString())
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to send sync request to hub: ${e.message}")
+                }
+            }
+            delay(800)
+            onComplete()
+        }
+    }
+
     private fun isAccessibilityServiceEnabled(context: Context, service: Class<out AccessibilityService>): Boolean {
         val expectedComponentName = ComponentName(context, service)
         val enabledServicesSetting = Settings.Secure.getString(
@@ -633,6 +653,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun MainContainer() {
         var activeTab by remember { mutableStateOf(0) }
+        var isRefreshing by remember { mutableStateOf(false) }
 
         Scaffold(
             bottomBar = {
@@ -677,6 +698,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
     }
 
     @Composable
@@ -2070,56 +2092,150 @@ class MainActivity : ComponentActivity() {
             // Behavioral Anomaly & Memory Correlation
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    val anomalyPercentage = remember(appSwitchesCount.value, averageTypingCadenceMs.value, stressScore.value) {
+                        (appSwitchesCount.value * 2 + (averageTypingCadenceMs.value / 200).toInt() + stressScore.value / 4).coerceIn(2, 98)
+                    }
+                    val dayOfWeek = SimpleDateFormat("EEEE", Locale.getDefault()).format(Date())
+                    
+                    val anomalyLabel: String
+                    val anomalyColor: Color
+                    val anomalyBg: Color
+                    val anomalyDesc: String
+                    
+                    if (anomalyPercentage > 60) {
+                        anomalyLabel = "ELEVATED DEVIATION"
+                        anomalyColor = Color(0xFFE57373)
+                        anomalyBg = Color(0x1AE57373)
+                        anomalyDesc = "Frequent app switching and altered cadence indicate context fatigue."
+                    } else if (anomalyPercentage > 35) {
+                        anomalyLabel = "MODERATE DEVIATION"
+                        anomalyColor = Color(0xFFFFB74D)
+                        anomalyBg = Color(0x1AFFB74D)
+                        anomalyDesc = "Mild pacing variation detected. Monitor focus cadence."
+                    } else {
+                        anomalyLabel = "STABLE SYSTEM PATTERN"
+                        anomalyColor = Color(0xFF81C784)
+                        anomalyBg = Color(0x1A81C784)
+                        anomalyDesc = "Current usage aligns cleanly with historical baseline."
+                    }
+
                     Card(
                         shape = RoundedCornerShape(24.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(24.dp))
+                            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), RoundedCornerShape(24.dp))
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.title_behavioral_anomaly),
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(anomalyBg)
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = anomalyLabel,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = anomalyColor
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = stringResource(R.string.title_behavioral_anomaly),
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            val dayOfWeek = SimpleDateFormat("EEEE", Locale.getDefault()).format(Date())
-                            Text(
-                                text = "Pattern Analysis: 12% deviation from standard $dayOfWeek baseline.",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
+                                text = "Pattern Analysis: $anomalyPercentage% deviation from standard $dayOfWeek baseline.",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = anomalyDesc,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
 
+                    val cal = java.util.Calendar.getInstance()
+                    cal.add(java.util.Calendar.MONTH, -3)
+                    val pastMonth = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(cal.time)
+                    val matchPctStr = memoryMatchPercentage.value
+                    val matchPctInt = matchPctStr.replace("%", "").toIntOrNull() ?: 0
+                    
+                    val matchLabel: String
+                    val matchColor: Color
+                    val matchBg: Color
+                    
+                    if (matchPctInt > 75) {
+                        matchLabel = "HIGH HISTORICAL FIT"
+                        matchColor = Color(0xFF64B5F6)
+                        matchBg = Color(0x1A64B5F6)
+                    } else if (matchPctInt > 45) {
+                        matchLabel = "MODERATE FIT"
+                        matchColor = Color(0xFFBA68C8)
+                        matchBg = Color(0x1ABA68C8)
+                    } else {
+                        matchLabel = "NOVEL PATTERNFLOW"
+                        matchColor = Color(0xFF90A4AE)
+                        matchBg = Color(0x1A90A4AE)
+                    }
+
+
                     Card(
                         shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                        modifier = Modifier.fillMaxWidth()
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), RoundedCornerShape(24.dp))
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.title_memory_correlation),
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(matchBg)
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = matchLabel,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = matchColor
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = stringResource(R.string.title_memory_correlation),
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            val cal = java.util.Calendar.getInstance()
-                            cal.add(java.util.Calendar.MONTH, -3)
-                            val pastMonth = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(cal.time)
-                            Text(
-                                text = "Similar Past Events: ${memoryMatchPercentage.value} Match to $pastMonth Baseline.",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
+                                text = "Similar Past Events: $matchPctStr Match to $pastMonth Baseline.",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
                             val memoryOutcome = if (stressScore.value >= 75) {
                                 "Outcome: High cognitive load detected. Recommend task transition."
                             } else if (stressScore.value >= 50) {

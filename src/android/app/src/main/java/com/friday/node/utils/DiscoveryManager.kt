@@ -1,17 +1,24 @@
 package com.friday.node.utils
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.util.Log
 
 class DiscoveryManager(
-    context: Context,
-    private val onHubFound: (ipAddress: String, port: Int) -> Unit
+    private val context: Context,
+    private val onHubAddressFound: (wsUrl: String) -> Unit
 ) {
+    private val TAG = "FRIDAY_Discovery"
     private val nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
     private val SERVICE_TYPE = "_friday-hub._tcp"
     private var isDiscovering = false
+
+    // Replace this string with your active ngrok URL prefix
+    // NOTE: Convert 'https://' into the secure websocket identifier 'wss://'
+    private val REMOTE_FALLBACK_URL = "wss://stubbly-impotent-escargot.ngrok-free.dev/ws/android"
 
     companion object {
         private var resolvedHubIp: String? = null
@@ -67,7 +74,7 @@ class DiscoveryManager(
                         val ip = resolvedServiceInfo.host.hostAddress ?: return
                         val port = resolvedServiceInfo.port
                         resolvedHubIp = ip
-                        onHubFound(ip, port)
+                        onHubAddressFound("ws://$ip:$port/ws/android")
                     }
                 })
             }
@@ -82,6 +89,13 @@ class DiscoveryManager(
     }
 
     fun startSearching() {
+        if (isUsingCellularOrRemote()) {
+            Log.i(TAG, "Cross-Network routing detected. Routing traffic through public edge relay.")
+            onHubAddressFound(REMOTE_FALLBACK_URL)
+            return
+        }
+
+        Log.i(TAG, "Local Wi-Fi detected. Initializing standard mDNS local autodetection.")
         synchronized(this) {
             if (!isDiscovering) {
                 isDiscovering = true
@@ -107,5 +121,12 @@ class DiscoveryManager(
                 }
             }
         }
+    }
+
+    private fun isUsingCellularOrRemote(): Boolean {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val activeNetwork = connectivityManager.activeNetwork ?: return true
+        val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork) ?: return true
+        return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
     }
 }
