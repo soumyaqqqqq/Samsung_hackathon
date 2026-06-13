@@ -52,11 +52,22 @@ class WebSocketManager private constructor() {
     fun isConnected(): Boolean = isConnected
 
     fun getServerHttpUrl(): String? {
-        return serverUrl?.replace("ws://", "http://")?.replace("wss://", "https://")?.replace("/ws/android", "")
+        val url = serverUrl ?: return null
+        val cleanUrl = url.replace("ws://", "http://").replace("wss://", "https://")
+        return when {
+            cleanUrl.contains("/ws/android") -> cleanUrl.replace("/ws/android", "")
+            cleanUrl.contains("/ws/laptop") -> cleanUrl.replace("/ws/laptop", "")
+            else -> cleanUrl
+        }
     }
 
     fun getVoiceWebSocketUrl(): String? {
-        return serverUrl?.replace("/ws/android", "/ws/voice")
+        val url = serverUrl ?: return null
+        return when {
+            url.contains("/ws/android") -> url.replace("/ws/android", "/ws/voice")
+            url.contains("/ws/laptop") -> url.replace("/ws/laptop", "/ws/voice")
+            else -> if (url.endsWith("/")) "${url}ws/voice" else "$url/ws/voice"
+        }
     }
 
     private fun attemptReconnection() {
@@ -80,7 +91,10 @@ class WebSocketManager private constructor() {
         this.serverUrl = url
 
         Log.i(TAG, "Connecting to target hub: $url")
-        val request = Request.Builder().url(url).build()
+        val request = Request.Builder()
+            .url(url)
+            .header("ngrok-skip-browser-warning", "true")
+            .build()
         val newWebSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 if (webSocket != this@WebSocketManager.webSocket) {

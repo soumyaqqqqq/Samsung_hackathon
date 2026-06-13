@@ -103,15 +103,14 @@ class FRIDAYForegroundService : Service() {
         // Initialize the ContextObject builder
         contextBuilder = ContextObjectBuilder(this)
 
-        discoveryManager = DiscoveryManager(this) { ipAddress, port ->
-            Log.i(TAG, "Target Compute Hub found! Connecting to $ipAddress:$port")
+        discoveryManager = DiscoveryManager(this) { wsUrl ->
+            Log.i(TAG, "Target Compute Hub found! Connecting to $wsUrl")
 
             // Stop scanning once found to save battery
             discoveryManager.stopSearching()
 
             // Initialize the WebSocket connection via Singleton
-            val targetUrl = "ws://$ipAddress:$port/ws/android"
-            WebSocketManager.getInstance().connect(targetUrl)
+            WebSocketManager.getInstance().connect(wsUrl)
         }
 
         // Register receiver to listen for sensor events from Accessibility and Notification services
