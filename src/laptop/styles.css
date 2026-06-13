@@ -207,6 +207,36 @@
     transform: rotate(90deg);
 }
 
+.friday-refresh-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--color-secondary);
+    transition: all 0.2s;
+}
+
+.friday-refresh-btn:hover {
+    background: var(--color-surface-container);
+    color: var(--color-primary);
+    transform: rotate(180deg);
+}
+
+.friday-refresh-btn.spinning svg,
+.friday-refresh-btn.spinning span.icon {
+    animation: friday-spin 0.8s linear infinite;
+}
+
+@keyframes friday-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 .friday-tabs {
     display: flex;
     padding: 12px 24px;
