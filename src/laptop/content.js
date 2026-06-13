@@ -20,6 +20,7 @@ let refreshInterval = null;
 function getIconSvg(name, size = 20) {
     const paths = {
         close: '<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>',
+        refresh: '<path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>',
         sensors: '<path d="M12 2C6.48 2 2 6.48 2 12c0 2.76 1.12 5.26 2.93 7.07l1.41-1.41C4.95 16.27 4 14.24 4 12c0-4.42 3.58-8 8-8s8 3.58 8 8c0 2.24-.95 4.27-2.34 5.66l1.41 1.41C20.88 17.26 22 14.76 22 12c0-5.52-4.48-10-10-10zm0 4c-3.31 0-6 2.69-6 6 0 1.66.67 3.16 1.76 4.24l1.42-1.42C8.4 14.05 8 13.08 8 12c0-2.21 1.79-4 4-4s4 1.79 4 4c0 1.08-.4 2.05-1.18 2.82l1.42 1.42C17.33 15.16 18 13.66 18 12c0-3.31-2.69-6-6-6zm0 4c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>',
         sync: '<path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.68 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.68-2.8L5.22 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>',
         drafts: '<path d="M21.99 8c0-.72-.37-1.35-.94-1.7L12 1 2.95 6.3c-.57.35-.95.98-.95 1.7v10c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8zm-2 0l-8 5-8-5 8-5 8 5z"/>',
@@ -94,7 +95,10 @@ function createSidebar() {
 
     sidebarElement.innerHTML = `
         <div class="friday-sidebar-header">
-            <div class="friday-brand">
+            <button class="friday-refresh-btn" id="friday-refresh-data" title="Refresh Telemetry">
+                ${getIconSvg("refresh", 20)}
+            </button>
+            <div class="friday-brand" style="margin-right: auto; margin-left: 12px;">
                 <span class="friday-logo">FRIDAY</span>
                 <div class="friday-conn-badge disconnected" id="friday-conn-badge">
                     <div class="friday-conn-dot"></div>
@@ -124,6 +128,27 @@ function createSidebar() {
     shadowRoot.appendChild(sidebarElement);
 
     shadowRoot.getElementById("friday-close-sidebar").onclick = () => toggleSidebar(false);
+
+    const refreshBtn = shadowRoot.getElementById("friday-refresh-data");
+    if (refreshBtn) {
+        refreshBtn.onclick = () => {
+            refreshBtn.classList.add("spinning");
+            loadBackendData(() => {
+                const contentPane = shadowRoot.getElementById("friday-content-pane");
+                if (contentPane) {
+                    if (FRIDAY_STATE.activeTab === 'sense') {
+                        contentPane.innerHTML = renderSensePane();
+                    } else {
+                        contentPane.innerHTML = renderContinuityPane();
+                        setupContinuityHooks();
+                    }
+                }
+                setTimeout(() => {
+                    refreshBtn.classList.remove("spinning");
+                }, 800);
+            });
+        };
+    }
 
     const senseTabBtn = shadowRoot.getElementById("tab-btn-sense");
     const continuityTabBtn = shadowRoot.getElementById("tab-btn-continuity");
@@ -468,19 +493,25 @@ function renderContinuityPane() {
 
     let recentTabsHTML = "";
     if (backendData.recentTabs && backendData.recentTabs.length > 0) {
-        const tabs = backendData.recentTabs;
+        const tabs = backendData.recentTabs.slice(0, 3);
         recentTabsHTML = `
             <div>
-                <span class="friday-graph-label" style="display: block; margin-bottom: 12px;">Recent Tabs</span>
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                    <span class="friday-graph-label">Recent Sites</span>
+                    <span style="font-size: 9px; font-family: var(--font-mono); font-weight: 700; padding: 2px 7px; border-radius: 99px; background: rgba(98,0,238,0.1); color: #6200EE; letter-spacing: 0.5px;">DEVICE SWITCH</span>
+                </div>
                 <div class="friday-tabs-list">
-                    ${tabs.map(tab => `
-                        <a class="friday-tab-card" href="${tab.link || '#'}" target="_blank">
+                    ${tabs.map((tab, idx) => `
+                        <a class="friday-tab-card" href="${tab.link || '#'}" target="_blank" style="${idx === 0 ? 'border: 1.5px solid rgba(98,0,238,0.25); background: rgba(98,0,238,0.04);' : ''}">
                             ${getIconSvg("language", 18)}
                             <div class="friday-tab-card-content">
                                 <span class="friday-tab-title">${tab.title || ''}</span>
                                 <span class="friday-tab-url">${tab.url || ''}</span>
                             </div>
-                            ${getIconSvg("open_in_new", 14)}
+                            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0;">
+                                ${idx === 0 ? `<span style="font-size: 8px; font-family: var(--font-mono); font-weight: 700; padding: 2px 6px; border-radius: 99px; background: rgba(98,0,238,0.15); color: #6200EE; letter-spacing: 0.5px; white-space: nowrap;">LEFT OPEN</span>` : ''}
+                                ${getIconSvg("open_in_new", 14)}
+                            </div>
                         </a>
                     `).join('')}
                 </div>
@@ -488,12 +519,26 @@ function renderContinuityPane() {
         `;
     }
 
+    if (!mediaHandoffHTML && !activeReadingHTML && (!backendData.pendingStates || backendData.pendingStates.length === 0) && (!backendData.recentApps || backendData.recentApps.length === 0) && (!backendData.recentTabs || backendData.recentTabs.length === 0)) {
+        return `
+            <div class="friday-card-block" style="text-align: center; padding: 48px 24px; color: rgba(0,0,0,0.45); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; border: 1px dashed rgba(0,0,0,0.12); border-radius: 12px; margin-top: 20px; background: rgba(0,0,0,0.01);">
+                <div style="background: rgba(0, 0, 0, 0.05); padding: 12px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #6200EE;">
+                    ${getIconSvg("sync", 28)}
+                </div>
+                <div style="font-weight: 700; font-size: 15px; color: rgba(0,0,0,0.7); letter-spacing: -0.3px;">All Caught Up!</div>
+                <p style="font-size: 12px; margin: 0; line-height: 1.5; color: rgba(0,0,0,0.5); max-width: 200px;">
+                    No pending handoffs or recent activities detected. FRIDAY is coupled with your phone.
+                </p>
+            </div>
+        `;
+    }
+
     return `
+        ${recentTabsHTML}
         ${mediaHandoffHTML}
         ${activeReadingHTML}
         ${pendingStatesHTML}
         ${recentAppsHTML}
-        ${recentTabsHTML}
     `;
 }
 
@@ -512,7 +557,11 @@ function setupContinuityHooks() {
     const continueHubBtn = shadowRoot.getElementById("btn-continue-hub");
     if (continueHubBtn) {
         continueHubBtn.onclick = () => {
-            window.open("https://github.com/friday-ecosystem", "_blank");
+            const url = (backendData.activeReading && backendData.activeReading.url) || "https://github.com/friday-ecosystem";
+            window.open(url, "_blank");
+            if (backendData.activeReading && backendData.activeReading.url) {
+                sendFeedback("PAGE_HANDOFF_EXECUTED", { url: url });
+            }
         };
     }
 
@@ -523,10 +572,16 @@ function setupContinuityHooks() {
                 btn.onclick = () => {
                     if (item.link) {
                         window.open(item.link, "_blank");
-                    } else if (item.name.includes("Ethics")) {
-                        window.open("https://docs.google.com", "_blank");
-                    } else if (item.name.includes("Lecture")) {
-                        window.open("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=724s", "_blank");
+                        if (item.type === "play_circle" || item.link.includes("youtube.com")) {
+                            let vid = "";
+                            try {
+                                const urlObj = new URL(item.link);
+                                vid = urlObj.searchParams.get("v") || "";
+                            } catch (e) {}
+                            sendFeedback("MEDIA_HANDOFF_EXECUTED", { video_id: vid });
+                        } else {
+                            sendFeedback("PAGE_HANDOFF_EXECUTED", { url: item.link });
+                        }
                     }
                 };
             }
@@ -547,11 +602,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case "MEDIA_HANDOFF":
             executeMediaHandoff(message.active_media);
             break;
+        case "PAGE_HANDOFF":
+            executePageHandoff(message.active_page);
+            break;
         case "INTERRUPTION_SHIELD":
             toggleFocusShield(message.stress_score);
             break;
         case "SHOW_CONTINUITY":
             showContinuityToast(message);
+            break;
+        case "TELEMETRY_UPDATE":
+            if (FRIDAY_STATE.isOpen) {
+                loadBackendData(() => {
+                    const contentPane = shadowRoot.getElementById("friday-content-pane");
+                    if (!contentPane) return;
+                    if (FRIDAY_STATE.activeTab === 'sense') {
+                        contentPane.innerHTML = renderSensePane();
+                    } else {
+                        contentPane.innerHTML = renderContinuityPane();
+                        setupContinuityHooks();
+                    }
+                });
+            }
             break;
         case "TOGGLE_SIDEBAR":
             toggleSidebar();
@@ -641,11 +713,21 @@ function handleClipboardIngestion(snippet) {
     }, 10000);
 }
 
+let lastHandoffVideoId = null;
+let lastHandoffTimestamp = -1;
+
 function executeMediaHandoff(mediaData) {
+    if (!mediaData) return;
     FRIDAY_STATE.mediaHandoff = mediaData;
     if (FRIDAY_STATE.isOpen && FRIDAY_STATE.activeTab === 'continuity') {
         switchTab('continuity');
     }
+
+    if (mediaData.video_id === lastHandoffVideoId && Math.abs(mediaData.playback_timestamp_seconds - lastHandoffTimestamp) < 10) {
+        return; // skip duplicate toast
+    }
+    lastHandoffVideoId = mediaData.video_id;
+    lastHandoffTimestamp = mediaData.playback_timestamp_seconds;
 
     if (mediaData.provider === "youtube") {
         const toast = document.createElement("div");
@@ -688,6 +770,61 @@ function executeMediaHandoff(mediaData) {
             }
         }, 12000);
     }
+}
+
+let lastHandoffUrl = null;
+
+function executePageHandoff(pageData) {
+    if (!pageData) return;
+    FRIDAY_STATE.activeReading = pageData;
+    if (FRIDAY_STATE.isOpen && FRIDAY_STATE.activeTab === 'continuity') {
+        switchTab('continuity');
+    }
+
+    if (pageData.url === lastHandoffUrl) {
+        return; // skip duplicate toast
+    }
+    lastHandoffUrl = pageData.url;
+
+    const toast = document.createElement("div");
+    toast.className = "friday-toast";
+    toast.innerHTML = `
+        <div class="friday-toast-header">
+            ${getIconSvg("description", 20)}
+            Resume Reading Page
+        </div>
+        <div class="friday-toast-body">
+            Resume reading the document you left open on your mobile device: "${pageData.title || 'Active Webpage'}"?
+        </div>
+        <div class="friday-toast-actions">
+            <button id="dismiss-page" class="friday-toast-btn secondary">Dismiss</button>
+            <button id="resume-page" class="friday-toast-btn primary">Open Page</button>
+        </div>
+    `;
+
+    shadowRoot.appendChild(toast);
+
+    shadowRoot.getElementById("resume-page").onclick = () => {
+        window.open(pageData.url, "_blank");
+        sendFeedback("PAGE_HANDOFF_EXECUTED", { url: pageData.url });
+        toast.style.transform = "translateX(120%)";
+        toast.style.opacity = "0";
+        setTimeout(() => toast.remove(), 300);
+    };
+
+    shadowRoot.getElementById("dismiss-page").onclick = () => {
+        toast.style.transform = "translateX(120%)";
+        toast.style.opacity = "0";
+        setTimeout(() => toast.remove(), 300);
+    };
+
+    setTimeout(() => {
+        if (toast.parentNode) {
+            toast.style.transform = "translateX(120%)";
+            toast.style.opacity = "0";
+            setTimeout(() => toast.remove(), 300);
+        }
+    }, 12000);
 }
 
 function toggleFocusShield(stressScore) {
@@ -739,11 +876,17 @@ function showContinuityToast(message) {
     toast.className = "friday-toast";
     
     const content = message.content || {};
-    const title = content.title || "FRIDAY Suggestion";
+    const rawTitle = content.title || "FRIDAY Suggestion";
     const bodyText = content.message || "";
     
+    // Detect device-switch leftover notifications from backend
+    const isDeviceSwitchLeftover = rawTitle.toLowerCase().includes("leftover") || rawTitle.toLowerCase().includes("left open");
+    const title = isDeviceSwitchLeftover ? "Device Switch · Leftover" : rawTitle;
+    
     let iconName = "psychology";
-    if (message.condition === "high_stress" || message.condition === "burnout_risk") {
+    if (isDeviceSwitchLeftover) {
+        iconName = "sync";
+    } else if (message.condition === "high_stress" || message.condition === "burnout_risk") {
         iconName = "shield";
     } else if (message.condition === "notification_overload") {
         iconName = "notifications";
@@ -773,6 +916,9 @@ function showContinuityToast(message) {
                 user_reaction: "helpful"
             }
         });
+        if (message.url) {
+            window.open(message.url, "_blank");
+        }
         toast.style.transform = "translateX(120%)";
         toast.style.opacity = "0";
         setTimeout(() => toast.remove(), 300);
@@ -806,5 +952,74 @@ function showContinuityToast(message) {
         }
     }, 15000);
 }
+
+// YouTube video tracking logic
+let lastTrackedVideoId = null;
+let lastTrackedTime = -1;
+let lastTrackedIsPlaying = false;
+
+function trackYouTubePlayback() {
+    if (window.location.hostname.includes("youtube.com") && window.location.pathname.includes("watch")) {
+        const videoElement = document.querySelector("video");
+        const urlParams = new URLSearchParams(window.location.search);
+        const videoId = urlParams.get("v");
+        
+        if (videoElement && videoId) {
+            const currentTime = Math.floor(videoElement.currentTime);
+            const isPlaying = !videoElement.paused && !videoElement.ended;
+            const videoTitle = document.title.replace(" - YouTube", "");
+            
+            if (videoId !== lastTrackedVideoId || isPlaying !== lastTrackedIsPlaying || Math.abs(currentTime - lastTrackedTime) > 5) {
+                lastTrackedVideoId = videoId;
+                lastTrackedTime = currentTime;
+                lastTrackedIsPlaying = isPlaying;
+                
+                chrome.runtime.sendMessage({
+                    action: "send_to_backend",
+                    data: {
+                        type: "LAPTOP_MEDIA_UPDATE",
+                        active_media: {
+                            provider: "youtube",
+                            video_id: videoId,
+                            title: videoTitle,
+                            playback_timestamp_seconds: currentTime,
+                            is_playing: isPlaying,
+                            timestamp: Date.now()
+                        }
+                    }
+                });
+            }
+        }
+    }
+}
+
+let lastTrackedUrl = null;
+
+function trackPageContinuity() {
+    if (document.hasFocus()) {
+        const currentUrl = window.location.href;
+        const pageTitle = document.title;
+        
+        if (currentUrl !== lastTrackedUrl && !currentUrl.includes("youtube.com/watch")) {
+            lastTrackedUrl = currentUrl;
+            
+            chrome.runtime.sendMessage({
+                action: "send_to_backend",
+                data: {
+                    type: "LAPTOP_PAGE_UPDATE",
+                    active_page: {
+                        url: currentUrl,
+                        title: pageTitle,
+                        timestamp: Date.now()
+                    }
+                }
+            });
+        }
+    }
+}
+
+// Start tracking intervals (every 2 seconds)
+setInterval(trackYouTubePlayback, 2000);
+setInterval(trackPageContinuity, 2000);
 
 initShadowDOM();

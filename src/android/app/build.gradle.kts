@@ -59,4 +59,7 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // ONNX Runtime Mobile for local Phi-3 Mini INT4 fallback inference
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.18.0")
 }

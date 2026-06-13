@@ -2,9 +2,16 @@ package com.friday.node.data.remote
 
 import android.content.Context
 import android.content.Intent
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.net.Uri
+import android.os.Build
 import android.util.Log
 import com.friday.node.data.local.EventEntity
 import com.friday.node.data.local.RoomDatabase
+import com.friday.node.utils.LocalFallbackEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -197,6 +204,69 @@ class WebSocketManager private constructor() {
                     ctx.sendBroadcast(intent)
                 }
 
+                "MEDIA_HANDOFF", "PAGE_HANDOFF" -> {
+                    val actionId = json.optString("action_id", "act_handoff_${System.currentTimeMillis()}")
+                    val message = json.optString("message", "Resume leftover task")
+                    val url = if (type == "MEDIA_HANDOFF") {
+                        val videoId = json.optString("video_id", "")
+                        val timestamp = json.optInt("playback_timestamp_seconds", 0)
+                        "https://www.youtube.com/watch?v=${videoId}&t=${timestamp}s"
+                    } else {
+                        json.optString("url", "")
+                    }
+
+                    Log.i(TAG, "Handoff received: action=$actionId, message=$message, url=$url")
+
+                    // Broadcast detailed action to UI
+                    val intent = Intent("com.friday.node.ACTION_RECEIVED").apply {
+                        putExtra("action_payload", text)
+                        putExtra("action_id", actionId)
+                        putExtra("suggested_action", message)
+                    }
+                    ctx.sendBroadcast(intent)
+
+                    // Post high-priority system notification
+                    val manager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                    
+                    val resumeIntent = Intent("com.friday.node.RESUME_HANDOFF_NOTIFICATION").apply {
+                        setPackage(ctx.packageName)
+                        putExtra("action_id", actionId)
+                        putExtra("type", type)
+                        putExtra("url", url)
+                    }
+                    val resumePending = PendingIntent.getBroadcast(
+                        ctx,
+                        actionId.hashCode() + 1,
+                        resumeIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+
+                    val dismissIntent = Intent("com.friday.node.DISMISS_HANDOFF_NOTIFICATION").apply {
+                        setPackage(ctx.packageName)
+                        putExtra("action_id", actionId)
+                        putExtra("type", type)
+                    }
+                    val dismissPending = PendingIntent.getBroadcast(
+                        ctx,
+                        actionId.hashCode() + 2,
+                        dismissIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+
+                    val notification = androidx.core.app.NotificationCompat.Builder(ctx, "FRIDAY_CORE_TELEMETRY")
+                        .setContentTitle(if (type == "MEDIA_HANDOFF") "Resume Watching Video" else "Resume Reading Page")
+                        .setContentText(message)
+                        .setSmallIcon(android.R.drawable.ic_media_play)
+                        .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                        .setDefaults(androidx.core.app.NotificationCompat.DEFAULT_ALL)
+                        .setAutoCancel(true)
+                        .addAction(android.R.drawable.ic_menu_slideshow, "Resume", resumePending)
+                        .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Dismiss", dismissPending)
+                        .build()
+
+                    manager.notify(actionId.hashCode(), notification)
+                }
+
                 "INACTIVITY_DIGEST_RESPONSE" -> {
                     val summary = json.optString("summary", "")
                     Log.i(TAG, "INACTIVITY_DIGEST_RESPONSE received: summary=$summary")
@@ -293,12 +363,57 @@ class WebSocketManager private constructor() {
                     val db = RoomDatabase.getInstance(ctx)
                     val event = EventEntity(messageId, type, jsonPayload, timestamp)
                     db.insertEvent(event)
+
+                    // ── Local Fallback Intelligence ──
+                    // If the payload is a full ContextObject (has sensor_data),
+                    // run the local inference engine and surface the result as
+                    // a FRIDAY_CARD so the UI stays responsive in offline mode.
+                    if (json.has("sensor_data")) {
+                        handleOfflineFallbackInference(ctx, json)
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error caching event locally: ${e.message}")
                 }
             }
         } else {
             Log.e(TAG, "Context not initialized in WebSocketManager, cannot cache event!")
+        }
+    }
+
+    /**
+     * Invokes the local fallback engine when the hub is unreachable.
+     *
+     * Runs Phi-3 Mini INT4 via ONNX Runtime if the model is loaded,
+     * otherwise falls back to rule-based heuristics. The result is
+     * broadcast as a FRIDAY_CARD so the UI overlay renders coaching
+     * in degraded mode.
+     */
+    private suspend fun handleOfflineFallbackInference(ctx: Context, contextPayload: JSONObject) {
+        try {
+            val result = LocalFallbackEngine.processOfflineContext(contextPayload)
+
+            val cardPayload = JSONObject().apply {
+                put("type", "FRIDAY_CARD")
+                put("action_id", "act_offline_${System.currentTimeMillis()}")
+                put("message", result.message)
+                put("agent", result.agent)
+                put("score", result.stressScore ?: 50)
+                put("condition", "offline_fallback")
+                put("tier", result.tier)
+                put("timestamp", System.currentTimeMillis())
+            }
+
+            val intent = Intent("com.friday.node.ACTION_RECEIVED").apply {
+                putExtra("action_payload", cardPayload.toString())
+                putExtra("action_id", cardPayload.getString("action_id"))
+                putExtra("suggested_action", result.message)
+                putExtra("agent", result.agent)
+            }
+            ctx.sendBroadcast(intent)
+
+            Log.i(TAG, "Offline fallback [${result.tier}/${result.agent}]: ${result.message.take(80)}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Offline fallback inference failed: ${e.message}")
         }
     }
 
