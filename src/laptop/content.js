@@ -468,19 +468,25 @@ function renderContinuityPane() {
 
     let recentTabsHTML = "";
     if (backendData.recentTabs && backendData.recentTabs.length > 0) {
-        const tabs = backendData.recentTabs;
+        const tabs = backendData.recentTabs.slice(0, 3);
         recentTabsHTML = `
             <div>
-                <span class="friday-graph-label" style="display: block; margin-bottom: 12px;">Recent Tabs</span>
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                    <span class="friday-graph-label">Recent Sites</span>
+                    <span style="font-size: 9px; font-family: var(--font-mono); font-weight: 700; padding: 2px 7px; border-radius: 99px; background: rgba(98,0,238,0.1); color: #6200EE; letter-spacing: 0.5px;">DEVICE SWITCH</span>
+                </div>
                 <div class="friday-tabs-list">
-                    ${tabs.map(tab => `
-                        <a class="friday-tab-card" href="${tab.link || '#'}" target="_blank">
+                    ${tabs.map((tab, idx) => `
+                        <a class="friday-tab-card" href="${tab.link || '#'}" target="_blank" style="${idx === 0 ? 'border: 1.5px solid rgba(98,0,238,0.25); background: rgba(98,0,238,0.04);' : ''}">
                             ${getIconSvg("language", 18)}
                             <div class="friday-tab-card-content">
                                 <span class="friday-tab-title">${tab.title || ''}</span>
                                 <span class="friday-tab-url">${tab.url || ''}</span>
                             </div>
-                            ${getIconSvg("open_in_new", 14)}
+                            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0;">
+                                ${idx === 0 ? `<span style="font-size: 8px; font-family: var(--font-mono); font-weight: 700; padding: 2px 6px; border-radius: 99px; background: rgba(98,0,238,0.15); color: #6200EE; letter-spacing: 0.5px; white-space: nowrap;">LEFT OPEN</span>` : ''}
+                                ${getIconSvg("open_in_new", 14)}
+                            </div>
                         </a>
                     `).join('')}
                 </div>
@@ -503,11 +509,11 @@ function renderContinuityPane() {
     }
 
     return `
+        ${recentTabsHTML}
         ${mediaHandoffHTML}
         ${activeReadingHTML}
         ${pendingStatesHTML}
         ${recentAppsHTML}
-        ${recentTabsHTML}
     `;
 }
 
@@ -579,6 +585,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             break;
         case "SHOW_CONTINUITY":
             showContinuityToast(message);
+            break;
+        case "TELEMETRY_UPDATE":
+            if (FRIDAY_STATE.isOpen) {
+                loadBackendData(() => {
+                    const contentPane = shadowRoot.getElementById("friday-content-pane");
+                    if (!contentPane) return;
+                    if (FRIDAY_STATE.activeTab === 'sense') {
+                        contentPane.innerHTML = renderSensePane();
+                    } else {
+                        contentPane.innerHTML = renderContinuityPane();
+                        setupContinuityHooks();
+                    }
+                });
+            }
             break;
         case "TOGGLE_SIDEBAR":
             toggleSidebar();
@@ -831,11 +851,17 @@ function showContinuityToast(message) {
     toast.className = "friday-toast";
     
     const content = message.content || {};
-    const title = content.title || "FRIDAY Suggestion";
+    const rawTitle = content.title || "FRIDAY Suggestion";
     const bodyText = content.message || "";
     
+    // Detect device-switch leftover notifications from backend
+    const isDeviceSwitchLeftover = rawTitle.toLowerCase().includes("leftover") || rawTitle.toLowerCase().includes("left open");
+    const title = isDeviceSwitchLeftover ? "Device Switch · Leftover" : rawTitle;
+    
     let iconName = "psychology";
-    if (message.condition === "high_stress" || message.condition === "burnout_risk") {
+    if (isDeviceSwitchLeftover) {
+        iconName = "sync";
+    } else if (message.condition === "high_stress" || message.condition === "burnout_risk") {
         iconName = "shield";
     } else if (message.condition === "notification_overload") {
         iconName = "notifications";
@@ -865,6 +891,9 @@ function showContinuityToast(message) {
                 user_reaction: "helpful"
             }
         });
+        if (message.url) {
+            window.open(message.url, "_blank");
+        }
         toast.style.transform = "translateX(120%)";
         toast.style.opacity = "0";
         setTimeout(() => toast.remove(), 300);

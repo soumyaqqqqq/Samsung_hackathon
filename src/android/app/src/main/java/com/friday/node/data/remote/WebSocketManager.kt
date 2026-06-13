@@ -53,16 +53,6 @@ class WebSocketManager private constructor() {
 
     fun init(context: Context) {
         this.context = context.applicationContext
-        
-        val filter = IntentFilter().apply {
-            addAction("com.friday.node.RESUME_HANDOFF_NOTIFICATION")
-            addAction("com.friday.node.DISMISS_HANDOFF_NOTIFICATION")
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            this.context?.registerReceiver(notificationActionReceiver, filter, Context.RECEIVER_EXPORTED)
-        } else {
-            this.context?.registerReceiver(notificationActionReceiver, filter)
-        }
     }
 
     fun isConnected(): Boolean = isConnected
@@ -238,6 +228,7 @@ class WebSocketManager private constructor() {
                     val manager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                     
                     val resumeIntent = Intent("com.friday.node.RESUME_HANDOFF_NOTIFICATION").apply {
+                        setPackage(ctx.packageName)
                         putExtra("action_id", actionId)
                         putExtra("type", type)
                         putExtra("url", url)
@@ -250,6 +241,7 @@ class WebSocketManager private constructor() {
                     )
 
                     val dismissIntent = Intent("com.friday.node.DISMISS_HANDOFF_NOTIFICATION").apply {
+                        setPackage(ctx.packageName)
                         putExtra("action_id", actionId)
                         putExtra("type", type)
                     }
@@ -415,52 +407,6 @@ class WebSocketManager private constructor() {
         serverUrl = null
         isConnected = false
         onConnectionStateChanged?.invoke(false)
-        try {
-            this.context?.unregisterReceiver(notificationActionReceiver)
-        } catch (e: Exception) {
-            // Ignore if not registered
-        }
     }
 
-    private val notificationActionReceiver = object : BroadcastReceiver() {
-        override fun onReceive(ctx: Context?, intent: Intent?) {
-            val actionId = intent?.getStringExtra("action_id") ?: return
-            val type = intent.getStringExtra("type") ?: ""
-            val url = intent.getStringExtra("url") ?: ""
-            val manager = ctx?.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-
-            manager?.cancel(actionId.hashCode())
-
-            if (intent.action == "com.friday.node.RESUME_HANDOFF_NOTIFICATION") {
-                sendFeedback(actionId, "helpful")
-
-                if (url.isNotEmpty()) {
-                    try {
-                        val openIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                        }
-                        ctx?.startActivity(openIntent)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to launch handoff URL: ${e.message}")
-                    }
-                }
-
-                ctx?.sendBroadcast(Intent("com.friday.node.ACTION_RECEIVED").apply {
-                    putExtra("action_payload", JSONObject().apply {
-                        put("type", "CLEAR_HANDOFF")
-                        put("action_id", actionId)
-                    }.toString())
-                })
-            } else if (intent.action == "com.friday.node.DISMISS_HANDOFF_NOTIFICATION") {
-                sendFeedback(actionId, "dismissed")
-
-                ctx?.sendBroadcast(Intent("com.friday.node.ACTION_RECEIVED").apply {
-                    putExtra("action_payload", JSONObject().apply {
-                        put("type", "CLEAR_HANDOFF")
-                        put("action_id", actionId)
-                    }.toString())
-                })
-            }
-        }
-    }
 }

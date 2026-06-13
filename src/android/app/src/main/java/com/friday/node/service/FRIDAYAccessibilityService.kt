@@ -19,6 +19,9 @@ class FRIDAYAccessibilityService : AccessibilityService() {
     private var totalDeltaTime = 0L
 
     private var lastTrackTime = 0L
+    private var lastRecordedUrl: String? = null
+    private var lastRecordedVideoId: String? = null
+    private var lastRecordedMediaTitle: String? = null
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val configManager = com.friday.node.config.OnboardingConfigManager(this)
@@ -112,6 +115,21 @@ class FRIDAYAccessibilityService : AccessibilityService() {
         lastTrackTime = now
 
         try {
+            if (packageName != "com.android.chrome" && packageName != "com.sec.android.app.sbrowser" && 
+                packageName != "org.mozilla.firefox" && packageName != "com.google.android.youtube") {
+                val wasActive = (ContextObjectBuilder.activePage != null || ContextObjectBuilder.activeMedia != null)
+                ContextObjectBuilder.activePage = null
+                ContextObjectBuilder.activeMedia = null
+                if (wasActive) {
+                    lastRecordedUrl = null
+                    lastRecordedVideoId = null
+                    lastRecordedMediaTitle = null
+                    Log.d(TAG, "Left active page/media. Triggering immediate push.")
+                    sendBroadcast(android.content.Intent("com.friday.node.TRIGGER_CONTEXT_PUSH"))
+                }
+                return
+            }
+
             val rootNode = rootInActiveWindow ?: return
             
             if (packageName == "com.android.chrome" || packageName == "com.sec.android.app.sbrowser" || packageName == "org.mozilla.firefox") {
@@ -126,8 +144,13 @@ class FRIDAYAccessibilityService : AccessibilityService() {
                         put("title", title)
                         put("timestamp", now)
                     }
+                    val changed = (finalUrl != lastRecordedUrl)
                     ContextObjectBuilder.activePage = activePageObj
-                    Log.d(TAG, "Extracted browser URL: $finalUrl ($title)")
+                    if (changed) {
+                        lastRecordedUrl = finalUrl
+                        Log.d(TAG, "Extracted browser URL changed: $finalUrl ($title)")
+                        sendBroadcast(android.content.Intent("com.friday.node.TRIGGER_CONTEXT_PUSH"))
+                    }
                     
                     // Parse YouTube details if url is a YouTube link
                     if (finalUrl.contains("youtube.com/watch") || finalUrl.contains("youtu.be/")) {
@@ -150,11 +173,21 @@ class FRIDAYAccessibilityService : AccessibilityService() {
                                 put("title", title)
                                 put("timestamp", now)
                             }
+                            val mediaChanged = (videoId != lastRecordedVideoId)
                             ContextObjectBuilder.activeMedia = activeMediaObj
-                            Log.d(TAG, "Extracted YouTube media: videoId=$videoId, seconds=$seconds")
+                            if (mediaChanged) {
+                                lastRecordedVideoId = videoId
+                                Log.d(TAG, "Extracted YouTube media changed: videoId=$videoId")
+                                sendBroadcast(android.content.Intent("com.friday.node.TRIGGER_CONTEXT_PUSH"))
+                            }
                         }
                     } else {
+                        val mediaWasActive = (ContextObjectBuilder.activeMedia != null)
                         ContextObjectBuilder.activeMedia = null
+                        if (mediaWasActive) {
+                            lastRecordedVideoId = null
+                            sendBroadcast(android.content.Intent("com.friday.node.TRIGGER_CONTEXT_PUSH"))
+                        }
                     }
                 }
             } else if (packageName == "com.google.android.youtube") {
@@ -167,17 +200,26 @@ class FRIDAYAccessibilityService : AccessibilityService() {
                         put("title", "YouTube: $title")
                         put("timestamp", now)
                     }
+                    val pageChanged = (searchUrl != lastRecordedUrl)
                     ContextObjectBuilder.activePage = activePageObj
+                    if (pageChanged) {
+                        lastRecordedUrl = searchUrl
+                    }
                     
                     val activeMediaObj = JSONObject().apply {
                         put("provider", "youtube")
-                        put("video_id", "") // Empty to fallback to searching title or just using searchUrl
+                        put("video_id", "")
                         put("title", title)
                         put("playback_timestamp_seconds", 0)
                         put("timestamp", now)
                     }
+                    val mediaChanged = (title != lastRecordedMediaTitle)
                     ContextObjectBuilder.activeMedia = activeMediaObj
-                    Log.d(TAG, "Extracted YouTube App title: $title")
+                    if (mediaChanged || pageChanged) {
+                        lastRecordedMediaTitle = title
+                        Log.d(TAG, "Extracted YouTube App title changed: $title")
+                        sendBroadcast(android.content.Intent("com.friday.node.TRIGGER_CONTEXT_PUSH"))
+                    }
                 }
             }
         } catch (e: Exception) {
