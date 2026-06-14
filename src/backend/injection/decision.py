@@ -12,6 +12,8 @@ from typing import Any
 import httpx
 
 from config import settings
+from functools import lru_cache
+import hashlib
 
 logger = logging.getLogger("friday.agent.decision")
 
@@ -38,6 +40,11 @@ class DecisionAgent:
 
     Falls back to rule-based candidates if LLM is unavailable.
     """
+
+    def __init__(self):
+        # OPTIMIZATION #2: Response caching
+        self._response_cache = {}
+        self._cache_timestamps = {}
 
     async def run(
         self,
@@ -110,9 +117,27 @@ class DecisionAgent:
                 })
 
         # 4. LLM-generated empathetic response (best effort)
-        llm_candidate = await self._llm_candidate(ctx, previous_results)
-        if llm_candidate:
-            candidates.append(llm_candidate)
+        # OPTIMIZATION #10: Only call LLM for high stress or low confidence
+        stress_score = emotion_result.get("stress_score", 0)
+        best_rule_based_score = max([c.get("action_quality", 0) for c in candidates], default=0)
+        
+        should_call_llm = (
+            stress_score >= settings.LLM_STRESS_THRESHOLD or
+            best_rule_based_score < settings.LLM_CONFIDENCE_THRESHOLD
+        )
+        
+        if should_call_llm:
+            import hashlib, time, asyncio
+            cache_key = hashlib.md5(f"{int(stress_score)}{sensor.get('location', 'home')}".encode()).hexdigest()
+            if cache_key in self._response_cache and time.time() - self._cache_timestamps.get(cache_key, 0) < settings.LLM_CACHE_TTL_SECONDS:
+                llm_candidate = await self._llm_candidate(ctx, previous_results)
+                if llm_candidate:
+                    candidates.append(llm_candidate)
+            else:
+                asyncio.create_task(self._llm_candidate(ctx, previous_results))
+                logger.info("Fired LLM candidate generation in background for next time")
+        else:
+            logger.debug(f"Skipping LLM (stress={stress_score}, confidence={best_rule_based_score})")
 
         # 5. Guarantee at least one candidate
         if not candidates:
@@ -130,7 +155,7 @@ class DecisionAgent:
         return {"candidates": candidates}
 
     # ──────────────────────────────────────────────────────────────────────────
-    # LLM call
+    # LLM call with caching & conditional execution
     # ──────────────────────────────────────────────────────────────────────────
 
     async def _llm_candidate(
@@ -140,36 +165,54 @@ class DecisionAgent:
     ) -> dict | None:
         """
         Call Ollama to generate a short, empathetic response.
+        OPTIMIZATION #2: Uses response caching by stress + location
+        OPTIMIZATION #8: Reduced token prediction & lower temperature
         Returns a candidate dict or None on failure.
         """
+        import time
+        import random
+        
+        # OPTIMIZATION #3: Probabilistic Sampling (Skip LLM 60% of time)
+        if random.random() >= 0.4:
+            logger.info("Skipping LLM due to probabilistic sampling (60% skip rate)")
+            return None
         
         state   = ctx.get("user_state",  {})
         sensor  = ctx.get("sensor_data", {})
-        mem_ctx = previous_results.get("memory", {}).get("memory_context", "")
+        
+        # OPTIMIZATION #2: Create cache key from stress state + location
+        stress_score = state.get("stress_score", 0)
+        location = sensor.get("location", "home")
+        cache_key = hashlib.md5(
+            f"{int(stress_score)}{location}".encode()
+        ).hexdigest()
+        
+        # Check cache and TTL
+        current_time = time.time()
+        if cache_key in self._response_cache:
+            cached_time = self._cache_timestamps.get(cache_key, 0)
+            if current_time - cached_time < settings.LLM_CACHE_TTL_SECONDS:
+                logger.info(f"Cache hit for stress={stress_score}, location={location}")
+                return self._response_cache[cache_key]
+        
+        mem_ctx = previous_results.get("memory", {}).get("memory_context", "")[:150]
         task    = ctx.get("active_task")
-
         emotion = previous_results.get("emotion", {})
 
         stress_label = emotion.get(
-        "emotion_label",
-        state.get("emotion_label", "medium")
+            "emotion_label",
+            state.get("emotion_label", "medium")
         )
-        location     = sensor.get("location", "unknown location")
-        task_desc    = task["description"] if task else "no active task"
+        task_desc = task["description"][:50] if task else "no active task"
 
         system_prompt = (
-            "You are FRIDAY, an empathetic AI assistant embedded in a Samsung device. "
-            "Your goal is to reduce cognitive load and support the user emotionally. "
-            "Keep responses under 2 sentences. Be warm, concise, and non-intrusive. "
-            "Never sound like a push notification. Sound like a thoughtful friend."
+            "You are FRIDAY, an empathetic AI assistant. "
+            "Keep response under 2 sentences. Be warm and concise."
         )
 
         user_prompt = (
-            f"User state: stress level is {stress_label}. "
-            f"Location: {location}. "
-            f"Active task: {task_desc}. "
-            f"{mem_ctx}\n\n"
-            "Generate one empathetic, helpful message for the user right now."
+            f"Stress: {stress_label}. Location: {location}. Task: {task_desc}. "
+            f"Message: {mem_ctx[:100]}"
         )
 
         try:
@@ -180,7 +223,12 @@ class DecisionAgent:
                         "model":  settings.PRIMARY_LLM_MODEL,
                         "prompt": f"<system>{system_prompt}</system>\n{user_prompt}",
                         "stream": False,
-                        "options": {"temperature": 0.7, "num_predict": 80},
+                        "options": {
+                            "temperature": 0.5,
+                            "num_predict": settings.LLM_MAX_TOKENS,
+                            "top_k": 20,
+                            "top_p": 0.8,
+                        },
                     },
                 )
             resp.raise_for_status()
@@ -188,16 +236,27 @@ class DecisionAgent:
 
             if text:
                 aq, intr = _RESPONSE_PROFILES["STRESS_CHECK_IN"]
-                return {
+                result = {
                     "text":           text,
                     "type":           "LLM_GENERATED",
-                    "action_quality": aq + 10,   # LLM responses get a slight bonus
+                    "action_quality": aq + 10,
                     "intrusiveness":  intr - 5,
                     "agent":          "llm",
                 }
+                
+                self._response_cache[cache_key] = result
+                self._cache_timestamps[cache_key] = current_time
+                
+                if len(self._response_cache) > settings.LLM_RESPONSE_CACHE_SIZE:
+                    oldest_key = min(self._cache_timestamps, key=self._cache_timestamps.get)
+                    del self._response_cache[oldest_key]
+                    del self._cache_timestamps[oldest_key]
+                    logger.debug(f"Cache evicted oldest entry (size={len(self._response_cache)})")
+                
+                return result
 
         except httpx.TimeoutException:
-            logger.warning("LLM call timed out — using rule-based candidates only")
+            logger.warning(f"LLM call timed out ({settings.LLM_TIMEOUT}s) — using rule-based candidates only")
         except Exception as exc:
             logger.warning(f"LLM call failed: {exc}")
 
