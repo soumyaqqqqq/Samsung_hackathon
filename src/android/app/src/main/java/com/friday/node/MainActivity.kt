@@ -31,7 +31,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.Crossfade
@@ -48,7 +47,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -72,7 +70,6 @@ import com.friday.node.data.remote.WebSocketManager
 import com.friday.node.data.remote.VoiceAssistantManager
 import com.friday.node.data.remote.VoiceState
 import com.friday.node.service.FRIDAYForegroundService
-import com.friday.node.utils.DiscoveryManager
 import com.friday.node.utils.LocalFallbackEngine
 import com.friday.node.config.OnboardingConfigManager
 import com.friday.node.data.remote.OnboardingService
@@ -98,7 +95,6 @@ data class TimelineEvent(
     val type: String
 )
 
-
 class MainActivity : ComponentActivity() {
 
     private val TAG = "FRIDAY_MainActivity"
@@ -107,8 +103,8 @@ class MainActivity : ComponentActivity() {
     private fun showToast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
-    
-    // Live UI State variables using Compose states
+
+    // ── Compose State ────────────────────────────────────────────────────────────
     private var showProactiveOverlay = mutableStateOf(false)
     private var assistantState = mutableStateOf(VoiceState.IDLE)
     private var transcriptText = mutableStateOf("")
@@ -128,8 +124,8 @@ class MainActivity : ComponentActivity() {
     private var isGhostMode = mutableStateOf(false)
     private var activeActionCard = mutableStateOf<JSONObject?>(null)
     private var isMemoryMomentDismissed = mutableStateOf(false)
-    
-    // Dynamic user profile and metrics
+
+    // ── User Profile ─────────────────────────────────────────────────────────────
     private var userName = mutableStateOf("")
     private var userRole = mutableStateOf("")
     private var productivityPercentage = mutableStateOf("Learning...")
@@ -140,54 +136,46 @@ class MainActivity : ComponentActivity() {
     private var confidencePercentage = mutableStateOf("Learning...")
     private var memoryMatchPercentage = mutableStateOf("Learning...")
 
-    // Dynamic telemetry collections
+    // ── Telemetry ────────────────────────────────────────────────────────────────
     private var sessionStartTimeMs = System.currentTimeMillis()
     private var focusTimeDisplay = mutableStateOf("0s")
     private var locationState = mutableStateOf("home")
     private var isLaptopConnected = mutableStateOf(false)
     private var attentionTasks = mutableStateListOf<JSONObject>()
     private val timelineEvents = mutableStateListOf<TimelineEvent>()
-    private val activityIntensities = mutableStateListOf<Float>().apply {
-        repeat(16) { add(0.02f) }
-    }
-    // Stores the last 3 sites received from LAPTOP_STATUS recent_tabs
-    private val recentLaptopSites = mutableStateListOf<Triple<String, String, String>>() // title, displayUrl, fullUrl
+    private val activityIntensities = mutableStateListOf<Float>().apply { repeat(16) { add(0.02f) } }
+    private val recentLaptopSites = mutableStateListOf<Triple<String, String, String>>()
     private var lastDeviceSwitchSite = mutableStateOf<String?>(null)
-    
-    // Active task journey states
     private var activeTaskName = mutableStateOf("")
     private val activeTaskSteps = mutableStateListOf<Pair<String, String>>()
-    
-    // Manual Settings configs
+
+    // ── Settings State ───────────────────────────────────────────────────────────
     private var hubIp = mutableStateOf("")
     private var hubPort = mutableStateOf("8000")
-    
-    // Focus, Interrupt and Memory Settings States
     private var isFocusModeActive = mutableStateOf(false)
     private var isReduceInterruptActive = mutableStateOf(false)
     private val localMemories = mutableStateListOf(
         "User prefers working in dark mode on mobile and desktop.",
         "Typically starts evening wind-down around 9:30 PM.",
         "Likes to focus on coding during morning hours (9 AM - 12 PM).",
-        "Prefers Minimal notifications during high-focus sessions.",
+        "Prefers minimal notifications during high-focus sessions.",
         "VS Code is the primary development workspace."
     )
-    private val localDevices = mutableStateListOf(
-        "Galaxy S26" to "ACTIVE",
-        "Work Laptop" to "ACTIVE"
-    )
+    private val localDevices = mutableStateListOf("Galaxy S26" to "ACTIVE", "Work Laptop" to "ACTIVE")
+
+    // ── Dialog Flags ─────────────────────────────────────────────────────────────
     private var showMemoriesDialog = mutableStateOf(false)
     private var showDevicesDialog = mutableStateOf(false)
     private var showExplainStressDialog = mutableStateOf(false)
     private var showClearMemoriesConfirmDialog = mutableStateOf(false)
     private var showDisconnectDevicesConfirmDialog = mutableStateOf(false)
-    
-    // Permission states
+
+    // ── Permission State ─────────────────────────────────────────────────────────
     private var isAccessibilityGranted = mutableStateOf(false)
     private var isNotificationAccessGranted = mutableStateOf(false)
     private var isPostNotificationGranted = mutableStateOf(false)
 
-    // BroadcastReceiver to update Compose states in real-time
+    // ── Broadcast Receiver ───────────────────────────────────────────────────────
     private val telemetryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
@@ -201,8 +189,7 @@ class MainActivity : ComponentActivity() {
                     timelineEvents.add(0, TimelineEvent("App Shift", "Opened $pkg", timeStr, "app"))
                 }
                 "com.friday.node.TYPING_CADENCE_DETECTED" -> {
-                    val delay = intent.getLongExtra("average_delay_ms", 0L)
-                    averageTypingCadenceMs.value = delay
+                    averageTypingCadenceMs.value = intent.getLongExtra("average_delay_ms", 0L)
                     recalculateLocalStress()
                 }
                 "com.friday.node.NOTIFICATION_INTERCEPTED" -> {
@@ -210,13 +197,11 @@ class MainActivity : ComponentActivity() {
                     val title = intent.getStringExtra("title") ?: ""
                     val content = intent.getStringExtra("content") ?: ""
                     val timestamp = intent.getLongExtra("timestamp", System.currentTimeMillis())
-                    
                     lastNotification.value = "$title: $content ($pkg)"
                     notificationsCount.value += 1
                     recalculateLocalStress()
                     timelineEvents.add(0, TimelineEvent("Alert Muted", "$title ($pkg)", timeStr, "notification"))
-
-                    val notifJson = JSONObject().apply {
+                    attentionTasks.add(JSONObject().apply {
                         put("type", "notification")
                         put("action_id", "notif_${timestamp}_${pkg.hashCode()}")
                         put("package", pkg)
@@ -224,21 +209,15 @@ class MainActivity : ComponentActivity() {
                         put("message", content)
                         put("agent", getAppNameFromPackage(pkg))
                         put("timestamp", timestamp)
-                    }
-                    attentionTasks.add(notifJson)
+                    })
                 }
                 "com.friday.node.BATTERY_MODE_CHANGED" -> {
-                    val mode = intent.getStringExtra("current_mode") ?: "ACTIVE"
-                    isGhostMode.value = (mode == "GHOST")
+                    isGhostMode.value = (intent.getStringExtra("current_mode") ?: "ACTIVE") == "GHOST"
                 }
                 "com.friday.node.CONNECTION_STATE_CHANGED" -> {
                     val connected = intent.getBooleanExtra("is_connected", false)
                     isConnected.value = connected
-                    connectionStatus.value = if (connected) {
-                        "Connected to Hub"
-                    } else {
-                        "Hub Offline (Caching)"
-                    }
+                    connectionStatus.value = if (connected) "Connected to Hub" else "Hub Offline (Caching)"
                 }
                 "com.friday.node.LOCATION_CHANGED" -> {
                     val loc = intent.getStringExtra("location") ?: "home"
@@ -251,79 +230,54 @@ class MainActivity : ComponentActivity() {
                         val json = JSONObject(payload)
                         val type = json.optString("type", "")
 
-                        // Parse laptop active status + recent_tabs from LAPTOP_STATUS
                         if (json.has("laptop_active")) {
-                            val wasConnected = isLaptopConnected.value
-                            val nowConnected = json.optBoolean("laptop_active", false)
-                            isLaptopConnected.value = nowConnected
-
-                            // Parse recent_tabs from the LAPTOP_STATUS broadcast
+                            isLaptopConnected.value = json.optBoolean("laptop_active", false)
                             val recentTabsArr = json.optJSONArray("recent_tabs")
                             if (recentTabsArr != null && recentTabsArr.length() > 0) {
                                 recentLaptopSites.clear()
                                 for (i in 0 until minOf(recentTabsArr.length(), 3)) {
-                                    val tabObj = recentTabsArr.optJSONObject(i) ?: continue
-                                    val title = tabObj.optString("title", "Untitled")
-                                    val displayUrl = tabObj.optString("url", "")
-                                    val fullUrl = tabObj.optString("link", displayUrl)
+                                    val tab = recentTabsArr.optJSONObject(i) ?: continue
+                                    val title = tab.optString("title", "Untitled")
+                                    val displayUrl = tab.optString("url", "")
+                                    val fullUrl = tab.optString("link", displayUrl)
                                     recentLaptopSites.add(Triple(title, displayUrl, fullUrl))
                                 }
-                                // The most recent site is the one left before device switch
                                 val topSite = recentLaptopSites.firstOrNull()
                                 if (topSite != null && topSite.first != lastDeviceSwitchSite.value) {
                                     lastDeviceSwitchSite.value = topSite.first
-                                    timelineEvents.add(0, TimelineEvent(
-                                        "Device Switch",
-                                        "Last on Laptop: ${topSite.first}",
-                                        timeStr,
-                                        "continuity"
-                                    ))
+                                    timelineEvents.add(0, TimelineEvent("Device Switch", "Last on Laptop: ${topSite.first}", timeStr, "continuity"))
                                 }
                             }
                         }
 
-                        if (type == "CLEAR_HANDOFF") {
-                            val actionId = json.optString("action_id", "")
-                            val reason = json.optString("reason", "dismissed")
-                            if (actionId.isNotEmpty()) {
-                                attentionTasks.removeAll { it.optString("action_id") == actionId }
-                                if (activeActionCard.value?.optString("action_id") == actionId) {
-                                    activeActionCard.value = null
+                        when (type) {
+                            "CLEAR_HANDOFF" -> {
+                                val actionId = json.optString("action_id", "")
+                                val reason = json.optString("reason", "dismissed")
+                                if (actionId.isNotEmpty()) {
+                                    attentionTasks.removeAll { it.optString("action_id") == actionId }
+                                    if (activeActionCard.value?.optString("action_id") == actionId) activeActionCard.value = null
+                                    val t = if (reason == "resumed") "Handoff Resumed" else "Handoff Dismissed"
+                                    val m = if (reason == "resumed") "Resumed laptop task" else "Dismissed laptop task"
+                                    timelineEvents.add(0, TimelineEvent(t, m, timeStr, "continuity"))
                                 }
-                                val eventTitle = if (reason == "resumed") "Handoff Resumed" else "Handoff Dismissed"
-                                val eventMsg = if (reason == "resumed") "Resumed laptop task" else "Dismissed laptop task"
-                                timelineEvents.add(0, TimelineEvent(eventTitle, eventMsg, timeStr, "continuity"))
                             }
-                        } else if (type == "FRIDAY_CARD") {
-                            activeActionCard.value = json
-                            val message = json.optString("message", "")
-                            if (message.isNotEmpty()) {
-                                wellbeingPrompt.value = message
-                                val alreadyHas = attentionTasks.any { it.optString("action_id") == json.optString("action_id") }
-                                if (!alreadyHas) {
-                                    attentionTasks.add(json)
+                            "FRIDAY_CARD", "MEDIA_HANDOFF", "PAGE_HANDOFF" -> {
+                                activeActionCard.value = json
+                                val message = json.optString("message", "")
+                                if (message.isNotEmpty()) {
+                                    wellbeingPrompt.value = message
+                                    if (attentionTasks.none { it.optString("action_id") == json.optString("action_id") }) attentionTasks.add(json)
+                                    val agent = json.optString("agent", "Orchestrator")
+                                    val eventType = if (type == "FRIDAY_CARD") "suggestion" else "continuity"
+                                    val eventTitle = if (type == "FRIDAY_CARD") "FRIDAY Action" else "Continuity Shift"
+                                    timelineEvents.add(0, TimelineEvent(eventTitle, "[$agent Agent] $message", timeStr, eventType))
                                 }
-                                val agent = json.optString("agent", "Orchestrator")
-                                timelineEvents.add(0, TimelineEvent("FRIDAY Action", "[$agent Agent] $message", timeStr, "suggestion"))
                             }
-                        } else if (type == "MEDIA_HANDOFF" || type == "PAGE_HANDOFF") {
-                            activeActionCard.value = json
-                            val message = json.optString("message", "")
-                            if (message.isNotEmpty()) {
-                                wellbeingPrompt.value = message
-                                val alreadyHas = attentionTasks.any { it.optString("action_id") == json.optString("action_id") }
-                                if (!alreadyHas) {
-                                    attentionTasks.add(json)
-                                }
-                                val agent = json.optString("agent", "Continuity")
-                                timelineEvents.add(0, TimelineEvent("Continuity Shift", "[$agent Agent] $message", timeStr, "continuity"))
-                            }
-                        } else if (type == "LAPTOP_STATUS") {
-                            // Handled above via the laptop_active branch; ignore duplicate processing
-                        } else {
-                            val suggestion = json.optString("suggested_action")
-                            if (!suggestion.isNullOrEmpty()) {
-                                wellbeingPrompt.value = suggestion
+                            "LAPTOP_STATUS" -> { /* handled above via laptop_active */ }
+                            else -> {
+                                val suggestion = json.optString("suggested_action")
+                                if (!suggestion.isNullOrEmpty()) wellbeingPrompt.value = suggestion
                             }
                         }
                     } catch (e: Exception) {
@@ -334,82 +288,61 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ── Lifecycle ────────────────────────────────────────────────────────────────
     private fun startFridayServices(fromOnboarding: Boolean = false) {
         try {
-            val serviceIntent = Intent(this, FRIDAYForegroundService::class.java).apply {
+            startForegroundService(Intent(this, FRIDAYForegroundService::class.java).apply {
                 putExtra("from_onboarding", fromOnboarding)
-            }
-            startForegroundService(serviceIntent)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to launch foreground service: ${e.message}")
-        }
+            })
+        } catch (e: Exception) { Log.e(TAG, "Failed to launch foreground service: ${e.message}") }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        // 1. Initialize WebSocket context binding
+
         WebSocketManager.getInstance().init(this)
         voiceAssistantManager = VoiceAssistantManager(this).apply {
-            onStateChanged = { newState ->
-                assistantState.value = newState
-            }
+            onStateChanged = { assistantState.value = it }
             onResultReceived = { transcript, response ->
                 transcriptText.value = transcript
                 assistantResponse.value = response
-                if (!showProactiveOverlay.value) {
-                    showToast("FRIDAY: $response")
-                }
+                if (!showProactiveOverlay.value) showToast("FRIDAY: $response")
             }
             onErrorOccurred = { error ->
                 errorMessage.value = error
-                if (!showProactiveOverlay.value) {
-                    showToast("FRIDAY Error: $error")
-                }
+                if (!showProactiveOverlay.value) showToast("FRIDAY Error: $error")
             }
         }
-        
+
         val configManager = OnboardingConfigManager(this)
         val isOnboardingComplete = configManager.isOnboardingComplete()
-
-        // Initialize dynamic profile strings from resources / preferences
-        val savedName = configManager.getUserName()
-        userName.value = if (savedName.isNotEmpty()) savedName else getString(R.string.default_user_name)
+        userName.value = configManager.getUserName().ifEmpty { getString(R.string.default_user_name) }
         userRole.value = getString(R.string.default_user_role)
 
-        // 2. Request POST_NOTIFICATIONS runtime permission on Android 13+ (only if already onboarded)
         if (isOnboardingComplete && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
         }
-
-        // 3. Kick off services and discovery scans (only if onboarding is complete)
         if (isOnboardingComplete) {
             startFridayServices()
             checkPermissionsState()
             recalculateLocalStress()
         }
 
-        // 4. Poll database buffer count reactively
+        // DB buffer count poller
         CoroutineScope(Dispatchers.Main).launch {
             val db = RoomDatabase.getInstance(this@MainActivity)
-            while (true) {
-                bufferedEventsCount.value = db.getEventCount()
-                delay(1000)
-            }
+            while (true) { bufferedEventsCount.value = db.getEventCount(); delay(1000) }
         }
-
-        // Ticker for focusTimeDisplay
+        // Session timer
         CoroutineScope(Dispatchers.Main).launch {
             while (true) {
-                val durationMs = System.currentTimeMillis() - sessionStartTimeMs
-                val mins = (durationMs / 60000).toInt()
-                val secs = ((durationMs / 1000) % 60).toInt()
+                val ms = System.currentTimeMillis() - sessionStartTimeMs
+                val mins = (ms / 60000).toInt(); val secs = ((ms / 1000) % 60).toInt()
                 focusTimeDisplay.value = if (mins > 0) "${mins}m ${secs}s" else "${secs}s"
                 delay(1000)
             }
         }
 
-        // 5. Register receiver for real-time sensing updates
         val filter = IntentFilter().apply {
             addAction("com.friday.node.APP_SWITCH_DETECTED")
             addAction("com.friday.node.TYPING_CADENCE_DETECTED")
@@ -421,30 +354,21 @@ class MainActivity : ComponentActivity() {
         }
         registerReceiver(telemetryReceiver, filter, RECEIVER_EXPORTED)
 
-        // 6. Draw the Compose user interface
         setContent {
             val showOnboarding = remember { mutableStateOf(!isOnboardingComplete) }
             FridayTheme {
                 if (showOnboarding.value) {
                     val onboardingService = OnboardingService(this@MainActivity, configManager)
                     val factory = OnboardingViewModelFactory(configManager, onboardingService)
-                    val onboardingViewModel = androidx.lifecycle.ViewModelProvider(this@MainActivity, factory)[OnboardingViewModel::class.java]
+                    val vm = androidx.lifecycle.ViewModelProvider(this@MainActivity, factory)[OnboardingViewModel::class.java]
                     val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "android_node"
-                    
-                    OnboardingScreen(
-                        viewModel = onboardingViewModel,
-                        deviceId = deviceId,
-                        onOnboardingFinished = {
-                            val newSavedName = configManager.getUserName()
-                            if (newSavedName.isNotEmpty()) {
-                                userName.value = newSavedName
-                            }
-                            showOnboarding.value = false
-                            startFridayServices(fromOnboarding = true)
-                            checkPermissionsState()
-                            recalculateLocalStress()
-                        }
-                    )
+                    OnboardingScreen(viewModel = vm, deviceId = deviceId, onOnboardingFinished = {
+                        userName.value = configManager.getUserName().ifEmpty { userName.value }
+                        showOnboarding.value = false
+                        startFridayServices(fromOnboarding = true)
+                        checkPermissionsState()
+                        recalculateLocalStress()
+                    })
                 } else {
                     MainContainer()
                     RenderSettingsDialogs()
@@ -455,3897 +379,35 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        
-        // Sync connection state with WebSocketManager
         val connected = WebSocketManager.getInstance().isConnected()
         isConnected.value = connected
-        connectionStatus.value = if (connected) {
-            "Connected to Hub"
-        } else {
-            "Searching for Hub..."
-        }
-        
-        if (connected) {
-            triggerTelemetryRefresh {}
-        }
-        
-        // Check permission statuses
+        connectionStatus.value = if (connected) "Connected to Hub" else "Searching for Hub..."
+        if (connected) triggerTelemetryRefresh {}
         checkPermissionsState()
     }
 
-    override fun onPause() {
-        super.onPause()
-    }
+    override fun onPause() { super.onPause() }
 
     override fun onDestroy() {
         super.onDestroy()
-        try {
-            voiceAssistantManager.cancel()
-        } catch (e: Exception) {}
-        try {
-            unregisterReceiver(telemetryReceiver)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to unregister receiver: ${e.message}")
-        }
+        try { voiceAssistantManager.cancel() } catch (_: Exception) {}
+        try { unregisterReceiver(telemetryReceiver) } catch (e: Exception) { Log.e(TAG, "Unregister failed: ${e.message}") }
     }
 
+    // ── Helpers ──────────────────────────────────────────────────────────────────
     private fun getDynamicGreeting(name: String): String {
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-        val greetingRes = when (hour) {
+        return getString(when (hour) {
             in 0..11 -> R.string.greeting_morning
             in 12..16 -> R.string.greeting_afternoon
             in 17..21 -> R.string.greeting_evening
             else -> R.string.greeting_night
-        }
-        return getString(greetingRes, name)
+        }, name)
     }
 
-    private fun getDynamicDate(): String {
-        return try {
-            val sdf = SimpleDateFormat("EEEE,\nMMMM d, yyyy", Locale.getDefault())
-            sdf.format(Date())
-        } catch (e: Exception) {
-            "Wednesday,\nJune 4, 2026"
-        }
-    }
-
-    private fun getAppNameFromPackage(packageName: String): String {
-        return when {
-            packageName.contains("whatsapp", ignoreCase = true) -> "WhatsApp"
-            packageName.contains("slack", ignoreCase = true) -> "Slack"
-            packageName.contains("gmail", ignoreCase = true) -> "Gmail"
-            packageName.contains("telegram", ignoreCase = true) -> "Telegram"
-            packageName.contains("discord", ignoreCase = true) -> "Discord"
-            packageName.contains("teams", ignoreCase = true) -> "MS Teams"
-            packageName.contains("instagram", ignoreCase = true) -> "Instagram"
-            packageName.contains("facebook", ignoreCase = true) -> "Facebook"
-            packageName.contains("twitter", ignoreCase = true) -> "Twitter"
-            packageName.contains("android.gm", ignoreCase = true) -> "Gmail"
-            else -> {
-                val parts = packageName.split(".")
-                if (parts.isNotEmpty()) {
-                    parts.last().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
-                } else {
-                    "App"
-                }
-            }
-        }
-    }
-
-    private fun getSafeTimestamp(json: JSONObject): Long {
-        val ts = json.optLong("timestamp", 0L)
-        return if (ts == 0L) {
-            System.currentTimeMillis()
-        } else if (ts < 10000000000L) {
-            ts * 1000L
-        } else {
-            ts
-        }
-    }
-
-    private fun getProcessedAttentionTasks(tasks: List<JSONObject>): List<JSONObject> {
-        val cards = tasks.filter { it.optString("type") != "notification" }
-        val notifications = tasks.filter { it.optString("type") == "notification" }
-
-        val groupedNotifications = notifications.groupBy { it.optString("package", it.optString("agent")) }
-        val processedNotifications = mutableListOf<JSONObject>()
-
-        for ((pkg, group) in groupedNotifications) {
-            if (group.size == 1) {
-                processedNotifications.add(group[0])
-            } else {
-                val sortedGroup = group.sortedByDescending { getSafeTimestamp(it) }
-                val mostRecent = sortedGroup[0]
-                val agentName = if (pkg.contains(".")) getAppNameFromPackage(pkg) else pkg
-                
-                // Summarize: e.g. "3 notifications: Alice: Hey; Bob: Call"
-                val summaryText = "${group.size} notifications: " + sortedGroup.take(3).joinToString("; ") { 
-                    val title = it.optString("title", "")
-                    val msg = it.optString("message", "")
-                    if (title.isNotEmpty()) "$title: $msg" else msg
-                } + (if (group.size > 3) "..." else "")
-
-                val summaryJson = JSONObject().apply {
-                    put("type", "notification")
-                    put("action_id", mostRecent.optString("action_id"))
-                    put("package", pkg)
-                    put("agent", agentName)
-                    put("message", summaryText)
-                    put("timestamp", getSafeTimestamp(mostRecent))
-                }
-                processedNotifications.add(summaryJson)
-            }
-        }
-
-        val combined = (cards + processedNotifications).sortedByDescending { getSafeTimestamp(it) }
-        return combined.take(6)
-    }
-
-    private fun checkPermissionsState() {
-        val configManager = OnboardingConfigManager(this)
-
-        val accessibilityEnabled = isAccessibilityServiceEnabled(
-            this,
-            com.friday.node.service.FRIDAYAccessibilityService::class.java
-        )
-        isAccessibilityGranted.value = accessibilityEnabled
-        configManager.setModuleEnabled("Accessibility & Touch", accessibilityEnabled)
-        
-        val enabledListeners = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
-        val notificationEnabled = enabledListeners != null && enabledListeners.contains(packageName)
-        isNotificationAccessGranted.value = notificationEnabled
-        configManager.setModuleEnabled("Notification & Activity", notificationEnabled)
-        
-        val postNotificationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        } else {
-            true
-        }
-        isPostNotificationGranted.value = postNotificationGranted
-
-        val locationEnabled = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        configManager.setModuleEnabled("Location & Environment", locationEnabled)
-    }
-
-    private fun recalculateLocalStress() {
-        // Evaluate dynamic stress offline via LocalFallbackEngine
-        val result = LocalFallbackEngine.evaluateOfflineContext(
-            appSwitchesCount = appSwitchesCount.value,
-            averageTypingCadenceMs = averageTypingCadenceMs.value,
-            notificationsPerMin = notificationsCount.value
-        )
-        stressScore.value = result.stressScore
-        val now = System.currentTimeMillis()
-        if (now - lastPromptUpdateTimeMs >= 60000L || wellbeingPrompt.value.startsWith("FRIDAY ready")) {
-            if (!isConnected.value || activeActionCard.value == null) {
-                val newPrompt = result.empatheticRecommendation
-                if (newPrompt != wellbeingPrompt.value) {
-                    wellbeingPrompt.value = newPrompt
-                    lastPromptUpdateTimeMs = now
-                }
-            }
-        }
-        
-        // Update activityIntensities shifting window
-        val intensity = (result.stressScore.toFloat() / 100f).coerceIn(0.02f, 1.0f)
-        if (activityIntensities.size >= 16) {
-            activityIntensities.removeAt(0)
-        }
-        activityIntensities.add(intensity)
-
-        // Dynamicize other computed state metrics
-        val calculatedProductivity = (96 - appSwitchesCount.value * 2 - notificationsCount.value).coerceIn(10, 100)
-        productivityPercentage.value = "$calculatedProductivity%"
-
-        val calculatedFocus = (92 - appSwitchesCount.value * 3).coerceIn(10, 100)
-        focusPercentage.value = "$calculatedFocus%"
-
-        val calculatedConfidence = (88 - result.stressScore / 5).coerceIn(10, 100)
-        confidencePercentage.value = "$calculatedConfidence%"
-
-        val calculatedMemoryMatch = (82 + appSwitchesCount.value).coerceIn(50, 99)
-        memoryMatchPercentage.value = "$calculatedMemoryMatch%"
-
-        if (result.stressScore > 60) {
-            val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
-            stressSpikeTime.value = sdf.format(Date())
-        }
-    }
-
-    private fun triggerTelemetryRefresh(onComplete: () -> Unit) {
-        CoroutineScope(Dispatchers.Main).launch {
-            val connected = WebSocketManager.getInstance().isConnected()
-            isConnected.value = connected
-            connectionStatus.value = if (connected) "Connected to Hub" else "Searching for Hub..."
-            checkPermissionsState()
-            recalculateLocalStress()
-            val db = RoomDatabase.getInstance(this@MainActivity)
-            bufferedEventsCount.value = db.getEventCount()
-            if (connected) {
-                try {
-                    val syncMsg = JSONObject().apply {
-                        put("type", "sync_request")
-                        put("timestamp", System.currentTimeMillis())
-                    }
-                    WebSocketManager.getInstance().sendEvent(syncMsg.toString())
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to send sync request to hub: ${e.message}")
-                }
-            }
-            delay(800)
-            onComplete()
-        }
-    }
-
-    private fun isAccessibilityServiceEnabled(context: Context, service: Class<out AccessibilityService>): Boolean {
-        val expectedComponentName = ComponentName(context, service)
-        val enabledServicesSetting = Settings.Secure.getString(
-            context.contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        val colonSplitter = TextUtils.SimpleStringSplitter(':')
-        colonSplitter.setString(enabledServicesSetting)
-        while (colonSplitter.hasNext()) {
-            val componentNameString = colonSplitter.next()
-            val enabledService = ComponentName.unflattenFromString(componentNameString)
-            if (enabledService != null && enabledService == expectedComponentName) {
-                return true
-            }
-        }
-        return false
-    }
-
-    // Color tokens matching the Figma Marketing Design System
-    var isDarkThemeGlobal by mutableStateOf(false)
-
-    val ColorBlockLime get() = if (isDarkThemeGlobal) Color(0xFF2A3600) else Color(0xFFD6FF3D)
-    val ColorBlockLilac get() = if (isDarkThemeGlobal) Color(0xFF1B1437) else Color(0xFFC6BFFF)
-    val ColorBlockCream get() = if (isDarkThemeGlobal) Color(0xFF252216) else Color(0xFFFFF9E3)
-    val ColorBlockMint get() = if (isDarkThemeGlobal) Color(0xFF092416) else Color(0xFFB2FFD6)
-    val ColorBlockPink get() = if (isDarkThemeGlobal) Color(0xFF321028) else Color(0xFFFFB8EB)
-    val ColorBlockCoral get() = if (isDarkThemeGlobal) Color(0xFF3E120A) else Color(0xFFFF8C70)
-    val ColorBlockNavy get() = if (isDarkThemeGlobal) Color(0xFF0C1022) else Color(0xFF10162F)
-    val ColorBackground get() = if (isDarkThemeGlobal) Color(0xFF121212) else Color(0xFFF9F9F9)
-
-    // Compose Core UI Layout
-    @OptIn(ExperimentalMaterial3Api::class)
-    @Composable
-    fun MainContainer() {
-        var activeTab by remember { mutableStateOf(0) }
-        var isRefreshing by remember { mutableStateOf(false) }
-
-        Scaffold(
-            bottomBar = {
-                CustomBottomNavBar(
-                    activeTab = activeTab,
-                    onTabSelected = { tab ->
-                        activeTab = tab
-                        showProactiveOverlay.value = false
-                    },
-                    onSparkClicked = {
-                        showProactiveOverlay.value = !showProactiveOverlay.value
-                    }
-                )
-            },
-            containerColor = MaterialTheme.colorScheme.background,
-            modifier = Modifier.fillMaxSize()
-        ) { innerPadding ->
-            PullToRefreshBox(
-                isRefreshing = isRefreshing,
-                onRefresh = {
-                    isRefreshing = true
-                    triggerTelemetryRefresh {
-                        isRefreshing = false
-                    }
-                },
-                modifier = Modifier
-                    .padding(innerPadding)
-                    .fillMaxSize()
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    when (activeTab) {
-                        0 -> DashboardTab()
-                        1 -> MindTab()
-                        2 -> ContinuityTab()
-                        3 -> SettingsTab()
-                    }
-
-                if (showProactiveOverlay.value) {
-                    ProactiveOverlayScreen(onClose = { showProactiveOverlay.value = false })
-                }
-            }
-        }
-    }
-    }
-
-    @Composable
-    fun CustomBottomNavBar(
-        activeTab: Int,
-        onTabSelected: (Int) -> Unit,
-        onSparkClicked: () -> Unit
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface)
-                .border(width = 1.dp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-                .padding(bottom = 8.dp, top = 8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceAround,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Home
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .clickable { onTabSelected(0) }
-                        .padding(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Home,
-                        contentDescription = "Home",
-                        tint = if (activeTab == 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "HOME",
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = if (activeTab == 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                    )
-                }
-
-                // Insights
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .clickable { onTabSelected(1) }
-                        .padding(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Favorite,
-                        contentDescription = "Insights",
-                        tint = if (activeTab == 1) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "INSIGHTS",
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = if (activeTab == 1) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                    )
-                }
-
-                // Spacer for the center spark button
-                Spacer(modifier = Modifier.size(48.dp))
-
-                // Timeline
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .clickable { onTabSelected(2) }
-                        .padding(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Timeline",
-                        tint = if (activeTab == 2) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "TIMELINE",
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = if (activeTab == 2) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                    )
-                }
-
-                // Settings
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .clickable { onTabSelected(3) }
-                        .padding(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Settings",
-                        tint = if (activeTab == 3) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "SETTINGS",
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = if (activeTab == 3) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                    )
-                }
-            }
-
-            // Central Spark FAB Button (raised offset)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .offset(y = (-24).dp)
-            ) {
-                Button(
-                    onClick = onSparkClicked,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
-                    shape = CircleShape,
-                    modifier = Modifier
-                        .size(56.dp)
-                        .border(2.dp, ColorBlockLime, CircleShape),
-                    contentPadding = PaddingValues(0.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Mic,
-                        contentDescription = "AI Assistant",
-                        tint = ColorBlockLime,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
-        }
-    }
-
-    @Composable
-    fun DashboardTab() {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-                .padding(horizontal = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
-        ) {
-            // Header Top Bar
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 24.dp, bottom = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "FRIDAY",
-                        fontSize = 26.sp,
-                        fontFamily = FontFamily.SansSerif,
-                        fontWeight = FontWeight.Black,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (userName.value.isNotEmpty()) userName.value.take(1) else "U",
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp
-                        )
-                    }
-                }
-            }
-
-            // Connection banner
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = stringResource(R.string.title_node_connection),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = connectionStatus.value,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(if (isConnected.value) Color(0xFF10B981) else Color(0xFFEF4444))
-                    )
-                }
-            }
-
-            // Greeting Section
-            item {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = getDynamicGreeting(userName.value),
-                        fontSize = 40.sp,
-                        fontFamily = FontFamily.SansSerif,
-                        fontWeight = FontWeight.W300,
-                        letterSpacing = (-0.96).sp,
-                        lineHeight = 44.sp,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = getMotivatingSubtitle(),
-                        fontSize = 18.sp,
-                        fontFamily = FontFamily.SansSerif,
-                        fontWeight = FontWeight.W300,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                    )
-                }
-            }
-
-            // Notification Briefing Card
-            item {
-                NotificationBriefingCard(tasks = attentionTasks, stressScore = stressScore.value)
-            }
-
-
-            // Active FRIDAY Recommendation Card (RLHF Feedback integration)
-            if (activeActionCard.value != null) {
-                item {
-                    val card = activeActionCard.value!!
-                    val actionId = card.optString("action_id", "")
-                    val type = card.optString("type", "")
-                    val message = card.optString("message", "")
-                    val score = card.optDouble("score", 0.0)
-                    val condition = card.optString("condition", "default")
-                    val agentName = card.optString("agent", "Orchestrator")
-                        .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
-
-                    val isHandoff = type == "MEDIA_HANDOFF" || type == "PAGE_HANDOFF"
-                    val url = if (type == "MEDIA_HANDOFF") {
-                        val videoId = card.optString("video_id", "")
-                        val timestamp = card.optInt("playback_timestamp_seconds", 0)
-                        "https://www.youtube.com/watch?v=${videoId}&t=${timestamp}s"
-                    } else {
-                        card.optString("url", "")
-                    }
-
-                    Card(
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(
-                                1.dp,
-                                ColorBlockLime.copy(alpha = 0.3f),
-                                RoundedCornerShape(24.dp)
-                            )
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(24.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .clip(CircleShape)
-                                            .background(ColorBlockCoral)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "$agentName Agent".uppercase(Locale.getDefault()),
-                                        fontSize = 10.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                    )
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .background(ColorBlockLime.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
-                                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                                ) {
-                                    val displayScore = if (score > 1.0) score.toInt() else (score * 100).toInt()
-                                    Text(
-                                        text = "SCORE: $displayScore%",
-                                        fontSize = 9.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            }
-
-                            Text(
-                                text = message,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                lineHeight = 22.sp
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                TextButton(
-                                    onClick = {
-                                        val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
-                                        val timeStr = sdf.format(Date())
-                                        WebSocketManager.getInstance().sendFeedback(actionId, "dismissed")
-                                        attentionTasks.removeAll { it.optString("action_id") == actionId }
-                                        activeActionCard.value = null
-                                        wellbeingPrompt.value = "Ambient tracking active. System stable."
-                                        timelineEvents.add(0, TimelineEvent("Handoff Dismissed", "Dismissed laptop task", timeStr, "continuity"))
-                                        showToast("Recommendation dismissed")
-                                    }
-                                ) {
-                                    Text("Dismiss", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
-                                }
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Button(
-                                    onClick = {
-                                        val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
-                                        val timeStr = sdf.format(Date())
-                                        WebSocketManager.getInstance().sendFeedback(actionId, "helpful")
-                                        attentionTasks.removeAll { it.optString("action_id") == actionId }
-                                        activeActionCard.value = null
-
-                                        if (isHandoff && url.isNotEmpty()) {
-                                            try {
-                                                val openIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                                }
-                                                this@MainActivity.startActivity(openIntent)
-                                            } catch (e: Exception) {
-                                                Log.e(TAG, "Failed to launch handoff URL: ${e.message}")
-                                            }
-                                        }
-
-                                        wellbeingPrompt.value = "Feedback logged. Optimizing model."
-                                        timelineEvents.add(0, TimelineEvent("Handoff Resumed", "Resumed laptop task", timeStr, "continuity"))
-                                        showToast(if (isHandoff) "Task resumed!" else "Thank you for your feedback!")
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = if (isHandoff) Icons.Default.PlayArrow else Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.surface,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(if (isHandoff) "Resume" else "Helpful", color = MaterialTheme.colorScheme.surface, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Cognitive Load Circular Progress Gauge Card
-            item {
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = ColorBlockMint),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.title_cognitive_pulse),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "High switching detected recently.",
-                                    fontSize = 18.sp,
-                                    fontFamily = FontFamily.SansSerif,
-                                    fontWeight = FontWeight.Normal,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = if (isGhostMode.value) "Ghost mode active. Telemetry simplified." else "High-fidelity telemetry streaming.",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(16.dp))
-
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.size(100.dp)
-                            ) {
-                                CircularProgressIndicator(
-                                    progress = { stressScore.value / 100f },
-                                    modifier = Modifier.fillMaxSize(),
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    strokeWidth = 10.dp,
-                                    trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
-                                )
-                                Text(
-                                    text = "${stressScore.value}%",
-                                    fontSize = 22.sp,
-                                    fontWeight = FontWeight.Black,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Priority Panel: Editorial List
-            item {
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = ColorBlockCream),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.title_what_needs_attention),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-
-                        val processedTasks = getProcessedAttentionTasks(attentionTasks)
-                        if (processedTasks.isEmpty()) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = "FRIDAY is learning your flow...",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Move around and start your routines. I'll prioritize what needs attention here.",
-                                    fontSize = 12.sp,
-                                    textAlign = TextAlign.Center,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                                )
-                            }
-                        } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                processedTasks.forEachIndexed { index, task ->
-                                    val actionId = task.optString("action_id", "act_${index}")
-                                    val agent = task.optString("agent", "Orchestrator")
-                                    val message = task.optString("message", "Attention required")
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = String.format("%02d", index + 1),
-                                                fontFamily = FontFamily.Monospace,
-                                                fontSize = 16.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                                            )
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Text(
-                                                text = "[$agent] $message",
-                                                fontSize = 15.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        val btnText = if (task.optString("type") == "notification") "Clear" else stringResource(R.string.btn_action)
-                                        Button(
-                                            onClick = {
-                                                if (task.optString("type") == "notification") {
-                                                    val pkg = task.optString("package")
-                                                    if (pkg.isNotEmpty()) {
-                                                        attentionTasks.removeAll { it.optString("package") == pkg || it.optString("action_id") == actionId }
-                                                    } else {
-                                                        attentionTasks.removeAll { it.optString("action_id") == actionId }
-                                                    }
-                                                    showToast("Alert cleared")
-                                                } else {
-                                                    activeTaskName.value = "Optimize: $message"
-                                                    activeTaskSteps.clear()
-                                                    activeTaskSteps.add(Pair("Analyze VS Code metrics", "COMPLETED"))
-                                                    activeTaskSteps.add(Pair("Verify DB query efficiency", "IN_PROGRESS"))
-                                                    activeTaskSteps.add(Pair("Generate execution plan", "PENDING"))
-                                                    showToast("Continuous journey started: $message")
-                                                }
-                                            },
-                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
-                                            shape = RoundedCornerShape(9999.dp),
-                                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                                            modifier = Modifier.height(32.dp)
-                                        ) {
-                                            Text(btnText, fontSize = 11.sp, color = MaterialTheme.colorScheme.surface)
-                                        }
-                                    }
-                                    if (index < processedTasks.size - 1) {
-                                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Button(
-                            onClick = {
-                                if (attentionTasks.isEmpty()) {
-                                    val mockCard = JSONObject().apply {
-                                        put("type", "FRIDAY_CARD")
-                                        put("action_id", "act_simulated_01")
-                                        put("message", "We detected high CPU usage on VS Code. Run profile_schema.py to inspect queries.")
-                                        put("agent", "Decision")
-                                        put("score", 0.94)
-                                        put("laptop_active", true)
-                                    }
-                                    attentionTasks.add(mockCard)
-                                    activeActionCard.value = mockCard
-                                    isLaptopConnected.value = true
-                                    showToast("Workspace journey simulated!")
-                                } else {
-                                    // Actually prioritize the tasks by sorting by urgency score descending
-                                    val sortedTasks = attentionTasks.sortedByDescending { it.optDouble("score", 0.0) }
-                                    attentionTasks.clear()
-                                    attentionTasks.addAll(sortedTasks)
-                                    showToast("Tasks prioritized by urgency score.")
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                            shape = RoundedCornerShape(9999.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
-                        ) {
-                            Text(
-                                text = if (attentionTasks.isEmpty()) "Simulate Workspace Journey" else stringResource(R.string.btn_prioritize_automatically),
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Summary Cards Horizontal Scroll
-            item {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    item {
-                        Card(
-                            shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = ColorBlockLilac),
-                            modifier = Modifier
-                                .width(180.dp)
-                                .height(140.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(20.dp),
-                                verticalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.title_messages),
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                                Column {
-                                    Text(
-                                        text = "${notificationsCount.value}",
-                                        fontSize = 32.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.title_total_intercepted),
-                                        fontSize = 10.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    item {
-                        Card(
-                            shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                            modifier = Modifier
-                                .width(180.dp)
-                                .height(140.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(20.dp),
-                                verticalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.title_focus_time),
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                                Column {
-                                    Text(
-                                        text = focusTimeDisplay.value,
-                                        fontSize = 28.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = "+${focusImprovementPercent.value} VS AVERAGE",
-                                        fontSize = 10.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    item {
-                        Card(
-                            shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = ColorBlockPink),
-                            modifier = Modifier
-                                .width(180.dp)
-                                .height(140.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(20.dp),
-                                verticalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = "CONTEXT",
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                                Column {
-                                    val currentLoc = locationState.value
-                                    val contextTitle = if (currentLoc.isEmpty() || currentLoc == "unknown" || currentLoc == "home") {
-                                        "Learning Flow"
-                                    } else {
-                                        currentLoc.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() } + " Mode"
-                                    }
-                                    val contextSub = if (currentLoc.isEmpty() || currentLoc == "unknown" || currentLoc == "home") {
-                                        "Use more to map context"
-                                    } else {
-                                        "Match: Current Location"
-                                    }
-                                    Text(
-                                        text = contextTitle,
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = contextSub,
-                                        fontSize = 10.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Memory Moment Card
-            if (!isMemoryMomentDismissed.value) {
-                item {
-                    val currentLoc = locationState.value
-                    val memoryTitle = if (currentLoc.isEmpty() || currentLoc == "unknown") "Learning Routines" else currentLoc.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
-                    val memoryBody = if (currentLoc.isEmpty() || currentLoc == "unknown") {
-                        "Move around, let me know if you forget. I will map your focus triggers and routines here."
-                    } else {
-                        "You typically activate 'Deep Focus' mode here. Repeat setup?"
-                    }
-                    Card(
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(24.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = "MEMORY MOMENT",
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                            )
-                            Text(
-                                text = memoryTitle,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = memoryBody,
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                            )
-                            if (currentLoc.isNotEmpty() && currentLoc != "unknown") {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Button(
-                                        onClick = {
-                                            isFocusModeActive.value = true
-                                            sessionStartTimeMs = System.currentTimeMillis()
-                                            focusTimeDisplay.value = "0s"
-                                            showToast("Focus mode activated from routine memory!")
-                                            isMemoryMomentDismissed.value = true
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = MaterialTheme.colorScheme.onSurface,
-                                            contentColor = MaterialTheme.colorScheme.surface
-                                        ),
-                                        shape = RoundedCornerShape(9999.dp)
-                                    ) {
-                                        Text("Repeat Setup", color = MaterialTheme.colorScheme.surface)
-                                    }
-                                    Button(
-                                        onClick = {
-                                            isMemoryMomentDismissed.value = true
-                                            showToast("Routine suggestion dismissed")
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                                        shape = RoundedCornerShape(9999.dp),
-                                        modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
-                                    ) {
-                                        Text("Dismiss", color = MaterialTheme.colorScheme.onSurface)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Activity Feed (Bento style / Block Navy)
-            item {
-                val currentLoc = locationState.value
-                val memoryTitle = if (currentLoc.isEmpty() || currentLoc == "unknown") "Learning Routines" else currentLoc.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
-                val memoryBody = if (currentLoc.isEmpty() || currentLoc == "unknown") {
-                    "Move around, let me know if you forget. I will map your focus triggers and routines here."
-                } else {
-                    "You typically activate 'Deep Focus' mode here. Repeat setup?"
-                }
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(
-                            text = "SYSTEM LOGS & ACTIVITY",
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                        Text(
-                            text = memoryTitle,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = memoryBody,
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                        )
-                        if (currentLoc.isNotEmpty() && currentLoc != "unknown") {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Button(
-                                    onClick = { /* TODO: Repeat focus setup */ },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.onSurface,
-                                        contentColor = MaterialTheme.colorScheme.surface
-                                    ),
-                                    shape = RoundedCornerShape(9999.dp)
-                                ) {
-                                    Text("Repeat Setup", color = MaterialTheme.colorScheme.surface)
-                                }
-                                Button(
-                                    onClick = { /* TODO: Dismiss memory moment */ },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                                    shape = RoundedCornerShape(9999.dp),
-                                    modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
-                                ) {
-                                    Text("Dismiss", color = MaterialTheme.colorScheme.onSurface)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Activity Feed (Bento style / Block Navy)
-            item {
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = ColorBlockNavy),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(
-                            text = "SYSTEM LOGS & ACTIVITY",
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White.copy(alpha = 0.6f)
-                        )
-
-                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            // Row 1: Focused App
-                            Row(verticalAlignment = Alignment.Top) {
-                                Icon(
-                                    imageVector = Icons.Default.Star,
-                                    contentDescription = null,
-                                    tint = ColorBlockLime,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = "Active App Switch",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
-                                    )
-                                    Text(
-                                        text = "Focused application: ${recentApp.value}",
-                                        color = Color.White.copy(alpha = 0.7f),
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            }
-
-                            // Row 2: Last Notification
-                            Row(verticalAlignment = Alignment.Top) {
-                                Icon(
-                                    imageVector = Icons.Default.Star,
-                                    contentDescription = null,
-                                    tint = ColorBlockLime,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = "Notification Intercepted",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
-                                    )
-                                    Text(
-                                        text = lastNotification.value,
-                                        color = Color.White.copy(alpha = 0.7f),
-                                        fontSize = 12.sp,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-
-                            // Row 3: Event Count
-                            Row(verticalAlignment = Alignment.Top) {
-                                Icon(
-                                    imageVector = Icons.Default.Star,
-                                    contentDescription = null,
-                                    tint = ColorBlockLime,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = "Local Offline Cache Buffer",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
-                                    )
-                                    Text(
-                                        text = "Buffered events count: ${bufferedEventsCount.value}",
-                                        color = Color.White.copy(alpha = 0.7f),
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Bottom breathing room
-            item {
-                Spacer(modifier = Modifier.height(40.dp))
-            }
-        }
-    }
-
-    @Composable
-    fun BiometricsRadarChart(
-        stress: Float, // 0 to 100
-        burnout: Float, // 0 to 100
-        fatigue: Float, // 0 to 100
-        social: Float // 0 to 100
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(240.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Canvas(modifier = Modifier.size(200.dp)) {
-                val center = size.width / 2
-                val maxRadius = size.width / 2 * 0.8f
-
-                // Draw background grids (concentric squares)
-                val gridSteps = 4
-                for (i in 1..gridSteps) {
-                    val r = maxRadius * (i.toFloat() / gridSteps)
-                    drawRect(
-                        color = Color.White.copy(alpha = 0.15f),
-                        topLeft = androidx.compose.ui.geometry.Offset(center - r, center - r),
-                        size = androidx.compose.ui.geometry.Size(r * 2, r * 2),
-                        style = Stroke(width = 1.dp.toPx())
-                    )
-                }
-
-                // Draw axis lines
-                drawLine(
-                    color = Color.White.copy(alpha = 0.2f),
-                    start = androidx.compose.ui.geometry.Offset(center, center - maxRadius),
-                    end = androidx.compose.ui.geometry.Offset(center, center + maxRadius),
-                    strokeWidth = 1.dp.toPx()
-                )
-                drawLine(
-                    color = Color.White.copy(alpha = 0.2f),
-                    start = androidx.compose.ui.geometry.Offset(center - maxRadius, center),
-                    end = androidx.compose.ui.geometry.Offset(center + maxRadius, center),
-                    strokeWidth = 1.dp.toPx()
-                )
-
-                // Calculate polygon vertices
-                val pStressX = center
-                val pStressY = center - maxRadius * (stress / 100f)
-
-                val pSocialX = center + maxRadius * (social / 100f)
-                val pSocialY = center
-
-                val pBurnoutX = center
-                val pBurnoutY = center + maxRadius * (burnout / 100f)
-
-                val pFatigueX = center - maxRadius * (fatigue / 100f)
-                val pFatigueY = center
-
-                val path = Path().apply {
-                    moveTo(pStressX, pStressY)
-                    lineTo(pSocialX, pSocialY)
-                    lineTo(pBurnoutX, pBurnoutY)
-                    lineTo(pFatigueX, pFatigueY)
-                    close()
-                }
-
-                drawPath(
-                    path = path,
-                    color = ColorBlockLime.copy(alpha = 0.4f)
-                )
-
-                drawPath(
-                    path = path,
-                    color = ColorBlockLime,
-                    style = Stroke(width = 2.dp.toPx())
-                )
-            }
-
-            Box(modifier = Modifier.fillMaxSize()) {
-                Text(
-                    text = "STRESS (${stress.toInt()})",
-                    fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.align(Alignment.TopCenter)
-                )
-                Text(
-                    text = "BURNOUT (${burnout.toInt()})",
-                    fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                )
-                Text(
-                    text = "FATIGUE (${fatigue.toInt()})",
-                    fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .padding(start = 8.dp)
-                )
-                Text(
-                    text = "SOCIAL (${social.toInt()})",
-                    fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = 8.dp)
-                )
-            }
-        }
-    }
-
-    @Composable
-    fun MindTab() {
-        val subtitleText = if (stressScore.value == 0) {
-            "Learning routine..."
-        } else if (stressScore.value >= 75) {
-            "Elevated Stress"
-        } else if (stressScore.value >= 50) {
-            "Focused & Engaged"
-        } else {
-            "Calm & Balanced"
-        }
-
-        val insightText = if (stressScore.value == 0) {
-            "Ambient tracking active. As we collect telemetry from your app switching and typing speeds, personalized cognitive insights will appear here."
-        } else if (stressScore.value >= 75) {
-            "Your stress score is high (${stressScore.value}%). We detect multiple context transitions. A short break is recommended."
-        } else if (appSwitchesCount.value > 8) {
-            "Frequent app switching detected. Try to isolate your environment to stay in deep focus."
-        } else {
-            "Focus metrics look solid today. Your typing cadence is consistent and app switching is minimal."
-        }
-
-        val burnoutScore = if (stressScore.value == 0) 10f else (stressScore.value * 0.7f).coerceIn(10f, 100f)
-        val fatigueScore = if (stressScore.value == 0) 15f else (appSwitchesCount.value * 6f + averageTypingCadenceMs.value / 25f).coerceIn(10f, 100f)
-        val socialScore = if (notificationsCount.value == 0) 12f else (notificationsCount.value * 12f).coerceIn(10f, 100f)
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-                .padding(horizontal = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
-        ) {
-            // Header block
-            item {
-                Spacer(modifier = Modifier.height(24.dp))
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = ColorBlockLime),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(24.dp)) {
-                        Text(
-                            text = stringResource(R.string.title_current_status),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = stringResource(R.string.title_mindspace),
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = subtitleText,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Normal,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
-            }
-
-            // Empathetic Insight
-            item {
-                Text(
-                    text = insightText,
-                    fontSize = 18.sp,
-                    fontFamily = FontFamily.SansSerif,
-                    fontWeight = FontWeight.W300,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-            }
-
-            // Radar Chart Section (navy background)
-            item {
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = ColorBlockNavy),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = stringResource(R.string.title_cognitive_risk_radar),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White.copy(alpha = 0.6f),
-                            modifier = Modifier.align(Alignment.Start)
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        BiometricsRadarChart(
-                            stress = stressScore.value.toFloat(),
-                            burnout = burnoutScore,
-                            fatigue = fatigueScore,
-                            social = socialScore
-                        )
-                    }
-                }
-            }
-
-            // Current State grid (5 columns)
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = stringResource(R.string.title_current_state),
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        val stressSubtitle = when {
-                            stressScore.value >= 75 -> "Elevated"
-                            stressScore.value >= 50 -> "Moderate"
-                            else -> "Stable"
-                        }
-                        val focusSubtitle = when {
-                            focusPercentage.value == "Learning..." -> "Learning..."
-                            appSwitchesCount.value > 5 -> "Distracted"
-                            else -> "High Perf"
-                        }
-                        val cadenceValue = if (averageTypingCadenceMs.value == 0L) "--" else "${averageTypingCadenceMs.value}ms"
-                        val cadenceSubtitle = when {
-                            averageTypingCadenceMs.value == 0L -> "No Input"
-                            averageTypingCadenceMs.value in 10..180 -> "Fast"
-                            averageTypingCadenceMs.value > 600 -> "Slow"
-                            else -> "Consistent"
-                        }
-                        
-                        BiometricMetricItem(label = "Stress", value = "${stressScore.value}%", subtitle = stressSubtitle)
-                        BiometricMetricItem(label = "Focus", value = focusPercentage.value, subtitle = focusSubtitle)
-                        BiometricMetricItem(label = "Cadence", value = cadenceValue, subtitle = cadenceSubtitle)
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        val confidenceSubtitle = when {
-                            confidencePercentage.value == "Learning..." -> "Learning..."
-                            stressScore.value >= 75 -> "Fluctuating"
-                            else -> "Stable"
-                        }
-                        val socialValue = if (notificationsCount.value == 0) "0%" else "${socialScore.toInt()}%"
-                        val socialSubtitle = when {
-                            notificationsCount.value == 0 -> "Quiet"
-                            socialScore >= 60 -> "Demanding"
-                            else -> "Introvert"
-                        }
-                        
-                        BiometricMetricItem(label = "Confidence", value = confidencePercentage.value, subtitle = confidenceSubtitle)
-                        BiometricMetricItem(label = "Social Load", value = socialValue, subtitle = socialSubtitle)
-                    }
-                }
-            }
-
-            // Agent Grid (Pastel Color Blocks)
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    // Emotion Agent (Mint)
-                    val emotionTitle = if (stressScore.value == 0) "Stable" else if (stressScore.value >= 70) "High Arousal" else "Focused & Confident"
-                    val emotionDesc = if (stressScore.value == 0) "Ambient tracking active. Analyzing focus patterns." else if (stressScore.value >= 70) "Slight stress spike detected. Take deep breaths." else "Stable typing rhythms and low application switching detected."
-                    Card(
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = ColorBlockMint),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(24.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(imageVector = Icons.Default.Favorite, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = stringResource(R.string.title_emotion_agent),
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                            }
-                            Text(
-                                text = emotionTitle,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = emotionDesc,
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(confidencePercentage.value, fontSize = 24.sp, fontWeight = FontWeight.Black)
-                                Text(
-                                    text = stringResource(R.string.title_confidence_score),
-                                    fontSize = 9.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                            }
-                        }
-                    }
-
-                    // Burnout Agent (Pink)
-                    val burnoutTitle = if (stressScore.value == 0) "Risk: Stable" else if (burnoutScore >= 60) "Risk: High" else if (burnoutScore >= 35) "Risk: Moderate" else "Risk: Low"
-                    val burnoutDesc = if (stressScore.value == 0) "No active stress patterns detected. Tracking balance." else if (burnoutScore >= 60) "High continuous stress. Prioritize rest cycles immediately." else "Normal sleep cycles, consistent output, and language neutrality."
-                    Card(
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = ColorBlockPink),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(24.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(imageVector = Icons.Default.Build, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = stringResource(R.string.title_burnout_agent),
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                            }
-                            Text(
-                                text = burnoutTitle,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = burnoutDesc,
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                            )
-                        }
-                    }
-
-                    // Social Agent (Cream)
-                    val socialTitle = if (notificationsCount.value == 0) "Risk: Stable" else if (socialScore >= 60) "Risk: High" else if (socialScore >= 35) "Risk: Moderate" else "Risk: Low"
-                    val socialDesc = if (notificationsCount.value == 0) "No recent communication spikes. Social load is light." else if (socialScore >= 60) "High messaging volume. Consider putting phone on Do Not Disturb." else "Impending tasks stable. Social load is well within limits."
-                    Card(
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = ColorBlockCream),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(24.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(imageVector = Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = stringResource(R.string.title_social_agent),
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                            }
-                            Text(
-                                text = socialTitle,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = socialDesc,
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Why? (Signals) section
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(
-                        text = stringResource(R.string.title_why_signals),
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        SignalRowItem(label = "App Switching", value = "${appSwitchesCount.value} events")
-                        SignalRowItem(label = "Active Location", value = locationState.value.uppercase(Locale.getDefault()))
-                        SignalRowItem(label = "Typing Delay", value = "${averageTypingCadenceMs.value} ms")
-                        SignalRowItem(label = "Session Duration", value = focusTimeDisplay.value)
-                    }
-                }
-            }
-
-            // Behavioral Anomaly & Memory Correlation
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    val anomalyPercentage = remember(appSwitchesCount.value, averageTypingCadenceMs.value, stressScore.value) {
-                        (appSwitchesCount.value * 2 + (averageTypingCadenceMs.value / 200).toInt() + stressScore.value / 4).coerceIn(2, 98)
-                    }
-                    val dayOfWeek = SimpleDateFormat("EEEE", Locale.getDefault()).format(Date())
-                    
-                    val anomalyLabel: String
-                    val anomalyColor: Color
-                    val anomalyBg: Color
-                    val anomalyDesc: String
-                    
-                    if (anomalyPercentage > 60) {
-                        anomalyLabel = "ELEVATED DEVIATION"
-                        anomalyColor = Color(0xFFE57373)
-                        anomalyBg = Color(0x1AE57373)
-                        anomalyDesc = "Frequent app switching and altered cadence indicate context fatigue."
-                    } else if (anomalyPercentage > 35) {
-                        anomalyLabel = "MODERATE DEVIATION"
-                        anomalyColor = Color(0xFFFFB74D)
-                        anomalyBg = Color(0x1AFFB74D)
-                        anomalyDesc = "Mild pacing variation detected. Monitor focus cadence."
-                    } else {
-                        anomalyLabel = "STABLE SYSTEM PATTERN"
-                        anomalyColor = Color(0xFF81C784)
-                        anomalyBg = Color(0x1A81C784)
-                        anomalyDesc = "Current usage aligns cleanly with historical baseline."
-                    }
-
-                    Card(
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), RoundedCornerShape(24.dp))
-                    ) {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.title_behavioral_anomaly),
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(anomalyBg)
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Text(
-                                        text = anomalyLabel,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = anomalyColor
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Pattern Analysis: $anomalyPercentage% deviation from standard $dayOfWeek baseline.",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = anomalyDesc,
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    val cal = java.util.Calendar.getInstance()
-                    cal.add(java.util.Calendar.MONTH, -3)
-                    val pastMonth = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(cal.time)
-                    val matchPctStr = memoryMatchPercentage.value
-                    val matchPctInt = matchPctStr.replace("%", "").toIntOrNull() ?: 0
-                    
-                    val matchLabel: String
-                    val matchColor: Color
-                    val matchBg: Color
-                    
-                    if (matchPctInt > 75) {
-                        matchLabel = "HIGH HISTORICAL FIT"
-                        matchColor = Color(0xFF64B5F6)
-                        matchBg = Color(0x1A64B5F6)
-                    } else if (matchPctInt > 45) {
-                        matchLabel = "MODERATE FIT"
-                        matchColor = Color(0xFFBA68C8)
-                        matchBg = Color(0x1ABA68C8)
-                    } else {
-                        matchLabel = "NOVEL PATTERNFLOW"
-                        matchColor = Color(0xFF90A4AE)
-                        matchBg = Color(0x1A90A4AE)
-                    }
-
-
-                    Card(
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), RoundedCornerShape(24.dp))
-                    ) {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.title_memory_correlation),
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(matchBg)
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Text(
-                                        text = matchLabel,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = matchColor
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Similar Past Events: $matchPctStr Match to $pastMonth Baseline.",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            val memoryOutcome = if (stressScore.value >= 75) {
-                                "Outcome: High cognitive load detected. Recommend task transition."
-                            } else if (stressScore.value >= 50) {
-                                "Outcome: Moderate stress. High focus but stable output."
-                            } else {
-                                "Outcome: Balanced flow state. Smooth task transitions."
-                            }
-                            Text(
-                                text = memoryOutcome,
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Actions Buttons
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = {
-                            isFocusModeActive.value = !isFocusModeActive.value
-                            if (isFocusModeActive.value) {
-                                sessionStartTimeMs = System.currentTimeMillis()
-                                focusTimeDisplay.value = "0s"
-                                showToast("Focus mode activated!")
-                            } else {
-                                showToast("Focus mode deactivated!")
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isFocusModeActive.value) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                        ),
-                        shape = RoundedCornerShape(9999.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = if (isFocusModeActive.value) "Stop Focus" else "Start Focus",
-                            color = if (isFocusModeActive.value) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.surface,
-                            fontSize = 11.sp
-                        )
-                    }
-                    Button(
-                        onClick = {
-                            isReduceInterruptActive.value = !isReduceInterruptActive.value
-                            if (isReduceInterruptActive.value) {
-                                showToast("Interruption blocker active. Blocking non-critical alerts.")
-                            } else {
-                                showToast("Interruption blocker deactivated.")
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isReduceInterruptActive.value) MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f) else Color.Transparent
-                        ),
-                        shape = RoundedCornerShape(9999.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
-                    ) {
-                        Text(
-                            text = if (isReduceInterruptActive.value) "Allow Interrupt" else "Reduce Interrupt",
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 11.sp
-                        )
-                    }
-                    Button(
-                        onClick = { showExplainStressDialog.value = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                        shape = RoundedCornerShape(9999.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
-                    ) {
-                        Text("Explain Stress", color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp)
-                    }
-                }
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(40.dp))
-            }
-        }
-    }
-
-    @Composable
-    fun BiometricMetricItem(label: String, value: String, subtitle: String) {
-        Column(modifier = Modifier.width(90.dp)) {
-            Text(
-                text = label.uppercase(),
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = value,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Black,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            Text(
-                text = subtitle,
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-        }
-    }
-
-    @Composable
-    fun SignalRowItem(label: String, value: String, isAlert: Boolean = false) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(text = label, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
-            Text(
-                text = value,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (isAlert) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurface
-            )
-        }
-        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-    }
-
-    @Composable
-    fun ProductivityIntensityVisualizer() {
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = ColorBlockLime),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(24.dp)) {
-                Text(
-                    text = "ACTIVITY INTENSITY",
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(100.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    activityIntensities.forEach { h ->
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight(h.coerceIn(0.02f, 1f))
-                                .background(MaterialTheme.colorScheme.onSurface, RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    @Composable
-    fun ContinuityTab() {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-                .padding(horizontal = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
-        ) {
-            // Header
-            item {
-                Spacer(modifier = Modifier.height(24.dp))
-                Text(
-                    text = stringResource(R.string.title_life_timeline),
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.Bold
-                )
-                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 4.dp))
-                Text(
-                    text = getDynamicDate(),
-                    fontSize = 40.sp,
-                    fontFamily = FontFamily.SansSerif,
-                    fontWeight = FontWeight.W300,
-                    letterSpacing = (-0.96).sp,
-                    lineHeight = 44.sp,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
-
-            // Key Metrics
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text("PRODUCTIVITY", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
-                        Text(productivityPercentage.value, fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
-                    }
-                    Column {
-                        Text("PEAK FOCUS", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
-                        Text(peakFocusTime.value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                    }
-                    Column {
-                        Text("STRESS SPIKE", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
-                        Text(stressSpikeTime.value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                    }
-                }
-            }
-
-            // Visualizer
-            item {
-                ProductivityIntensityVisualizer()
-            }
-
-            // Today's Story (Editorial layout)
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = stringResource(R.string.title_today_story),
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Bold
-                    )
-                    val storyText = if (stressScore.value == 0) {
-                        "Ambient tracking active. As we collect telemetry from your device switches and notification intercepts, your personalized daily story will build here."
-                    } else {
-                        "Today's journey began with tracking active in the ${locationState.value.lowercase(Locale.getDefault())} sanctuary. So far, we have logged ${appSwitchesCount.value} application switches and intercepted ${notificationsCount.value} distractions. Your cognitive stress is hovering around ${stressScore.value}%, indicating a steady level of focus."
-                    }
-                    Text(
-                        text = storyText,
-                        fontSize = 20.sp,
-                        fontFamily = FontFamily.SansSerif,
-                        fontWeight = FontWeight.W300,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        lineHeight = 28.sp
-                    )
-                }
-            }
-
-            // Device Continuity
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(
-                        text = stringResource(R.string.title_device_continuity),
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        DeviceContinuityRow(icon = "phone", name = "Galaxy Phone", active = "Active: ${focusTimeDisplay.value}")
-                        DeviceContinuityRow(
-                            icon = "laptop",
-                            name = "Work Laptop",
-                            active = if (isLaptopConnected.value) "Active (WebSocket Connected)" else "Offline"
-                        )
-                    }
-                }
-            }
-
-            // Task Journey
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(
-                        text = stringResource(R.string.title_task_journey),
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Card(
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
-                    ) {
-                        Column(modifier = Modifier.padding(24.dp)) {
-                            if (activeTaskName.value.isEmpty()) {
-                                Text(
-                                    text = "Awaiting task journey...",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "No active workspace journey selected. Start a task from the Dashboard's What Needs Attention list to track execution steps in real-time.",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                                )
-                            } else {
-                                Text(
-                                    text = activeTaskName.value,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                activeTaskSteps.forEach { step ->
-                                    TaskJourneyStep(
-                                        title = step.first,
-                                        status = step.second,
-                                        isDone = step.second == "COMPLETED",
-                                        isCurrent = step.second == "IN_PROGRESS"
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Friday Actions (Bento list)
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(
-                        text = stringResource(R.string.title_friday_actions),
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Card(
-                            shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(160.dp)
-                                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(16.dp),
-                                verticalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Icon(imageVector = Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
-                                Column {
-                                    Text("Filtered", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text("${notificationsCount.value} suppressed distractions.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                        }
-
-                        Card(
-                            shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(160.dp)
-                                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(16.dp),
-                                verticalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Icon(imageVector = Icons.Default.Star, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
-                                Column {
-                                    Text("Focus Rec", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text(
-                                        text = if (stressScore.value > 60) "Optimal window in 30m." else "Optimal window at 9:00 PM.",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    if (stressScore.value > 65) {
-                        Card(
-                            shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = if (isDarkThemeGlobal) Color(0xFF4C0505) else Color(0xFFFEE2E2)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(24.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(imageVector = Icons.Default.Warning, contentDescription = null, tint = if (isDarkThemeGlobal) Color(0xFFFCA5A5) else Color(0xFF991B1B), modifier = Modifier.size(20.dp))
-                                Text("Fatigue Predicted", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = if (isDarkThemeGlobal) Color(0xFFFCA5A5) else Color(0xFF991B1B))
-                                Text("Sleep cycle correction needed. Rest suggested before 11:30 PM.", fontSize = 13.sp, color = if (isDarkThemeGlobal) Color(0xFFFECACA) else Color(0xFF7F1D1D))
-                            }
-                        }
-                    } else {
-                        Card(
-                            shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = if (isDarkThemeGlobal) Color(0xFF064E3B) else Color(0xFFD1FAE5)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(24.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = if (isDarkThemeGlobal) Color(0xFF34D399) else Color(0xFF065F46), modifier = Modifier.size(20.dp))
-                                Text("Cognitive Balance Stable", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = if (isDarkThemeGlobal) Color(0xFF34D399) else Color(0xFF065F46))
-                                Text("Great job keeping your focus window clear of context switching.", fontSize = 13.sp, color = if (isDarkThemeGlobal) Color(0xFFA7F3D0) else Color(0xFF065F46))
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Recent Sites from Laptop (device switch leftover)
-            if (recentLaptopSites.isNotEmpty()) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(
-                            text = "RECENT SITES · LAPTOP",
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.Bold
-                        )
-                        recentLaptopSites.take(3).forEach { (title, displayUrl, fullUrl) ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
-                                    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
-                                    .clickable {
-                                        if (fullUrl.isNotEmpty()) {
-                                            try {
-                                                val openIntent = Intent(Intent.ACTION_VIEW, Uri.parse(fullUrl)).apply {
-                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                                }
-                                                this@MainActivity.startActivity(openIntent)
-                                            } catch (e: Exception) {
-                                                Log.e(TAG, "Failed to open URL: ${e.message}")
-                                            }
-                                        }
-                                    }
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .background(ColorBlockLilac, CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(16.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = title,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = displayUrl.ifEmpty { fullUrl },
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontFamily = FontFamily.Monospace,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (timelineEvents.isNotEmpty()) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Text(
-                            text = "LIVE ACTIVITY LOG",
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.Bold
-                        )
-
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            timelineEvents.take(10).forEach { event ->
-                                TimelineRowItem(event = event)
-                            }
-                        }
-                    }
-                }
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(40.dp))
-            }
-        }
-    }
-
-    @Composable
-    fun TimelineRowItem(event: TimelineEvent) {
-        val icon = when (event.type) {
-            "app" -> Icons.Default.Build
-            "notification" -> Icons.Default.Notifications
-            "location" -> Icons.Default.Home
-            "suggestion" -> Icons.Default.Star
-            "continuity" -> Icons.Default.PlayArrow
-            else -> Icons.Default.Info
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
-                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(MaterialTheme.colorScheme.background, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(imageVector = icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = event.title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                Text(text = event.description, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = event.time,
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-
-    @Composable
-    fun DeviceContinuityRow(icon: String, name: String, active: String) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
-                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(MaterialTheme.colorScheme.background, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(imageVector = if (icon == "phone") Icons.Default.Phone else Icons.Default.Build, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column {
-                Text(text = name, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                Text(text = active, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
-
-    @Composable
-    fun TaskJourneyStep(title: String, status: String, isDone: Boolean = false, isCurrent: Boolean = false) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(20.dp)
-                    .clip(CircleShape)
-                    .background(
-                        when {
-                            isDone -> MaterialTheme.colorScheme.onSurface
-                            isCurrent -> ColorBlockLime
-                            else -> Color.LightGray
-                        }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (isDone) {
-                    Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.surface, modifier = Modifier.size(12.dp))
-                }
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column {
-                Text(
-                    text = title,
-                    fontSize = 14.sp,
-                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Text(
-                    text = status,
-                    fontSize = 11.sp,
-                    color = if (isCurrent) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
-                )
-            }
-        }
-    }
-
-    @Composable
-    fun SettingsTab() {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-                .padding(horizontal = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
-        ) {
-            // Editorial Header
-            item {
-                Spacer(modifier = Modifier.height(24.dp))
-                Text(
-                    text = stringResource(R.string.title_trust_center),
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.Bold
-                )
-                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 4.dp))
-                Text(
-                    text = "Settings",
-                    fontSize = 40.sp,
-                    fontFamily = FontFamily.SansSerif,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = (-0.96).sp,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Text(
-                    text = "Manage privacy, devices and personalization.",
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            // Profile
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(24.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
-                        .padding(24.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(72.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.onSurface),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (userName.value.isNotEmpty()) userName.value.take(1) else "U",
-                            color = MaterialTheme.colorScheme.surface,
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text(
-                            text = userName.value,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = userRole.value,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-
-            // Privacy & Data Block (Lime)
-            item {
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = ColorBlockLime),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.title_privacy_data),
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-
-                        val sharedPrefs = remember { getSharedPreferences("friday_settings", MODE_PRIVATE) }
-                        var dataProcessing by remember { mutableStateOf(sharedPrefs.getBoolean("data_processing", true)) }
-                        var cloudBackup by remember { mutableStateOf(sharedPrefs.getBoolean("cloud_backup", true)) }
-                        var dataEncryption by remember { mutableStateOf(sharedPrefs.getBoolean("data_encryption", true)) }
-
-                        ToggleRow(
-                            label = stringResource(R.string.hint_data_processing),
-                            subtitle = stringResource(R.string.hint_mostly_on_device),
-                            checked = dataProcessing,
-                            onCheckedChange = {
-                                dataProcessing = it
-                                sharedPrefs.edit().putBoolean("data_processing", it).apply()
-                                showToast(if (it) "On-device processing enabled" else "On-device processing disabled")
-                            }
-                        )
-                        ToggleRow(
-                            label = stringResource(R.string.hint_cloud_backup),
-                            checked = cloudBackup,
-                            onCheckedChange = {
-                                cloudBackup = it
-                                sharedPrefs.edit().putBoolean("cloud_backup", it).apply()
-                                showToast(if (it) "Cloud backup enabled" else "Cloud backup disabled")
-                            }
-                        )
-                        ToggleRow(
-                            label = stringResource(R.string.hint_data_encryption),
-                            checked = dataEncryption,
-                            onCheckedChange = {
-                                dataEncryption = it
-                                sharedPrefs.edit().putBoolean("data_encryption", it).apply()
-                                showToast(if (it) "Data encryption enabled" else "Data encryption disabled")
-                            }
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Button(
-                            onClick = {
-                                try {
-                                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                        data = Uri.fromParts("package", packageName, null)
-                                    }
-                                    startActivity(intent)
-                                } catch (e: Exception) {
-                                    showToast(getString(R.string.msg_open_permission_manager))
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
-                        ) {
-                            Text(stringResource(R.string.btn_manage_permissions), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-
-            // Android Senses System Access & Permissions
-            item {
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.title_system_permissions),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        // Accessibility
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Accessibility Service", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                Text("For active application context switches", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Button(
-                                onClick = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isAccessibilityGranted.value) Color(0xFF10B981) else Color(0xFFEF4444)
-                                ),
-                                shape = RoundedCornerShape(9999.dp),
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
-                            ) {
-                                Text(if (isAccessibilityGranted.value) "Granted" else "Grant", fontSize = 11.sp, color = Color.White)
-                            }
-                        }
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-
-                        // Notification Listener
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Notification Listener", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                Text("For intercepting notifications", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Button(
-                                onClick = { startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")) },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isNotificationAccessGranted.value) Color(0xFF10B981) else Color(0xFFEF4444)
-                                ),
-                                shape = RoundedCornerShape(9999.dp),
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
-                            ) {
-                                Text(if (isNotificationAccessGranted.value) "Granted" else "Grant", fontSize = 11.sp, color = Color.White)
-                            }
-                        }
-
-                        // Post Notifications (Android 13+)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Post Notifications", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text("Foreground sensing alert channel", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                Button(
-                                    onClick = {
-                                        requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (isPostNotificationGranted.value) Color(0xFF10B981) else Color(0xFFEF4444)
-                                    ),
-                                    shape = RoundedCornerShape(9999.dp),
-                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
-                                ) {
-                                    Text(if (isPostNotificationGranted.value) "Granted" else "Grant", fontSize = 11.sp, color = Color.White)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Memory Block (Lilac)
-            item {
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = ColorBlockLilac),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.title_memory),
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column {
-                                Text("${localMemories.size}", fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
-                                Text("STORED", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                            }
-                            Column {
-                                Text("${bufferedEventsCount.value}", fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
-                                Text("EVENTS", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                            }
-                            Column {
-                                val simulatedSize = String.format(Locale.US, "%.1f MB", 0.4f + localMemories.size * 0.15f)
-                                Text(simulatedSize, fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
-                                Text("SIZE", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                            }
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = { showMemoriesDialog.value = true },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(stringResource(R.string.btn_view_memories), color = MaterialTheme.colorScheme.surface)
-                            }
-                            Button(
-                                onClick = { showMemoriesDialog.value = true },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(stringResource(R.string.btn_forget_memory), color = MaterialTheme.colorScheme.onSurface)
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Synced Devices Block (Navy)
-            item {
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = ColorBlockNavy),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Column {
-                            Text(
-                                text = stringResource(R.string.title_devices),
-                                fontSize = 32.sp,
-                                fontWeight = FontWeight.Black,
-                                color = Color.White
-                            )
-                            Text(
-                                text = "Synced 2m ago",
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = Color.White.copy(alpha = 0.4f),
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            if (localDevices.isEmpty()) {
-                                Text("No synced devices.", color = Color.White.copy(alpha = 0.6f), fontStyle = FontStyle.Italic, fontSize = 14.sp)
-                            } else {
-                                localDevices.forEachIndexed { idx, (deviceName, status) ->
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            val icon = if (deviceName.lowercase().contains("laptop") || deviceName.lowercase().contains("mac") || deviceName.lowercase().contains("pc")) {
-                                                Icons.Default.Build
-                                            } else {
-                                                Icons.Default.Phone
-                                            }
-                                            Icon(imageVector = icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Text(deviceName, color = Color.White, fontWeight = FontWeight.Bold)
-                                        }
-                                        Box(
-                                            modifier = Modifier
-                                                .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
-                                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                                        ) {
-                                            Text(status, fontSize = 9.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-                                    if (idx < localDevices.size - 1) {
-                                        HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
-                                    }
-                                }
-                            }
-                        }
-
-                        Button(
-                            onClick = { showDevicesDialog.value = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(stringResource(R.string.btn_manage_devices), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-
-            // Manual Connection Override Configuration
-            item {
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.title_hub_override_ip_config),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = hubIp.value,
-                                onValueChange = { hubIp.value = it },
-                                label = { Text("Hub IP Address", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) },
-                                singleLine = true,
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                    focusedBorderColor = MaterialTheme.colorScheme.onSurface,
-                                    unfocusedBorderColor = Color.LightGray
-                                ),
-                                modifier = Modifier.weight(2f)
-                            )
-                            OutlinedTextField(
-                                value = hubPort.value,
-                                onValueChange = { hubPort.value = it },
-                                label = { Text("Port", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) },
-                                singleLine = true,
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                    focusedBorderColor = MaterialTheme.colorScheme.onSurface,
-                                    unfocusedBorderColor = Color.LightGray
-                                ),
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-
-                        Button(
-                            onClick = {
-                                if (hubIp.value.isNotEmpty()) {
-                                    val url = "ws://${hubIp.value}:${hubPort.value}/ws/android"
-                                    WebSocketManager.getInstance().connect(url)
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(stringResource(R.string.btn_connect_manually), color = MaterialTheme.colorScheme.surface)
-                        }
-                    }
-                }
-            }
-
-            // Assistance (Quiet, Balanced, Proactive selection)
-            item {
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.title_assistance_style),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        val sharedPrefs = remember { getSharedPreferences("friday_settings", MODE_PRIVATE) }
-                        var assistanceStyle by remember { mutableStateOf(sharedPrefs.getString("assistance_style", "Balanced") ?: "Balanced") }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        assistanceStyle = "Quiet"
-                                        sharedPrefs.edit().putString("assistance_style", "Quiet").apply()
-                                        showToast("Assistance style set to Quiet")
-                                    },
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RadioButton(
-                                    selected = assistanceStyle == "Quiet",
-                                    onClick = {
-                                        assistanceStyle = "Quiet"
-                                        sharedPrefs.edit().putString("assistance_style", "Quiet").apply()
-                                        showToast("Assistance style set to Quiet")
-                                    },
-                                    colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.onSurface)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Quiet", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            }
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        assistanceStyle = "Balanced"
-                                        sharedPrefs.edit().putString("assistance_style", "Balanced").apply()
-                                        showToast("Assistance style set to Balanced")
-                                    },
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RadioButton(
-                                    selected = assistanceStyle == "Balanced",
-                                    onClick = {
-                                        assistanceStyle = "Balanced"
-                                        sharedPrefs.edit().putString("assistance_style", "Balanced").apply()
-                                        showToast("Assistance style set to Balanced")
-                                    },
-                                    colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.onSurface)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Balanced", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            }
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        assistanceStyle = "Proactive"
-                                        sharedPrefs.edit().putString("assistance_style", "Proactive").apply()
-                                        showToast("Assistance style set to Proactive")
-                                    },
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RadioButton(
-                                    selected = assistanceStyle == "Proactive",
-                                    onClick = {
-                                        assistanceStyle = "Proactive"
-                                        sharedPrefs.edit().putString("assistance_style", "Proactive").apply()
-                                        showToast("Assistance style set to Proactive")
-                                    },
-                                    colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.onSurface)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Proactive", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Danger Zone Block
-            item {
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = if (isDarkThemeGlobal) Color(0xFF4C0505) else Color(0xFFFEE2E2)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.title_danger_zone),
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Black,
-                            color = if (isDarkThemeGlobal) Color(0xFFFECACA) else Color(0xFF7F1D1D)
-                        )
-
-                         Button(
-                            onClick = { showDisconnectDevicesConfirmDialog.value = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(stringResource(R.string.btn_disconnect_devices), color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
-                        }
-
-                        Button(
-                            onClick = { showClearMemoriesConfirmDialog.value = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(stringResource(R.string.btn_clear_memories), color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(40.dp))
-            }
-        }
-    }
-
-    @Composable
-    fun ToggleRow(
-        label: String,
-        subtitle: String? = null,
-        checked: Boolean,
-        onCheckedChange: (Boolean) -> Unit
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = label, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                if (subtitle != null) {
-                    Text(text = subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                }
-            }
-            Switch(
-                checked = checked,
-                onCheckedChange = onCheckedChange,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = MaterialTheme.colorScheme.primary,
-                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
-                    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
-                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            )
-        }
-    }
-
-    @Composable
-    fun ProactiveOverlayScreen(onClose: () -> Unit) {
-        val context = androidx.compose.ui.platform.LocalContext.current
-        
-        val assistantState by this@MainActivity.assistantState
-        val transcriptText by this@MainActivity.transcriptText
-        val assistantResponse by this@MainActivity.assistantResponse
-        val errorMessage by this@MainActivity.errorMessage
-        
-        DisposableEffect(Unit) {
-            if (voiceAssistantManager.state == VoiceState.IDLE) {
-                val hasMicPermission = context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                if (hasMicPermission) {
-                    voiceAssistantManager.startRecording()
-                }
-            }
-            
-            onDispose {
-                // Background execution: Do not cancel voiceAssistantManager on screen close/dispose
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background.copy(alpha = 0.98f))
-                .clickable { /* Block clicks */ }
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp)
-            ) {
-                // Top close button
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 24.dp),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    IconButton(
-                        onClick = onClose,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Listening header
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    val statusColor = when (assistantState) {
-                        VoiceState.RECORDING -> ColorBlockLime
-                        VoiceState.TRANSCRIBING -> ColorBlockLilac
-                        VoiceState.RESPONDING -> ColorBlockMint
-                        VoiceState.ERROR -> ColorBlockCoral
-                        else -> MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
-                    }
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(statusColor)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "STATUS: ${assistantState.name}",
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = when (assistantState) {
-                        VoiceState.IDLE -> "Speak to FRIDAY"
-                        VoiceState.RECORDING -> "FRIDAY is listening..."
-                        VoiceState.TRANSCRIBING -> "FRIDAY is thinking..."
-                        VoiceState.RESPONDING -> "FRIDAY's Response"
-                        VoiceState.ERROR -> "Voice Error"
-                    },
-                    fontSize = 44.sp,
-                    fontFamily = FontFamily.SansSerif,
-                    fontWeight = FontWeight.W300,
-                    letterSpacing = (-0.96).sp,
-                    lineHeight = 48.sp,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-
-                Spacer(modifier = Modifier.height(40.dp))
-
-                // Central Mic Button with Pulsing Wave
-                val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-                val scale by infiniteTransition.animateFloat(
-                    initialValue = 1f,
-                    targetValue = 1.35f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(1200, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                        repeatMode = RepeatMode.Restart
-                    ),
-                    label = "scale"
-                )
-                val alpha by infiniteTransition.animateFloat(
-                    initialValue = 0.6f,
-                    targetValue = 0f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(1200, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                        repeatMode = RepeatMode.Restart
-                    ),
-                    label = "alpha"
-                )
-
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .size(120.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (assistantState == VoiceState.RECORDING) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer(scaleX = scale, scaleY = scale)
-                                .clip(CircleShape)
-                                .background(ColorBlockLime.copy(alpha = alpha))
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .size(80.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (assistantState == VoiceState.RECORDING) ColorBlockLime else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
-                            )
-                            .clickable {
-                                if (assistantState == VoiceState.IDLE || assistantState == VoiceState.RESPONDING || assistantState == VoiceState.ERROR) {
-                                    val hasMicPermission = context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                                    if (hasMicPermission) {
-                                        voiceAssistantManager.startRecording()
-                                    } else {
-                                        requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 102)
-                                    }
-                                } else if (assistantState == VoiceState.RECORDING) {
-                                    voiceAssistantManager.stopRecordingAndTranscribe()
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Crossfade(targetState = assistantState, label = "mic_state_transition") { state ->
-                            when (state) {
-                                VoiceState.RECORDING -> {
-                                    val recordingColor = if (isDarkThemeGlobal) Color(0xFFD6FF3D) else Color.Black
-                                    PulsatingDotsCompose(color = recordingColor)
-                                }
-                                VoiceState.TRANSCRIBING -> {
-                                    CircularProgressIndicator(
-                                        color = if (isDarkThemeGlobal) Color(0xFFD6FF3D) else Color.Black,
-                                        strokeWidth = 3.dp,
-                                        modifier = Modifier.size(32.dp)
-                                    )
-                                }
-                                VoiceState.RESPONDING -> {
-                                    RippleWaveLoaderCompose()
-                                }
-                                else -> {
-                                    Icon(
-                                        imageVector = Icons.Default.Star,
-                                        contentDescription = "Mic",
-                                        tint = ColorBlockLime,
-                                        modifier = Modifier.size(32.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = when (assistantState) {
-                        VoiceState.IDLE -> "Tap button to start recording."
-                        VoiceState.RECORDING -> "Tap button again when done speaking."
-                        VoiceState.TRANSCRIBING -> "Analyzing speech buffers via whisper.cpp..."
-                        VoiceState.RESPONDING -> "Ready for next query."
-                        VoiceState.ERROR -> "Tap to try again."
-                    },
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(40.dp))
-
-                // Results or suggestion box
-                when (assistantState) {
-                    VoiceState.RESPONDING -> {
-                        // User transcript
-                        Card(
-                            shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = ColorBlockLilac),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(20.dp)) {
-                                Text(
-                                    text = "YOU",
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "\"$transcriptText\"",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Assistant Response
-                        Card(
-                            shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = ColorBlockLime),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(20.dp)) {
-                                Text(
-                                    text = "FRIDAY AI",
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = assistantResponse,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(24.dp))
-                        
-                        Button(
-                            onClick = { voiceAssistantManager.cancel() },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onBackground),
-                            shape = RoundedCornerShape(9999.dp),
-                            modifier = Modifier.fillMaxWidth().height(48.dp)
-                        ) {
-                            Text("Clear & Ask Something Else", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.background)
-                        }
-                    }
-                    
-                    VoiceState.ERROR -> {
-                        Card(
-                            shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = ColorBlockCoral),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(20.dp)) {
-                                Text(
-                                    text = "ENGINE ERROR",
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White.copy(alpha = 0.7f)
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = errorMessage,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                            }
-                        }
-                        
-                        Spacer(modifier = Modifier.height(24.dp))
-                        
-                        Button(
-                            onClick = { voiceAssistantManager.cancel() },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onBackground),
-                            shape = RoundedCornerShape(9999.dp),
-                            modifier = Modifier.fillMaxWidth().height(48.dp)
-                        ) {
-                            Text("Reset", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.background)
-                        }
-                    }
-
-                    else -> {
-                        // Show suggestions
-                        Text(
-                            text = "SUGGESTED COMMANDS",
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
-                            modifier = Modifier.padding(bottom = 12.dp)
-                        )
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            OverlayActionButton(text = "Silence all alerts") {
-                                voiceAssistantManager.sendTextQuery("Silence all alerts")
-                            }
-                            OverlayActionButton(text = "Prepare Evening Brief") {
-                                voiceAssistantManager.sendTextQuery("Prepare Evening Brief")
-                            }
-                            OverlayActionButton(text = "Explain Current Stress") {
-                                voiceAssistantManager.sendTextQuery("Explain Current Stress")
-                            }
-                            OverlayActionButton(text = "Start Focus Mode") {
-                                voiceAssistantManager.sendTextQuery("Start Focus Mode")
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(40.dp))
-            }
-        }
-    }
-
-    @Composable
-    fun OverlayActionButton(text: String, onClick: () -> Unit) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(9999.dp))
-                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(9999.dp))
-                .clickable(onClick = onClick)
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(text = text, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-            Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
-        }
-    }
-
-    @Composable
-    private fun PulsatingDotsCompose(color: Color) {
-        val transition = rememberInfiniteTransition(label = "dots")
-        val dot1Scale by transition.animateFloat(
-            initialValue = 0.5f,
-            targetValue = 1.3f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "dot1"
-        )
-        val dot2Scale by transition.animateFloat(
-            initialValue = 0.5f,
-            targetValue = 1.3f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse,
-                initialStartOffset = androidx.compose.animation.core.StartOffset(200)
-            ),
-            label = "dot2"
-        )
-        val dot3Scale by transition.animateFloat(
-            initialValue = 0.5f,
-            targetValue = 1.3f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse,
-                initialStartOffset = androidx.compose.animation.core.StartOffset(400)
-            ),
-            label = "dot3"
-        )
-
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .graphicsLayer(scaleX = dot1Scale, scaleY = dot1Scale)
-                    .background(color, CircleShape)
-            )
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .graphicsLayer(scaleX = dot2Scale, scaleY = dot2Scale)
-                    .background(color, CircleShape)
-            )
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .graphicsLayer(scaleX = dot3Scale, scaleY = dot3Scale)
-                    .background(color, CircleShape)
-            )
-        }
-    }
-
-    @Composable
-    private fun RippleWaveLoaderCompose() {
-        val transition = rememberInfiniteTransition(label = "wave")
-        val animVals = (0 until 7).map { index ->
-            transition.animateFloat(
-                initialValue = 0.4f,
-                targetValue = 1.6f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(500, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse,
-                    initialStartOffset = androidx.compose.animation.core.StartOffset(index * 80)
-                ),
-                label = "wave_$index"
-            )
-        }
-
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            animVals.forEachIndexed { index, animVal ->
-                val barColor = if (isDarkThemeGlobal) {
-                    if (index % 2 == 0) Color(0xFFD6FF3D) else Color.White
-                } else {
-                    Color.Black
-                }
-                Box(
-                    modifier = Modifier
-                        .width(3.dp)
-                        .height(18.dp)
-                        .graphicsLayer(scaleY = animVal.value)
-                        .background(barColor, RoundedCornerShape(99.dp))
-                )
-            }
-        }
-    }
-
-    // Custom Editorial Light/Navy theme with auto dark mode
-    @Composable
-    fun FridayTheme(content: @Composable () -> Unit) {
-        val darkTheme = isSystemInDarkTheme()
-        isDarkThemeGlobal = darkTheme
-        val colorScheme = if (darkTheme) {
-            darkColorScheme(
-                primary = Color.White,
-                background = Color(0xFF121212),
-                surface = Color(0xFF1E1E1E),
-                onBackground = Color(0xFFF1F1F1),
-                onSurface = Color(0xFFF1F1F1),
-                error = Color(0xFFEF4444),
-                surfaceVariant = Color(0xFF2A2A2A),
-                onSurfaceVariant = Color(0xFFB0B0B0)
-            )
-        } else {
-            lightColorScheme(
-                primary = Color.Black,
-                background = ColorBackground,
-                surface = Color.White,
-                onBackground = Color.Black,
-                onSurface = Color.Black,
-                error = Color(0xFFEF4444)
-            )
-        }
-        MaterialTheme(
-            colorScheme = colorScheme,
-            content = content
-        )
-    }
-
-    @Composable
-    private fun RenderSettingsDialogs() {
-        // 1. Memories Dialog
-        if (showMemoriesDialog.value) {
-            var newMemoryText by remember { mutableStateOf("") }
-            AlertDialog(
-                onDismissRequest = { showMemoriesDialog.value = false },
-                title = {
-                    Text(
-                        "FRIDAY Stored Memories",
-                        fontWeight = FontWeight.Black,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            "These are user behavioral models and preferences stored in FRIDAY's long-term memory graph.",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            OutlinedTextField(
-                                value = newMemoryText,
-                                onValueChange = { newMemoryText = it },
-                                label = { Text("Learn new habit/info", fontSize = 11.sp) },
-                                singleLine = true,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Button(
-                                onClick = {
-                                    if (newMemoryText.isNotBlank()) {
-                                        localMemories.add(newMemoryText.trim())
-                                        newMemoryText = ""
-                                        showToast("Memory stored successfully!")
-                                    }
-                                },
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text("Add", fontSize = 11.sp)
-                            }
-                        }
-                        
-                        Spacer(modifier = Modifier.height(8.dp))
-                        
-                        if (localMemories.isEmpty()) {
-                            Text("No memories stored yet.", fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier.heightIn(max = 240.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                items(localMemories.size) { index ->
-                                    val item = localMemories[index]
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(
-                                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                                                RoundedCornerShape(8.dp)
-                                            )
-                                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = item,
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        IconButton(
-                                            onClick = {
-                                                localMemories.removeAt(index)
-                                                showToast("Memory deleted!")
-                                            }
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Delete,
-                                                contentDescription = "Delete",
-                                                tint = Color.Red,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { showMemoriesDialog.value = false }) {
-                        Text("Close", fontWeight = FontWeight.Bold)
-                    }
-                }
-            )
-        }
-
-        // 2. Devices Dialog
-        if (showDevicesDialog.value) {
-            var newDeviceName by remember { mutableStateOf("") }
-            AlertDialog(
-                onDismissRequest = { showDevicesDialog.value = false },
-                title = {
-                    Text(
-                        "Configure Synced Devices",
-                        fontWeight = FontWeight.Black,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            "Link a new device or manage existing sessions.",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            OutlinedTextField(
-                                value = newDeviceName,
-                                onValueChange = { newDeviceName = it },
-                                label = { Text("Device Name (e.g. iPad Pro)", fontSize = 11.sp) },
-                                singleLine = true,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Button(
-                                onClick = {
-                                    if (newDeviceName.isNotBlank()) {
-                                        localDevices.add(newDeviceName.trim() to "ACTIVE")
-                                        newDeviceName = ""
-                                        showToast("Device linked!")
-                                    }
-                                },
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text("Link", fontSize = 11.sp)
-                            }
-                        }
-                        
-                        Spacer(modifier = Modifier.height(8.dp))
-                        
-                        if (localDevices.isEmpty()) {
-                            Text("No devices linked.", fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier.heightIn(max = 240.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                items(localDevices.size) { index ->
-                                    val (device, status) = localDevices[index]
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(
-                                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                                                RoundedCornerShape(8.dp)
-                                            )
-                                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(device, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                            Text(status, fontSize = 9.sp, color = Color.Green, fontWeight = FontWeight.Bold)
-                                        }
-                                        TextButton(
-                                            onClick = {
-                                                localDevices.removeAt(index)
-                                                showToast("$device disconnected!")
-                                            }
-                                        ) {
-                                            Text("Disconnect", color = Color.Red, fontSize = 11.sp)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { showDevicesDialog.value = false }) {
-                        Text("Close", fontWeight = FontWeight.Bold)
-                    }
-                }
-            )
-        }
-
-        // 3. Clear Memories Confirmation
-        if (showClearMemoriesConfirmDialog.value) {
-            AlertDialog(
-                onDismissRequest = { showClearMemoriesConfirmDialog.value = false },
-                title = { Text("Clear All Memories?", fontWeight = FontWeight.Bold) },
-                text = { Text("This action cannot be undone. FRIDAY will forget all learned behaviors.") },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            localMemories.clear()
-                            showClearMemoriesConfirmDialog.value = false
-                            showToast("All memories cleared!")
-                        }
-                    ) {
-                        Text("Clear All", color = Color.Red, fontWeight = FontWeight.Bold)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showClearMemoriesConfirmDialog.value = false }) {
-                        Text("Cancel")
-                    }
-                }
-            )
-        }
-
-        // 4. Disconnect Devices Confirmation
-        if (showDisconnectDevicesConfirmDialog.value) {
-            AlertDialog(
-                onDismissRequest = { showDisconnectDevicesConfirmDialog.value = false },
-                title = { Text("Disconnect All Devices?", fontWeight = FontWeight.Bold) },
-                text = { Text("This will terminate active sync sessions on all linked devices.") },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            localDevices.clear()
-                            showDisconnectDevicesConfirmDialog.value = false
-                            showToast("All devices disconnected!")
-                        }
-                    ) {
-                        Text("Disconnect All", color = Color.Red, fontWeight = FontWeight.Bold)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showDisconnectDevicesConfirmDialog.value = false }) {
-                        Text("Cancel")
-                    }
-                }
-            )
-        }
-
-        // 5. Explain Stress Dialog
-        if (showExplainStressDialog.value) {
-            AlertDialog(
-                onDismissRequest = { showExplainStressDialog.value = false },
-                title = { Text("Stress Telemetry Analysis", fontWeight = FontWeight.Black) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("FRIDAY evaluates stress based on a three-tier sensor model:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        
-                        Text("1. App Switching cadence: currently ${appSwitchesCount.value} switches. High switching indicates divided focus.", fontSize = 12.sp)
-                        Text("2. Typing rhythm speed: currently ${if (averageTypingCadenceMs.value == 0L) "No input" else "${averageTypingCadenceMs.value}ms"}. Speed outliers indicate fatigue or panic states.", fontSize = 12.sp)
-                        Text("3. Notification density: currently ${notificationsCount.value} interrupts. Higher alerts cause chronic cognitive load.", fontSize = 12.sp)
-                        
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("Current stress index is ${stressScore.value}%. This is classified as a ${
-                            when {
-                                stressScore.value >= 75 -> "Elevated Stress state. We recommend enabling Focus Mode to suppress notifications."
-                                stressScore.value >= 50 -> "Moderate Stress state. Try reducing multitasking."
-                                else -> "Optimal / Calm state. Good job keeping a steady focus!"
-                            }
-                        }", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { showExplainStressDialog.value = false }) {
-                        Text("Close", fontWeight = FontWeight.Bold)
-                    }
-                }
-            )
-        }
-    }
+    private fun getDynamicDate(): String = try {
+        SimpleDateFormat("EEEE,\nMMMM d, yyyy", Locale.getDefault()).format(Date())
+    } catch (_: Exception) { "Sunday,\nJune 14, 2026" }
 
     private fun getMotivatingSubtitle(): String {
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
@@ -4357,249 +419,1484 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    data class BriefItem(
-        val title: String,
-        val message: String,
-        val category: String
-    )
+    private fun getAppNameFromPackage(pkg: String): String = when {
+        pkg.contains("whatsapp", true) -> "WhatsApp"
+        pkg.contains("slack", true) -> "Slack"
+        pkg.contains("gmail", true) || pkg.contains("android.gm", true) -> "Gmail"
+        pkg.contains("telegram", true) -> "Telegram"
+        pkg.contains("discord", true) -> "Discord"
+        pkg.contains("teams", true) -> "MS Teams"
+        pkg.contains("instagram", true) -> "Instagram"
+        pkg.contains("facebook", true) -> "Facebook"
+        pkg.contains("twitter", true) -> "Twitter"
+        else -> pkg.split(".").lastOrNull()?.replaceFirstChar { it.titlecase(Locale.getDefault()) } ?: "App"
+    }
 
-    @Composable
-    fun NotificationBriefingCard(tasks: List<JSONObject>, stressScore: Int) {
-        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-        val briefTitle = when (hour) {
-            in 5..11 -> "Morning Brief"
-            in 12..16 -> "Afternoon Brief"
-            in 17..21 -> "Evening Brief"
-            else -> "Night Brief"
+    private fun getSafeTimestamp(json: JSONObject): Long {
+        val ts = json.optLong("timestamp", 0L)
+        return when {
+            ts == 0L -> System.currentTimeMillis()
+            ts < 10_000_000_000L -> ts * 1000L
+            else -> ts
         }
+    }
 
-        // Count of unread is the number of notifications
-        val unreadText = if (tasks.isEmpty()) "No Alerts" else "${tasks.size} Unread"
+    private fun getProcessedAttentionTasks(tasks: List<JSONObject>): List<JSONObject> {
+        val cards = tasks.filter { it.optString("type") != "notification" }
+        val groupedNotifs = tasks.filter { it.optString("type") == "notification" }
+            .groupBy { it.optString("package", it.optString("agent")) }
 
-        // We will display the top items. If tasks is not empty, we extract from tasks.
-        // Otherwise, we generate dynamic context-based items.
-        val briefItems = remember(tasks, stressScore) {
-            val notifsOnly = tasks.filter { it.optString("type") == "notification" }
-            if (notifsOnly.isNotEmpty()) {
-                notifsOnly.map { task ->
-                    val agent = task.optString("agent", "Orchestrator")
-                    val message = task.optString("message", "")
-                    val isDeadline = message.lowercase().contains("deadline") || message.lowercase().contains("thesis") || message.lowercase().contains("due")
-                    val isWeather = message.lowercase().contains("weather") || message.lowercase().contains("rain") || message.lowercase().contains("sky")
-                    
-                    val title = if (isDeadline) "Academic Alert" 
-                                else if (isWeather) "Weather update"
-                                else "Alert: $agent"
-                    
-                    val category = if (isDeadline) "academic" else if (isWeather) "weather" else "general"
-                    BriefItem(title = title, message = message, category = category)
-                }.take(2)
-            } else {
-                val hourOfDay = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-                when (hourOfDay) {
-                    in 5..11 -> listOf(
-                        BriefItem(
-                            title = "Morning Focus Window",
-                            message = "System telemetry indicates optimal recovery. High-focus activity recommended.",
-                            category = "academic"
-                        ),
-                        BriefItem(
-                            title = "System Status",
-                            message = "Local background processing telemetry clean. Energy profile optimal.",
-                            category = "general"
-                        )
-                    )
-                    in 12..16 -> listOf(
-                        BriefItem(
-                            title = if (stressScore > 50) "Cognitive Rest Recommended" else "Mid-Day Performance",
-                            message = if (stressScore > 50) "High cognitive load detected. Consider taking a 5-minute offline break." else "Cognitive load is currently stable. Maintain your current work cadence.",
-                            category = if (stressScore > 50) "academic" else "general"
-                        ),
-                        BriefItem(
-                            title = "Environmental State",
-                            message = "Ambient lighting and noise levels normal. Perfect for productive tasks.",
-                            category = "weather"
-                        )
-                    )
-                    in 17..21 -> listOf(
-                        BriefItem(
-                            title = "Evening Reflection",
-                            message = "You completed your core focus targets today. Clear cognitive peaks recorded.",
-                            category = "academic"
-                        ),
-                        BriefItem(
-                            title = "Security & Encryption",
-                            message = "Local telemetry storage synchronized. All personal logs encrypted locally.",
-                            category = "general"
-                        )
-                    )
-                    else -> listOf(
-                        BriefItem(
-                            title = "Sleep Cycle Correction",
-                            message = "Recommended sleep window approaching. Screen blue light filters activated.",
-                            category = "weather"
-                        ),
-                        BriefItem(
-                            title = "Scheduled Maintenance",
-                            message = "Local machine learning inference optimizations running under sleep cycles.",
-                            category = "general"
-                        )
-                    )
+        val processedNotifs = groupedNotifs.map { (pkg, group) ->
+            if (group.size == 1) return@map group[0]
+            val sorted = group.sortedByDescending { getSafeTimestamp(it) }
+            val agentName = if (pkg.contains(".")) getAppNameFromPackage(pkg) else pkg
+            val summary = "${group.size} notifications: " + sorted.take(3).joinToString("; ") {
+                val t = it.optString("title", ""); val m = it.optString("message", "")
+                if (t.isNotEmpty()) "$t: $m" else m
+            } + if (group.size > 3) "..." else ""
+            JSONObject().apply {
+                put("type", "notification"); put("action_id", sorted[0].optString("action_id"))
+                put("package", pkg); put("agent", agentName)
+                put("message", summary); put("timestamp", getSafeTimestamp(sorted[0]))
+            }
+        }
+        return (cards + processedNotifs).sortedByDescending { getSafeTimestamp(it) }.take(6)
+    }
+
+    private fun checkPermissionsState() {
+        val configManager = OnboardingConfigManager(this)
+        val accEnabled = isAccessibilityServiceEnabled(this, com.friday.node.service.FRIDAYAccessibilityService::class.java)
+        isAccessibilityGranted.value = accEnabled
+        configManager.setModuleEnabled("Accessibility & Touch", accEnabled)
+
+        val listeners = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
+        val notifEnabled = listeners != null && listeners.contains(packageName)
+        isNotificationAccessGranted.value = notifEnabled
+        configManager.setModuleEnabled("Notification & Activity", notifEnabled)
+
+        val postNotif = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        else true
+        isPostNotificationGranted.value = postNotif
+
+        val locGranted = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        configManager.setModuleEnabled("Location & Environment", locGranted)
+    }
+
+    private fun recalculateLocalStress() {
+        val result = LocalFallbackEngine.evaluateOfflineContext(
+            appSwitchesCount = appSwitchesCount.value,
+            averageTypingCadenceMs = averageTypingCadenceMs.value,
+            notificationsPerMin = notificationsCount.value
+        )
+        stressScore.value = result.stressScore
+        val now = System.currentTimeMillis()
+        if ((now - lastPromptUpdateTimeMs >= 60_000L || wellbeingPrompt.value.startsWith("FRIDAY ready"))
+            && (!isConnected.value || activeActionCard.value == null)) {
+            val newPrompt = result.empatheticRecommendation
+            if (newPrompt != wellbeingPrompt.value) { wellbeingPrompt.value = newPrompt; lastPromptUpdateTimeMs = now }
+        }
+        val intensity = (result.stressScore / 100f).coerceIn(0.02f, 1f)
+        if (activityIntensities.size >= 16) activityIntensities.removeAt(0)
+        activityIntensities.add(intensity)
+
+        productivityPercentage.value = "${(96 - appSwitchesCount.value * 2 - notificationsCount.value).coerceIn(10, 100)}%"
+        focusPercentage.value = "${(92 - appSwitchesCount.value * 3).coerceIn(10, 100)}%"
+        confidencePercentage.value = "${(88 - result.stressScore / 5).coerceIn(10, 100)}%"
+        memoryMatchPercentage.value = "${(82 + appSwitchesCount.value).coerceIn(50, 99)}%"
+        if (result.stressScore > 60) stressSpikeTime.value = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+    }
+
+    private fun triggerTelemetryRefresh(onComplete: () -> Unit) {
+        CoroutineScope(Dispatchers.Main).launch {
+            val connected = WebSocketManager.getInstance().isConnected()
+            isConnected.value = connected
+            connectionStatus.value = if (connected) "Connected to Hub" else "Searching for Hub..."
+            checkPermissionsState(); recalculateLocalStress()
+            bufferedEventsCount.value = RoomDatabase.getInstance(this@MainActivity).getEventCount()
+            if (connected) {
+                try { WebSocketManager.getInstance().sendEvent(JSONObject().apply { put("type", "sync_request"); put("timestamp", System.currentTimeMillis()) }.toString()) }
+                catch (e: Exception) { Log.e(TAG, "Sync request failed: ${e.message}") }
+            }
+            delay(800); onComplete()
+        }
+    }
+
+    private fun isAccessibilityServiceEnabled(context: Context, service: Class<out AccessibilityService>): Boolean {
+        val expected = ComponentName(context, service)
+        val setting = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
+        val splitter = TextUtils.SimpleStringSplitter(':').apply { setString(setting) }
+        while (splitter.hasNext()) {
+            val c = ComponentName.unflattenFromString(splitter.next())
+            if (c != null && c == expected) return true
+        }
+        return false
+    }
+
+    // ── Color Tokens ─────────────────────────────────────────────────────────────
+    var isDarkThemeGlobal by mutableStateOf(false)
+    val ColorBlockLime get() = if (isDarkThemeGlobal) Color(0xFF2A3600) else Color(0xFFD6FF3D)
+    val ColorBlockLilac get() = if (isDarkThemeGlobal) Color(0xFF1B1437) else Color(0xFFC6BFFF)
+    val ColorBlockCream get() = if (isDarkThemeGlobal) Color(0xFF252216) else Color(0xFFFFF9E3)
+    val ColorBlockMint get() = if (isDarkThemeGlobal) Color(0xFF092416) else Color(0xFFB2FFD6)
+    val ColorBlockPink get() = if (isDarkThemeGlobal) Color(0xFF321028) else Color(0xFFFFB8EB)
+    val ColorBlockCoral get() = if (isDarkThemeGlobal) Color(0xFF3E120A) else Color(0xFFFF8C70)
+    val ColorBlockNavy get() = if (isDarkThemeGlobal) Color(0xFF0C1022) else Color(0xFF10162F)
+    val ColorBackground get() = if (isDarkThemeGlobal) Color(0xFF121212) else Color(0xFFF9F9F9)
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // THEME
+    // ─────────────────────────────────────────────────────────────────────────────
+    @Composable
+    fun FridayTheme(content: @Composable () -> Unit) {
+        isDarkThemeGlobal = isSystemInDarkTheme()
+        val cs = if (isDarkThemeGlobal) darkColorScheme(
+            primary = Color.White, background = Color(0xFF121212), surface = Color(0xFF1E1E1E),
+            onBackground = Color(0xFFF1F1F1), onSurface = Color(0xFFF1F1F1), error = Color(0xFFEF4444),
+            surfaceVariant = Color(0xFF2A2A2A), onSurfaceVariant = Color(0xFFB0B0B0)
+        ) else lightColorScheme(
+            primary = Color.Black, background = ColorBackground, surface = Color.White,
+            onBackground = Color.Black, onSurface = Color.Black, error = Color(0xFFEF4444)
+        )
+        MaterialTheme(colorScheme = cs, content = content)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // MAIN CONTAINER
+    // ─────────────────────────────────────────────────────────────────────────────
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    fun MainContainer() {
+        var activeTab by remember { mutableStateOf(0) }
+        var isRefreshing by remember { mutableStateOf(false) }
+        Scaffold(
+            bottomBar = {
+                CustomBottomNavBar(
+                    activeTab = activeTab,
+                    onTabSelected = { activeTab = it; showProactiveOverlay.value = false },
+                    onSparkClicked = { showProactiveOverlay.value = !showProactiveOverlay.value }
+                )
+            },
+            containerColor = MaterialTheme.colorScheme.background,
+            modifier = Modifier.fillMaxSize()
+        ) { innerPadding ->
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = { isRefreshing = true; triggerTelemetryRefresh { isRefreshing = false } },
+                modifier = Modifier.padding(innerPadding).fillMaxSize()
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    when (activeTab) {
+                        0 -> DashboardTab(); 1 -> MindTab(); 2 -> ContinuityTab(); 3 -> SettingsTab()
+                    }
+                    if (showProactiveOverlay.value) ProactiveOverlayScreen { showProactiveOverlay.value = false }
                 }
             }
         }
+    }
 
-        val footerQuote = when {
-            stressScore > 75 -> "High stress detected. Recommending a short break."
-            stressScore > 45 -> "Elevated cognitive load. Keeping notifications quiet."
-            else -> "You seem rested today. Prioritizing academic tasks."
+    // ─────────────────────────────────────────────────────────────────────────────
+    // BOTTOM NAV
+    // ─────────────────────────────────────────────────────────────────────────────
+    @Composable
+    fun CustomBottomNavBar(activeTab: Int, onTabSelected: (Int) -> Unit, onSparkClicked: () -> Unit) {
+        Box(
+            modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
+                .border(width = 1.dp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                .padding(bottom = 8.dp, top = 8.dp)
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround, verticalAlignment = Alignment.CenterVertically) {
+                NavItem("HOME", Icons.Default.Home, activeTab == 0) { onTabSelected(0) }
+                NavItem("INSIGHTS", Icons.Default.Favorite, activeTab == 1) { onTabSelected(1) }
+                Spacer(modifier = Modifier.size(48.dp))
+                NavItem("TIMELINE", Icons.Default.Refresh, activeTab == 2) { onTabSelected(2) }
+                NavItem("SETTINGS", Icons.Default.Settings, activeTab == 3) { onTabSelected(3) }
+            }
+            Box(modifier = Modifier.align(Alignment.TopCenter).offset(y = (-24).dp)) {
+                Button(
+                    onClick = onSparkClicked,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
+                    shape = CircleShape,
+                    modifier = Modifier.size(56.dp).border(2.dp, ColorBlockLime, CircleShape),
+                    contentPadding = PaddingValues(0.dp)
+                ) { Icon(Icons.Default.Mic, "AI Assistant", tint = ColorBlockLime, modifier = Modifier.size(24.dp)) }
+            }
+        }
+    }
+
+    @Composable
+    private fun NavItem(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean, onClick: () -> Unit) {
+        val tint = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(onClick = onClick).padding(8.dp)) {
+            Icon(icon, label, tint = tint, modifier = Modifier.size(24.dp))
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(label, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = tint)
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // HOME TAB — Connection · Greeting · Brief · Active Card · Top-3 Attention
+    // ─────────────────────────────────────────────────────────────────────────────
+    @Composable
+    fun DashboardTab() {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            // Header
+            item {
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("FRIDAY", fontSize = 26.sp, fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground)
+                    Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+                        Text(userName.value.take(1).ifEmpty { "U" }, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    }
+                }
+            }
+            // Connection banner
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(12.dp)).padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(stringResource(R.string.title_node_connection), fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(2.dp))
+                        Text(connectionStatus.value, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                    Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(if (isConnected.value) Color(0xFF10B981) else Color(0xFFEF4444)))
+                }
+            }
+            // Greeting
+            item {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(getDynamicGreeting(userName.value), fontSize = 40.sp, fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.W300, letterSpacing = (-0.96).sp, lineHeight = 44.sp, color = MaterialTheme.colorScheme.onBackground)
+                    Spacer(Modifier.height(10.dp))
+                    Text(getMotivatingSubtitle(), fontSize = 17.sp, fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.W300, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
+                }
+            }
+            // Briefing card
+            item { NotificationBriefingCard(tasks = attentionTasks, stressScore = stressScore.value) }
+            // Active recommendation (conditional)
+            if (activeActionCard.value != null) item { ActiveRecommendationCard() }
+            // Top-3 attention
+            item { AttentionPanel() }
+            item { Spacer(Modifier.height(40.dp)) }
+        }
+    }
+
+    @Composable
+    private fun ActiveRecommendationCard() {
+        val card = activeActionCard.value ?: return
+        val actionId = card.optString("action_id", "")
+        val type = card.optString("type", "")
+        val message = card.optString("message", "")
+        val score = card.optDouble("score", 0.0)
+        val agentName = card.optString("agent", "Orchestrator").replaceFirstChar { it.titlecase(Locale.getDefault()) }
+        val isHandoff = type == "MEDIA_HANDOFF" || type == "PAGE_HANDOFF"
+        val url = if (type == "MEDIA_HANDOFF")
+            "https://www.youtube.com/watch?v=${card.optString("video_id")}&t=${card.optInt("playback_timestamp_seconds")}s"
+        else card.optString("url", "")
+
+        fun dismiss() {
+            WebSocketManager.getInstance().sendFeedback(actionId, "dismissed")
+            attentionTasks.removeAll { it.optString("action_id") == actionId }
+            activeActionCard.value = null
+            wellbeingPrompt.value = "Ambient tracking active. System stable."
+            timelineEvents.add(0, TimelineEvent("Handoff Dismissed", "Dismissed laptop task", SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date()), "continuity"))
+            showToast("Recommendation dismissed")
+        }
+
+        fun accept() {
+            WebSocketManager.getInstance().sendFeedback(actionId, "helpful")
+            attentionTasks.removeAll { it.optString("action_id") == actionId }
+            activeActionCard.value = null
+            if (isHandoff && url.isNotEmpty()) {
+                try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }) }
+                catch (e: Exception) { Log.e(TAG, "URL launch failed: ${e.message}") }
+            }
+            wellbeingPrompt.value = "Feedback logged. Optimizing model."
+            timelineEvents.add(0, TimelineEvent("Handoff Resumed", "Resumed laptop task", SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date()), "continuity"))
+            showToast(if (isHandoff) "Task resumed!" else "Thank you for your feedback!")
         }
 
         Card(
             shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(
-                    1.dp,
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                    RoundedCornerShape(24.dp)
-                )
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            modifier = Modifier.fillMaxWidth().border(1.dp, ColorBlockLime.copy(alpha = 0.3f), RoundedCornerShape(24.dp))
         ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Header
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        Text(
-                            text = briefTitle,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(ColorBlockCoral))
+                        Spacer(Modifier.width(8.dp))
+                        Text("$agentName Agent".uppercase(Locale.getDefault()), fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                     }
-                    
-                    Box(
-                        modifier = Modifier
-                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(9999.dp))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = unreadText,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                        )
+                    Box(modifier = Modifier.background(ColorBlockLime.copy(alpha = 0.2f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 2.dp)) {
+                        val displayScore = if (score > 1.0) score.toInt() else (score * 100).toInt()
+                        Text("SCORE: $displayScore%", fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
+                Text(message, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface, lineHeight = 22.sp)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = ::dismiss) { Text("Dismiss", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold) }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = ::accept, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface), shape = RoundedCornerShape(12.dp)) {
+                        Icon(if (isHandoff) Icons.Default.PlayArrow else Icons.Default.Check, null, tint = MaterialTheme.colorScheme.surface, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (isHandoff) "Resume" else "Helpful", color = MaterialTheme.colorScheme.surface, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
 
-                // Inner cards
+    @Composable
+    private fun AttentionPanel() {
+        val tasks = getProcessedAttentionTasks(attentionTasks).take(3)
+        Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockCream), modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(stringResource(R.string.title_what_needs_attention), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                if (tasks.isEmpty()) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("FRIDAY is learning your flow...", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                        Spacer(Modifier.height(4.dp))
+                        Text("Move around and start your routines. I'll prioritize what needs attention here.", fontSize = 12.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        tasks.forEachIndexed { i, task ->
+                            AttentionTaskRow(index = i, task = task, totalCount = tasks.size)
+                        }
+                    }
+                }
+                if (attentionTasks.size > 3) {
+                    Text("+${attentionTasks.size - 3} more — see Timeline tab", fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), modifier = Modifier.align(Alignment.End))
+                }
+            }
+        }
+    }
+
+    // Shared task row used in both Home (condensed) and Continuity (full list)
+    @Composable
+    private fun AttentionTaskRow(index: Int, task: JSONObject, totalCount: Int) {
+        val actionId = task.optString("action_id", "act_$index")
+        val agent = task.optString("agent", "Orchestrator")
+        val message = task.optString("message", "Attention required")
+        val isNotif = task.optString("type") == "notification"
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(String.format("%02d", index + 1), fontFamily = FontFamily.Monospace, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
+                Spacer(Modifier.width(12.dp))
+                Text("[$agent] $message", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            }
+            Spacer(Modifier.width(8.dp))
+            Button(
+                onClick = {
+                    if (isNotif) {
+                        val pkg = task.optString("package")
+                        attentionTasks.removeAll { it.optString("package") == pkg || it.optString("action_id") == actionId }
+                        showToast("Alert cleared")
+                    } else {
+                        activeTaskName.value = "Optimize: $message"
+                        activeTaskSteps.clear()
+                        activeTaskSteps.addAll(listOf("Analyze VS Code metrics" to "COMPLETED", "Verify DB query efficiency" to "IN_PROGRESS", "Generate execution plan" to "PENDING"))
+                        showToast("Journey started: $message")
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
+                shape = RoundedCornerShape(9999.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                modifier = Modifier.height(32.dp)
+            ) { Text(if (isNotif) "Clear" else stringResource(R.string.btn_action), fontSize = 11.sp, color = MaterialTheme.colorScheme.surface) }
+        }
+        if (index < totalCount - 1) HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // MIND TAB — Status · Insight · Cognitive gauge · Radar · Metrics · Agents ·
+    //            Signals · Anomaly · Memory correlation · Action buttons
+    // ─────────────────────────────────────────────────────────────────────────────
+    @Composable
+    fun MindTab() {
+        val stress = stressScore.value
+        val subtitleText = when {
+            stress == 0 -> "Learning routine..."
+            stress >= 75 -> "Elevated Stress"
+            stress >= 50 -> "Focused & Engaged"
+            else -> "Calm & Balanced"
+        }
+        val insightText = when {
+            stress == 0 -> "Ambient tracking active. As we collect telemetry from your app switching and typing speeds, personalized cognitive insights will appear here."
+            stress >= 75 -> "Your stress score is high ($stress%). We detect multiple context transitions. A short break is recommended."
+            appSwitchesCount.value > 8 -> "Frequent app switching detected. Try to isolate your environment to stay in deep focus."
+            else -> "Focus metrics look solid today. Your typing cadence is consistent and app switching is minimal."
+        }
+        val burnoutScore = if (stress == 0) 10f else (stress * 0.7f).coerceIn(10f, 100f)
+        val fatigueScore = if (stress == 0) 15f else (appSwitchesCount.value * 6f + averageTypingCadenceMs.value / 25f).coerceIn(10f, 100f)
+        val socialScore = if (notificationsCount.value == 0) 12f else (notificationsCount.value * 12f).coerceIn(10f, 100f)
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            // Header
+            item {
+                Spacer(Modifier.height(24.dp))
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockLime), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(24.dp)) {
+                        Text(stringResource(R.string.title_current_status), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                        Spacer(Modifier.height(4.dp))
+                        Text(stringResource(R.string.title_mindspace), fontSize = 32.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(8.dp))
+                        Text(subtitleText, fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+            }
+
+            // Insight prose
+            item { Text(insightText, fontSize = 18.sp, fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.W300, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)) }
+
+            // Cognitive Load gauge (dynamic label, no hardcoded "High switching" text)
+            item {
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockMint), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(stringResource(R.string.title_cognitive_pulse), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                // Dynamic label based on actual data — replaces hardcoded "High switching detected recently."
+                                val gaugeLabel = when {
+                                    stress == 0 -> "Awaiting telemetry data."
+                                    stress >= 75 -> "High cognitive load detected."
+                                    stress >= 50 -> "Moderate load. Stay focused."
+                                    else -> "Low load. You're in the zone."
+                                }
+                                Text(gaugeLabel, fontSize = 17.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    if (isGhostMode.value) "Ghost mode active. Telemetry simplified." else "High-fidelity telemetry streaming.",
+                                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                            Spacer(Modifier.width(16.dp))
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(100.dp)) {
+                                CircularProgressIndicator(progress = { stress / 100f }, modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.onSurface, strokeWidth = 10.dp, trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                                Text("$stress%", fontSize = 22.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Radar chart (separate lazy item for performance)
+            item {
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockNavy), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(stringResource(R.string.title_cognitive_risk_radar), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.6f), modifier = Modifier.align(Alignment.Start))
+                        Spacer(Modifier.height(16.dp))
+                        BiometricsRadarChart(stress = stress.toFloat(), burnout = burnoutScore, fatigue = fatigueScore, social = socialScore)
+                    }
+                }
+            }
+
+            // Metrics grid (separate lazy item)
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(R.string.title_current_state), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        BiometricMetricItem("Stress", "$stress%", when { stress >= 75 -> "Elevated"; stress >= 50 -> "Moderate"; else -> "Stable" })
+                        BiometricMetricItem("Focus", focusPercentage.value, when { focusPercentage.value == "Learning..." -> "Learning..."; appSwitchesCount.value > 5 -> "Distracted"; else -> "High Perf" })
+                        BiometricMetricItem("Cadence", if (averageTypingCadenceMs.value == 0L) "--" else "${averageTypingCadenceMs.value}ms", when {
+                            averageTypingCadenceMs.value == 0L -> "No Input"; averageTypingCadenceMs.value in 10..180 -> "Fast"; averageTypingCadenceMs.value > 600 -> "Slow"; else -> "Consistent"
+                        })
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        BiometricMetricItem("Confidence", confidencePercentage.value, when { confidencePercentage.value == "Learning..." -> "Learning..."; stress >= 75 -> "Fluctuating"; else -> "Stable" })
+                        BiometricMetricItem("Social Load", if (notificationsCount.value == 0) "0%" else "${socialScore.toInt()}%", when { notificationsCount.value == 0 -> "Quiet"; socialScore >= 60 -> "Demanding"; else -> "Introvert" })
+                    }
+                }
+            }
+
+            // Emotion agent (separate lazy item)
+            item {
+                val eTitle = when { stress == 0 -> "Stable"; stress >= 70 -> "High Arousal"; else -> "Focused & Confident" }
+                val eDesc = when { stress == 0 -> "Ambient tracking active. Analyzing focus patterns."; stress >= 70 -> "Slight stress spike detected. Take deep breaths."; else -> "Stable typing rhythms and low application switching detected." }
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockMint), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Favorite, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.title_emotion_agent), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                        }
+                        Text(eTitle, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        Text(eDesc, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(confidencePercentage.value, fontSize = 24.sp, fontWeight = FontWeight.Black)
+                            Text(stringResource(R.string.title_confidence_score), fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                        }
+                    }
+                }
+            }
+
+            // Burnout agent (separate lazy item)
+            item {
+                val bTitle = when { stress == 0 -> "Risk: Stable"; burnoutScore >= 60 -> "Risk: High"; burnoutScore >= 35 -> "Risk: Moderate"; else -> "Risk: Low" }
+                val bDesc = when { stress == 0 -> "No active stress patterns detected. Tracking balance."; burnoutScore >= 60 -> "High continuous stress. Prioritize rest cycles immediately."; else -> "Normal sleep cycles, consistent output, and language neutrality." }
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockPink), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Build, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.title_burnout_agent), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                        }
+                        Text(bTitle, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        Text(bDesc, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f))
+                    }
+                }
+            }
+
+            // Social agent (separate lazy item)
+            item {
+                val sTitle = when { notificationsCount.value == 0 -> "Risk: Stable"; socialScore >= 60 -> "Risk: High"; socialScore >= 35 -> "Risk: Moderate"; else -> "Risk: Low" }
+                val sDesc = when { notificationsCount.value == 0 -> "No recent communication spikes. Social load is light."; socialScore >= 60 -> "High messaging volume. Consider putting phone on Do Not Disturb."; else -> "Impending tasks stable. Social load is well within limits." }
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockCream), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.title_social_agent), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                        }
+                        Text(sTitle, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        Text(sDesc, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f))
+                    }
+                }
+            }
+
+            // Signals (separate lazy item)
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text(stringResource(R.string.title_why_signals), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        SignalRowItem("App Switching", "${appSwitchesCount.value} events")
+                        SignalRowItem("Active Location", locationState.value.uppercase(Locale.getDefault()))
+                        SignalRowItem("Typing Delay", "${averageTypingCadenceMs.value} ms")
+                        SignalRowItem("Session Duration", focusTimeDisplay.value)
+                    }
+                }
+            }
+
+            // Behavioral Anomaly (separate lazy item — split from Memory Correlation for lazy loading)
+            item {
+                val anomaly = remember(appSwitchesCount.value, averageTypingCadenceMs.value, stress) {
+                    (appSwitchesCount.value * 2 + (averageTypingCadenceMs.value / 200).toInt() + stress / 4).coerceIn(2, 98)
+                }
+                val dayOfWeek = SimpleDateFormat("EEEE", Locale.getDefault()).format(Date())
+                val (aLabel, aColor, aBg, aDesc) = when {
+                    anomaly > 60 -> Quad("ELEVATED DEVIATION", Color(0xFFE57373), Color(0x1AE57373), "Frequent app switching and altered cadence indicate context fatigue.")
+                    anomaly > 35 -> Quad("MODERATE DEVIATION", Color(0xFFFFB74D), Color(0x1AFFB74D), "Mild pacing variation detected. Monitor focus cadence.")
+                    else -> Quad("STABLE SYSTEM PATTERN", Color(0xFF81C784), Color(0x1A81C784), "Current usage aligns cleanly with historical baseline.")
+                }
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), RoundedCornerShape(24.dp))) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.title_behavioral_anomaly), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Box(modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(aBg).padding(horizontal = 8.dp, vertical = 4.dp)) { Text(aLabel, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = aColor) }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Text("Pattern Analysis: $anomaly% deviation from standard $dayOfWeek baseline.", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(6.dp))
+                        Text(aDesc, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            // Memory Correlation (separate lazy item — split from Behavioral Anomaly for lazy loading)
+            item {
+                val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.MONTH, -3) }
+                val pastMonth = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(cal.time)
+                val matchPct = memoryMatchPercentage.value.replace("%", "").toIntOrNull() ?: 0
+                val (mLabel, mColor, mBg) = when {
+                    matchPct > 75 -> Triple("HIGH HISTORICAL FIT", Color(0xFF64B5F6), Color(0x1A64B5F6))
+                    matchPct > 45 -> Triple("MODERATE FIT", Color(0xFFBA68C8), Color(0x1ABA68C8))
+                    else -> Triple("NOVEL PATTERNFLOW", Color(0xFF90A4AE), Color(0x1A90A4AE))
+                }
+                val outcome = when { stress >= 75 -> "High cognitive load detected. Recommend task transition."; stress >= 50 -> "Moderate stress. High focus but stable output."; else -> "Balanced flow state. Smooth task transitions." }
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), RoundedCornerShape(24.dp))) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.title_memory_correlation), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Box(modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(mBg).padding(horizontal = 8.dp, vertical = 4.dp)) { Text(mLabel, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = mColor) }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Text("Similar Past Events: ${memoryMatchPercentage.value} Match to $pastMonth Baseline.", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(6.dp))
+                        Text("Outcome: $outcome", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            // Action buttons
+            item {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            isFocusModeActive.value = !isFocusModeActive.value
+                            if (isFocusModeActive.value) { sessionStartTimeMs = System.currentTimeMillis(); focusTimeDisplay.value = "0s"; showToast("Focus mode activated!") }
+                            else showToast("Focus mode deactivated!")
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = if (isFocusModeActive.value) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface),
+                        shape = RoundedCornerShape(9999.dp), modifier = Modifier.weight(1f)
+                    ) { Text(if (isFocusModeActive.value) "Stop Focus" else "Start Focus", color = if (isFocusModeActive.value) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.surface, fontSize = 11.sp) }
+
+                    Button(
+                        onClick = { isReduceInterruptActive.value = !isReduceInterruptActive.value; showToast(if (isReduceInterruptActive.value) "Interruption blocker active." else "Deactivated.") },
+                        colors = ButtonDefaults.buttonColors(containerColor = if (isReduceInterruptActive.value) MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f) else Color.Transparent),
+                        shape = RoundedCornerShape(9999.dp), modifier = Modifier.weight(1f).border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
+                    ) { Text(if (isReduceInterruptActive.value) "Allow Interrupt" else "Reduce Interrupt", color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp) }
+
+                    Button(
+                        onClick = { showExplainStressDialog.value = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                        shape = RoundedCornerShape(9999.dp), modifier = Modifier.weight(1f).border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
+                    ) { Text("Explain Stress", color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp) }
+                }
+            }
+
+            item { Spacer(Modifier.height(40.dp)) }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // CONTINUITY TAB — Date · Key metrics · Intensity chart · Story · Memory
+    //                  Moment (read-only) · Devices · Task Journey · Full task
+    //                  list + Simulate · Cognitive balance status · System logs ·
+    //                  Recent sites · Live log
+    // ─────────────────────────────────────────────────────────────────────────────
+    @Composable
+    fun ContinuityTab() {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            // Header
+            item {
+                Spacer(Modifier.height(24.dp))
+                Text(stringResource(R.string.title_life_timeline), fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 4.dp))
+                Text(getDynamicDate(), fontSize = 40.sp, fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.W300, letterSpacing = (-0.96).sp, lineHeight = 44.sp, color = MaterialTheme.colorScheme.onBackground)
+            }
+
+            // Key metrics row (the only metrics summary — the duplicate LazyRow has been removed)
+            item {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column { Text("PRODUCTIVITY", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold); Text(productivityPercentage.value, fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface) }
+                    Column { Text("PEAK FOCUS", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold); Text(peakFocusTime.value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) }
+                    Column { Text("SESSION", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold); Text(focusTimeDisplay.value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) }
+                    Column { Text("STRESS SPIKE", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold); Text(stressSpikeTime.value, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) }
+                }
+            }
+
+            // Activity intensity visualizer
+            item { ProductivityIntensityVisualizer() }
+
+            // Today's story
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.title_today_story), fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                    val story = if (stressScore.value == 0)
+                        "Ambient tracking active. As we collect telemetry from your device switches and notification intercepts, your personalized daily story will build here."
+                    else
+                        "Today's journey began in the ${locationState.value.lowercase(Locale.getDefault())} context. ${appSwitchesCount.value} application switches logged, ${notificationsCount.value} distractions intercepted. Cognitive stress at ${stressScore.value}%."
+                    Text(story, fontSize = 20.sp, fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.W300, color = MaterialTheme.colorScheme.onSurface, lineHeight = 28.sp)
+                }
+            }
+
+            // Memory Moment — read-only callout (no action buttons; those live on Mind tab)
+            if (!isMemoryMomentDismissed.value) {
+                item {
+                    val loc = locationState.value
+                    val memTitle = if (loc.isEmpty() || loc == "unknown") "Learning Routines" else loc.replaceFirstChar { it.titlecase(Locale.getDefault()) }
+                    val memBody = if (loc.isEmpty() || loc == "unknown")
+                        "Move around and let me learn your focus triggers. Your routines will surface here automatically."
+                    else
+                        "You typically activate 'Deep Focus' in this context. Head to the Insights tab to start a focus session."
+                    Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                                Text("MEMORY MOMENT", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                                IconButton(onClick = { isMemoryMomentDismissed.value = true }, modifier = Modifier.size(20.dp)) {
+                                    Icon(Icons.Default.Close, "Dismiss", tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f), modifier = Modifier.size(14.dp))
+                                }
+                            }
+                            Text(memTitle, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                            Text(memBody, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f))
+                        }
+                    }
+                }
+            }
+
+            // Devices
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(R.string.title_device_continuity), fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                    DeviceContinuityRow("phone", "Galaxy Phone", "Active: ${focusTimeDisplay.value}")
+                    DeviceContinuityRow("laptop", "Work Laptop", if (isLaptopConnected.value) "Active (WebSocket Connected)" else "Offline")
+                }
+            }
+
+            // Task Journey
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(R.string.title_task_journey), fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                    Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))) {
+                        Column(modifier = Modifier.padding(24.dp)) {
+                            if (activeTaskName.value.isEmpty()) {
+                                Text("Awaiting task journey...", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                                Spacer(Modifier.height(4.dp))
+                                Text("Start a task from the What Needs Attention section below.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                            } else {
+                                Text(activeTaskName.value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                Spacer(Modifier.height(16.dp))
+                                activeTaskSteps.forEach { (title, status) ->
+                                    TaskJourneyStep(title, status, status == "COMPLETED", status == "IN_PROGRESS")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Full attention list — shown only if non-empty; Simulate button shown
+            // as a standalone control (no wrapper card) only when the list is empty
+            item {
+                val allTasks = getProcessedAttentionTasks(attentionTasks)
+                if (allTasks.isNotEmpty()) {
+                    Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockCream), modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Text("ALL PENDING ACTIONS", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                allTasks.forEachIndexed { i, task -> AttentionTaskRow(i, task, allTasks.size) }
+                            }
+                            Button(
+                                onClick = {
+                                    val sorted = attentionTasks.sortedByDescending { it.optDouble("score", 0.0) }
+                                    attentionTasks.clear(); attentionTasks.addAll(sorted); showToast("Tasks prioritized by urgency score.")
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                                shape = RoundedCornerShape(9999.dp),
+                                modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
+                            ) { Text(stringResource(R.string.btn_prioritize_automatically), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold) }
+                        }
+                    }
+                } else {
+                    // Standalone Simulate button — no wrapper card
+                    Button(
+                        onClick = {
+                            val mock = JSONObject().apply { put("type", "FRIDAY_CARD"); put("action_id", "act_sim_01"); put("message", "High CPU on VS Code detected. Run profile_schema.py to inspect queries."); put("agent", "Decision"); put("score", 0.94); put("laptop_active", true) }
+                            attentionTasks.add(mock); activeActionCard.value = mock; isLaptopConnected.value = true; showToast("Workspace journey simulated!")
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                        shape = RoundedCornerShape(9999.dp),
+                        modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(9999.dp))
+                    ) { Text("Simulate Workspace Journey", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold) }
+                }
+            }
+
+            // Cognitive balance status card (the one meaningful card retained from the removed bento)
+            item {
+                val highStress = stressScore.value > 65
+                Card(
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = if (highStress) (if (isDarkThemeGlobal) Color(0xFF4C0505) else Color(0xFFFEE2E2)) else (if (isDarkThemeGlobal) Color(0xFF064E3B) else Color(0xFFD1FAE5))),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val iconTint = if (highStress) (if (isDarkThemeGlobal) Color(0xFFFCA5A5) else Color(0xFF991B1B)) else (if (isDarkThemeGlobal) Color(0xFF34D399) else Color(0xFF065F46))
+                        val bodyColor = if (highStress) (if (isDarkThemeGlobal) Color(0xFFFECACA) else Color(0xFF7F1D1D)) else (if (isDarkThemeGlobal) Color(0xFFA7F3D0) else Color(0xFF065F46))
+                        Icon(if (highStress) Icons.Default.Warning else Icons.Default.Check, null, tint = iconTint, modifier = Modifier.size(20.dp))
+                        Text(if (highStress) "Fatigue Predicted" else "Cognitive Balance Stable", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = iconTint)
+                        Text(if (highStress) "Sleep cycle correction needed. Rest suggested before 11:30 PM." else "Great job keeping your focus window clear of context switching.", fontSize = 13.sp, color = bodyColor)
+                    }
+                }
+            }
+
+            // System logs (navy)
+            item {
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockNavy), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text("SYSTEM LOGS & ACTIVITY", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.6f))
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            SystemLogRow("Active App", "Focused: ${recentApp.value}")
+                            SystemLogRow("Last Notification", lastNotification.value)
+                            SystemLogRow("Offline Cache", "Buffered events: ${bufferedEventsCount.value}")
+                        }
+                    }
+                }
+            }
+
+            // Recent laptop sites
+            if (recentLaptopSites.isNotEmpty()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("RECENT SITES · LAPTOP", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                        recentLaptopSites.take(3).forEach { (title, displayUrl, fullUrl) ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
+                                    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
+                                    .clickable { if (fullUrl.isNotEmpty()) try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(fullUrl)).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }) } catch (e: Exception) { Log.e(TAG, "URL open failed: ${e.message}") } }
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(modifier = Modifier.size(40.dp).background(ColorBlockLilac, CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Default.PlayArrow, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp)) }
+                                Spacer(Modifier.width(16.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(displayUrl.ifEmpty { fullUrl }, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Live activity log
+            if (timelineEvents.isNotEmpty()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("LIVE ACTIVITY LOG", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                        timelineEvents.take(10).forEach { TimelineRowItem(it) }
+                    }
+                }
+            }
+
+            item { Spacer(Modifier.height(40.dp)) }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // SETTINGS TAB
+    // "Forget Memory" has been removed — its functionality (Clear All) now lives
+    // inside the memories dialog opened by "View & Manage Memories".
+    // ─────────────────────────────────────────────────────────────────────────────
+    @Composable
+    fun SettingsTab() {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            item {
+                Spacer(Modifier.height(24.dp))
+                Text(stringResource(R.string.title_trust_center), fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 4.dp))
+                Text("Settings", fontSize = 40.sp, fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Black, letterSpacing = (-0.96).sp, color = MaterialTheme.colorScheme.onBackground)
+                Text("Manage privacy, devices and personalization.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            // Profile
+            item {
+                Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(24.dp)).border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp)).padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.onSurface), contentAlignment = Alignment.Center) {
+                        Text(userName.value.take(1).ifEmpty { "U" }, color = MaterialTheme.colorScheme.surface, fontSize = 32.sp, fontWeight = FontWeight.Black)
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Column {
+                        Text(userName.value, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        Text(userRole.value, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            // Privacy & Data
+            item {
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockLime), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(stringResource(R.string.title_privacy_data), fontSize = 32.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+                        val prefs = remember { getSharedPreferences("friday_settings", MODE_PRIVATE) }
+                        var dataProcessing by remember { mutableStateOf(prefs.getBoolean("data_processing", true)) }
+                        var cloudBackup by remember { mutableStateOf(prefs.getBoolean("cloud_backup", true)) }
+                        var dataEncryption by remember { mutableStateOf(prefs.getBoolean("data_encryption", true)) }
+                        ToggleRow(stringResource(R.string.hint_data_processing), stringResource(R.string.hint_mostly_on_device), dataProcessing) { dataProcessing = it; prefs.edit().putBoolean("data_processing", it).apply(); showToast(if (it) "On-device processing enabled" else "Disabled") }
+                        ToggleRow(stringResource(R.string.hint_cloud_backup), checked = cloudBackup) { cloudBackup = it; prefs.edit().putBoolean("cloud_backup", it).apply(); showToast(if (it) "Cloud backup enabled" else "Disabled") }
+                        ToggleRow(stringResource(R.string.hint_data_encryption), checked = dataEncryption) { dataEncryption = it; prefs.edit().putBoolean("data_encryption", it).apply(); showToast(if (it) "Encryption enabled" else "Disabled") }
+                        Spacer(Modifier.height(4.dp))
+                        Button(
+                            onClick = { try { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply { data = Uri.fromParts("package", packageName, null) }) } catch (_: Exception) { showToast(getString(R.string.msg_open_permission_manager)) } },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
+                            shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                        ) { Text(stringResource(R.string.btn_manage_permissions), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold) }
+                    }
+                }
+            }
+
+            // System Permissions
+            item {
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))) {
+                    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(stringResource(R.string.title_system_permissions), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        PermissionRow("Accessibility Service", "For active application context switches", isAccessibilityGranted.value) { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                        PermissionRow("Notification Listener", "For intercepting notifications", isNotificationAccessGranted.value) { startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")) }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                            PermissionRow("Post Notifications", "Foreground sensing alert channel", isPostNotificationGranted.value) { requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101) }
+                        }
+                    }
+                }
+            }
+
+            // Memory — single "View & Manage" button (Clear All lives inside dialog)
+            item {
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockLilac), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(stringResource(R.string.title_memory), fontSize = 32.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column { Text("${localMemories.size}", fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface); Text("STORED", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)) }
+                            Column { Text("${bufferedEventsCount.value}", fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface); Text("EVENTS", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)) }
+                            Column { Text(String.format(Locale.US, "%.1f MB", 0.4f + localMemories.size * 0.15f), fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface); Text("SIZE", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)) }
+                        }
+                        // Single button — "Clear All" lives inside the dialog itself
+                        Button(onClick = { showMemoriesDialog.value = true }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                            Text("View & Manage Memories", color = MaterialTheme.colorScheme.surface)
+                        }
+                    }
+                }
+            }
+
+            // Devices
+            item {
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockNavy), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Column {
+                            Text(stringResource(R.string.title_devices), fontSize = 32.sp, fontWeight = FontWeight.Black, color = Color.White)
+                            Text("Synced 2m ago", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.White.copy(alpha = 0.4f), fontWeight = FontWeight.Bold)
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (localDevices.isEmpty()) {
+                                Text("No synced devices.", color = Color.White.copy(alpha = 0.6f), fontStyle = FontStyle.Italic, fontSize = 14.sp)
+                            } else {
+                                localDevices.forEachIndexed { idx, (name, status) ->
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(if (name.lowercase().contains("laptop") || name.lowercase().contains("mac") || name.lowercase().contains("pc")) Icons.Default.Build else Icons.Default.Phone, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                            Spacer(Modifier.width(12.dp)); Text(name, color = Color.White, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(modifier = Modifier.background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { Text(status, fontSize = 9.sp, color = Color.White, fontWeight = FontWeight.Bold) }
+                                    }
+                                    if (idx < localDevices.size - 1) HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                                }
+                            }
+                        }
+                        Button(onClick = { showDevicesDialog.value = true }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.btn_manage_devices), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold) }
+                    }
+                }
+            }
+
+            // Hub IP
+            item {
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))) {
+                    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(stringResource(R.string.title_hub_override_ip_config), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedTextField(value = hubIp.value, onValueChange = { hubIp.value = it }, label = { Text("Hub IP", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }, singleLine = true, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = MaterialTheme.colorScheme.onSurface, unfocusedTextColor = MaterialTheme.colorScheme.onSurface, focusedBorderColor = MaterialTheme.colorScheme.onSurface, unfocusedBorderColor = Color.LightGray), modifier = Modifier.weight(2f))
+                            OutlinedTextField(value = hubPort.value, onValueChange = { hubPort.value = it }, label = { Text("Port", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }, singleLine = true, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = MaterialTheme.colorScheme.onSurface, unfocusedTextColor = MaterialTheme.colorScheme.onSurface, focusedBorderColor = MaterialTheme.colorScheme.onSurface, unfocusedBorderColor = Color.LightGray), modifier = Modifier.weight(1f))
+                        }
+                        Button(onClick = { if (hubIp.value.isNotEmpty()) WebSocketManager.getInstance().connect("ws://${hubIp.value}:${hubPort.value}/ws/android") }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.btn_connect_manually), color = MaterialTheme.colorScheme.surface) }
+                    }
+                }
+            }
+
+            // Assistance style
+            item {
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))) {
+                    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(stringResource(R.string.title_assistance_style), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        val prefs = remember { getSharedPreferences("friday_settings", MODE_PRIVATE) }
+                        var style by remember { mutableStateOf(prefs.getString("assistance_style", "Balanced") ?: "Balanced") }
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("Quiet", "Balanced", "Proactive").forEach { s ->
+                                Row(modifier = Modifier.fillMaxWidth().clickable { style = s; prefs.edit().putString("assistance_style", s).apply(); showToast("Style: $s") }, verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(selected = style == s, onClick = { style = s; prefs.edit().putString("assistance_style", s).apply(); showToast("Style: $s") }, colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.onSurface))
+                                    Spacer(Modifier.width(8.dp)); Text(s, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Danger Zone
+            item {
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = if (isDarkThemeGlobal) Color(0xFF4C0505) else Color(0xFFFEE2E2)), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(stringResource(R.string.title_danger_zone), fontSize = 32.sp, fontWeight = FontWeight.Black, color = if (isDarkThemeGlobal) Color(0xFFFECACA) else Color(0xFF7F1D1D))
+                        Button(onClick = { showDisconnectDevicesConfirmDialog.value = true }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.btn_disconnect_devices), color = Color(0xFFEF4444), fontWeight = FontWeight.Bold) }
+                        Button(onClick = { showClearMemoriesConfirmDialog.value = true }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.btn_clear_memories), color = Color(0xFFEF4444), fontWeight = FontWeight.Bold) }
+                    }
+                }
+            }
+
+            item { Spacer(Modifier.height(40.dp)) }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // SHARED COMPOSABLES
+    // ─────────────────────────────────────────────────────────────────────────────
+    @Composable
+    fun BiometricMetricItem(label: String, value: String, subtitle: String) {
+        Column(modifier = Modifier.width(90.dp)) {
+            Text(label.uppercase(), fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            Text(value, fontSize = 24.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground)
+            Text(subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onBackground)
+        }
+    }
+
+    @Composable
+    fun SignalRowItem(label: String, value: String, isAlert: Boolean = false) {
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text(value, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = if (isAlert) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurface)
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+    }
+
+    @Composable
+    private fun SystemLogRow(title: String, subtitle: String) {
+        Row(verticalAlignment = Alignment.Top) {
+            Icon(Icons.Default.Star, null, tint = ColorBlockLime, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(subtitle, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+
+    @Composable
+    private fun PermissionRow(title: String, subtitle: String, granted: Boolean, onClick: () -> Unit) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Text(subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = if (granted) Color(0xFF10B981) else Color(0xFFEF4444)), shape = RoundedCornerShape(9999.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)) {
+                Text(if (granted) "Granted" else "Grant", fontSize = 11.sp, color = Color.White)
+            }
+        }
+    }
+
+    @Composable
+    fun BiometricsRadarChart(stress: Float, burnout: Float, fatigue: Float, social: Float) {
+        Box(modifier = Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) {
+            Canvas(modifier = Modifier.size(200.dp)) {
+                val c = size.width / 2; val maxR = size.width / 2 * 0.8f
+                for (i in 1..4) {
+                    val r = maxR * (i / 4f)
+                    drawRect(Color.White.copy(alpha = 0.15f), androidx.compose.ui.geometry.Offset(c - r, c - r), androidx.compose.ui.geometry.Size(r * 2, r * 2), style = Stroke(1.dp.toPx()))
+                }
+                drawLine(Color.White.copy(alpha = 0.2f), androidx.compose.ui.geometry.Offset(c, c - maxR), androidx.compose.ui.geometry.Offset(c, c + maxR), 1.dp.toPx())
+                drawLine(Color.White.copy(alpha = 0.2f), androidx.compose.ui.geometry.Offset(c - maxR, c), androidx.compose.ui.geometry.Offset(c + maxR, c), 1.dp.toPx())
+                val path = Path().apply {
+                    moveTo(c, c - maxR * (stress / 100f)); lineTo(c + maxR * (social / 100f), c)
+                    lineTo(c, c + maxR * (burnout / 100f)); lineTo(c - maxR * (fatigue / 100f), c); close()
+                }
+                drawPath(path, ColorBlockLime.copy(alpha = 0.4f))
+                drawPath(path, ColorBlockLime, style = Stroke(2.dp.toPx()))
+            }
+            Box(modifier = Modifier.fillMaxSize()) {
+                Text("STRESS (${stress.toInt()})", fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.6f), modifier = Modifier.align(Alignment.TopCenter))
+                Text("BURNOUT (${burnout.toInt()})", fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.6f), modifier = Modifier.align(Alignment.BottomCenter))
+                Text("FATIGUE (${fatigue.toInt()})", fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.6f), modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp))
+                Text("SOCIAL (${social.toInt()})", fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.6f), modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp))
+            }
+        }
+    }
+
+    @Composable
+    fun ProductivityIntensityVisualizer() {
+        Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockLime), modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Text("ACTIVITY INTENSITY", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                Spacer(Modifier.height(24.dp))
+                Row(modifier = Modifier.fillMaxWidth().height(100.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
+                    activityIntensities.forEach { h ->
+                        Box(modifier = Modifier.weight(1f).fillMaxHeight(h.coerceIn(0.02f, 1f)).background(MaterialTheme.colorScheme.onSurface, RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp)))
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun TimelineRowItem(event: TimelineEvent) {
+        val icon = when (event.type) {
+            "app" -> Icons.Default.Build; "notification" -> Icons.Default.Notifications
+            "location" -> Icons.Default.Home; "suggestion" -> Icons.Default.Star
+            "continuity" -> Icons.Default.PlayArrow; else -> Icons.Default.Info
+        }
+        Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp)).border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(12.dp)).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.background, CircleShape), contentAlignment = Alignment.Center) { Icon(icon, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp)) }
+            Spacer(Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(event.title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Text(event.description, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(event.time, fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+
+    @Composable
+    fun DeviceContinuityRow(icon: String, name: String, active: String) {
+        Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp)).border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(12.dp)).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.background, CircleShape), contentAlignment = Alignment.Center) { Icon(if (icon == "phone") Icons.Default.Phone else Icons.Default.Build, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp)) }
+            Spacer(Modifier.width(16.dp))
+            Column { Text(name, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface); Text(active, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+    }
+
+    @Composable
+    fun TaskJourneyStep(title: String, status: String, isDone: Boolean = false, isCurrent: Boolean = false) {
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(20.dp).clip(CircleShape).background(when { isDone -> MaterialTheme.colorScheme.onSurface; isCurrent -> ColorBlockLime; else -> Color.LightGray }), contentAlignment = Alignment.Center) {
+                if (isDone) Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.surface, modifier = Modifier.size(12.dp))
+            }
+            Spacer(Modifier.width(16.dp))
+            Column {
+                Text(title, fontSize = 14.sp, fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal, color = MaterialTheme.colorScheme.onBackground)
+                Text(status, fontSize = 11.sp, fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal, color = if (isCurrent) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+
+    @Composable
+    fun ToggleRow(label: String, subtitle: String? = null, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(label, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                if (subtitle != null) Text(subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            }
+            Switch(checked = checked, onCheckedChange = onCheckedChange, colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.primary, checkedTrackColor = MaterialTheme.colorScheme.primaryContainer, uncheckedThumbColor = MaterialTheme.colorScheme.outline, uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant))
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // NOTIFICATION BRIEFING CARD
+    // ─────────────────────────────────────────────────────────────────────────────
+    data class BriefItem(val title: String, val message: String, val category: String)
+
+    @Composable
+    fun NotificationBriefingCard(tasks: List<JSONObject>, stressScore: Int) {
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val briefTitle = when (hour) { in 5..11 -> "Morning Brief"; in 12..16 -> "Afternoon Brief"; in 17..21 -> "Evening Brief"; else -> "Night Brief" }
+        val unreadText = if (tasks.isEmpty()) "No Alerts" else "${tasks.size} Unread"
+
+        val briefItems = remember(tasks, stressScore) {
+            val notifs = tasks.filter { it.optString("type") == "notification" }
+            if (notifs.isNotEmpty()) {
+                notifs.map { task ->
+                    val msg = task.optString("message", "")
+                    val isDeadline = msg.lowercase().let { it.contains("deadline") || it.contains("thesis") || it.contains("due") }
+                    val isWeather = msg.lowercase().let { it.contains("weather") || it.contains("rain") }
+                    BriefItem(if (isDeadline) "Academic Alert" else if (isWeather) "Weather Update" else "Alert: ${task.optString("agent", "App")}", msg, if (isDeadline) "academic" else if (isWeather) "weather" else "general")
+                }.take(2)
+            } else {
+                when (hour) {
+                    in 5..11 -> listOf(BriefItem("Morning Focus Window", "Telemetry indicates optimal recovery. High-focus activity recommended.", "academic"), BriefItem("System Status", "Background processing clean. Energy profile optimal.", "general"))
+                    in 12..16 -> listOf(BriefItem(if (stressScore > 50) "Cognitive Rest Recommended" else "Mid-Day Performance", if (stressScore > 50) "High cognitive load. Consider a 5-minute offline break." else "Cognitive load stable. Maintain your current work cadence.", if (stressScore > 50) "academic" else "general"), BriefItem("Environmental State", "Conditions normal. Perfect for productive tasks.", "weather"))
+                    in 17..21 -> listOf(BriefItem("Evening Reflection", "Core focus targets completed. Clear cognitive peaks recorded.", "academic"), BriefItem("Security", "Local telemetry synchronized. All logs encrypted locally.", "general"))
+                    else -> listOf(BriefItem("Sleep Cycle", "Recommended sleep window approaching. Filters activated.", "weather"), BriefItem("Maintenance", "On-device ML optimizations running under sleep cycles.", "general"))
+                }
+            }
+        }
+
+        val footer = when { stressScore > 75 -> "High stress detected. Recommending a short break."; stressScore > 45 -> "Elevated load. Keeping notifications quiet."; else -> "You seem rested. Prioritizing high-value tasks." }
+
+        Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)), modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp)) }
+                        Text(briefTitle, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                    Box(modifier = Modifier.background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(9999.dp)).padding(horizontal = 12.dp, vertical = 6.dp)) { Text(unreadText, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)) }
+                }
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     briefItems.forEach { item ->
-                        val iconColor: Color
-                        val iconBg: Color
-                        val icon: androidx.compose.ui.graphics.vector.ImageVector
-
-                        if (item.category == "academic") {
-                            iconColor = Color(0xFFEF4444) // Red
-                            iconBg = Color(0xFFFEE2E2) // Light red
-                            icon = Icons.Default.Warning
-                        } else if (item.category == "weather") {
-                            iconColor = MaterialTheme.colorScheme.onSurfaceVariant // Grey
-                            iconBg = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f) // Light grey
-                            icon = Icons.Default.Info
-                        } else {
-                            iconColor = if (isDarkThemeGlobal) Color(0xFFD6FF3D) else Color(0xFF2A3600)
-                            iconBg = iconColor.copy(alpha = 0.15f)
-                            icon = Icons.Default.Notifications
+                        val (iconColor, iconBg, icon) = when (item.category) {
+                            "academic" -> Triple(Color(0xFFEF4444), Color(0xFFFEE2E2), Icons.Default.Warning)
+                            "weather" -> Triple(MaterialTheme.colorScheme.onSurfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f), Icons.Default.Info)
+                            else -> Triple(if (isDarkThemeGlobal) Color(0xFFD6FF3D) else Color(0xFF2A3600), (if (isDarkThemeGlobal) Color(0xFFD6FF3D) else Color(0xFF2A3600)).copy(alpha = 0.15f), Icons.Default.Notifications)
                         }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    MaterialTheme.colorScheme.surface,
-                                    RoundedCornerShape(16.dp)
-                                )
-                                .border(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.03f),
-                                    RoundedCornerShape(16.dp)
-                                )
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(iconBg),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = icon,
-                                    contentDescription = null,
-                                    tint = iconColor,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
+                        Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp)).border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.03f), RoundedCornerShape(16.dp)).padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(iconBg), contentAlignment = Alignment.Center) { Icon(icon, null, tint = iconColor, modifier = Modifier.size(18.dp)) }
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = item.title,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = item.message,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
+                                Text(item.title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                Spacer(Modifier.height(2.dp))
+                                Text(item.message, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                            }
+                        }
+                    }
+                }
+                Text("\"$footer\"", fontSize = 13.sp, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // PROACTIVE OVERLAY  (Voice)
+    // ─────────────────────────────────────────────────────────────────────────────
+    @Composable
+    fun ProactiveOverlayScreen(onClose: () -> Unit) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val assistantState by this@MainActivity.assistantState
+        val transcriptText by this@MainActivity.transcriptText
+        val assistantResponse by this@MainActivity.assistantResponse
+        val errorMessage by this@MainActivity.errorMessage
+
+        DisposableEffect(Unit) {
+            if (voiceAssistantManager.state == VoiceState.IDLE) {
+                val ok = context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (ok) voiceAssistantManager.startRecording()
+            }
+            onDispose {}
+        }
+
+        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background.copy(alpha = 0.98f)).clickable {}) {
+            Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp)) {
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 24.dp), horizontalArrangement = Arrangement.End) {
+                    IconButton(onClick = onClose, modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), CircleShape)) { Icon(Icons.Default.Close, "Close", tint = MaterialTheme.colorScheme.onBackground) }
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val statusColor = when (assistantState) { VoiceState.RECORDING -> ColorBlockLime; VoiceState.TRANSCRIBING -> ColorBlockLilac; VoiceState.RESPONDING -> ColorBlockMint; VoiceState.ERROR -> ColorBlockCoral; else -> MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f) }
+                    Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(statusColor)); Spacer(Modifier.width(8.dp))
+                    Text("STATUS: ${assistantState.name}", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(when (assistantState) { VoiceState.IDLE -> "Speak to FRIDAY"; VoiceState.RECORDING -> "FRIDAY is listening..."; VoiceState.TRANSCRIBING -> "FRIDAY is thinking..."; VoiceState.RESPONDING -> "FRIDAY's Response"; VoiceState.ERROR -> "Voice Error" }, fontSize = 44.sp, fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.W300, letterSpacing = (-0.96).sp, lineHeight = 48.sp, color = MaterialTheme.colorScheme.onBackground)
+                Spacer(Modifier.height(40.dp))
+
+                val transition = rememberInfiniteTransition(label = "pulse")
+                val scale by transition.animateFloat(1f, 1.35f, infiniteRepeatable(tween(1200), RepeatMode.Restart), label = "scale")
+                val alpha by transition.animateFloat(0.6f, 0f, infiniteRepeatable(tween(1200), RepeatMode.Restart), label = "alpha")
+
+                Box(modifier = Modifier.align(Alignment.CenterHorizontally).size(120.dp), contentAlignment = Alignment.Center) {
+                    if (assistantState == VoiceState.RECORDING) Box(modifier = Modifier.fillMaxSize().graphicsLayer(scaleX = scale, scaleY = scale).clip(CircleShape).background(ColorBlockLime.copy(alpha = alpha)))
+                    Box(
+                        modifier = Modifier.size(80.dp).clip(CircleShape).background(if (assistantState == VoiceState.RECORDING) ColorBlockLime else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)).clickable {
+                            when (assistantState) {
+                                VoiceState.IDLE, VoiceState.RESPONDING, VoiceState.ERROR -> {
+                                    val ok = context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                    if (ok) voiceAssistantManager.startRecording() else requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 102)
+                                }
+                                VoiceState.RECORDING -> voiceAssistantManager.stopRecordingAndTranscribe()
+                                else -> {}
+                            }
+                        },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Crossfade(targetState = assistantState, label = "mic") { s ->
+                            when (s) {
+                                VoiceState.RECORDING -> PulsatingDotsCompose(if (isDarkThemeGlobal) Color(0xFFD6FF3D) else Color.Black)
+                                VoiceState.TRANSCRIBING -> CircularProgressIndicator(color = if (isDarkThemeGlobal) Color(0xFFD6FF3D) else Color.Black, strokeWidth = 3.dp, modifier = Modifier.size(32.dp))
+                                VoiceState.RESPONDING -> RippleWaveLoaderCompose()
+                                else -> Icon(Icons.Default.Star, "Mic", tint = ColorBlockLime, modifier = Modifier.size(32.dp))
                             }
                         }
                     }
                 }
 
-                // Footer quote
-                Text(
-                    text = "\"$footerQuote\"",
-                    fontSize = 13.sp,
-                    fontStyle = FontStyle.Italic,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp)
-                )
+                Spacer(Modifier.height(16.dp))
+                Text(when (assistantState) { VoiceState.IDLE -> "Tap to start recording."; VoiceState.RECORDING -> "Tap again when done."; VoiceState.TRANSCRIBING -> "Analyzing via whisper.cpp..."; VoiceState.RESPONDING -> "Ready for next query."; VoiceState.ERROR -> "Tap to try again." }, fontSize = 13.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f), textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(40.dp))
+
+                when (assistantState) {
+                    VoiceState.RESPONDING -> {
+                        Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockLilac), modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(20.dp)) { Text("YOU", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)); Spacer(Modifier.height(8.dp)); Text("\"$transcriptText\"", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface) }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockLime), modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(20.dp)) { Text("FRIDAY AI", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)); Spacer(Modifier.height(8.dp)); Text(assistantResponse, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) }
+                        }
+                        Spacer(Modifier.height(24.dp))
+                        Button(onClick = { voiceAssistantManager.cancel() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onBackground), shape = RoundedCornerShape(9999.dp), modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Clear & Ask Something Else", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.background) }
+                    }
+                    VoiceState.ERROR -> {
+                        Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockCoral), modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(20.dp)) { Text("ENGINE ERROR", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.7f)); Spacer(Modifier.height(8.dp)); Text(errorMessage, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White) }
+                        }
+                        Spacer(Modifier.height(24.dp))
+                        Button(onClick = { voiceAssistantManager.cancel() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onBackground), shape = RoundedCornerShape(9999.dp), modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Reset", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.background) }
+                    }
+                    else -> {
+                        Text("SUGGESTED COMMANDS", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f), modifier = Modifier.padding(bottom = 12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            listOf("Silence all alerts", "Prepare Evening Brief", "Explain Current Stress", "Start Focus Mode").forEach { cmd ->
+                                OverlayActionButton(cmd) { voiceAssistantManager.sendTextQuery(cmd) }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(40.dp))
             }
+        }
+    }
+
+    @Composable
+    fun OverlayActionButton(text: String, onClick: () -> Unit) {
+        Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(9999.dp)).border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(9999.dp)).clickable(onClick = onClick).padding(horizontal = 24.dp, vertical = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(text, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            Icon(Icons.Default.PlayArrow, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
+        }
+    }
+
+    @Composable private fun PulsatingDotsCompose(color: Color) {
+        val t = rememberInfiniteTransition(label = "dots")
+        val s1 by t.animateFloat(0.5f, 1.3f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "d1")
+        val s2 by t.animateFloat(0.5f, 1.3f, infiniteRepeatable(tween(600), RepeatMode.Reverse, androidx.compose.animation.core.StartOffset(200)), label = "d2")
+        val s3 by t.animateFloat(0.5f, 1.3f, infiniteRepeatable(tween(600), RepeatMode.Reverse, androidx.compose.animation.core.StartOffset(400)), label = "d3")
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            listOf(s1, s2, s3).forEach { s -> Box(modifier = Modifier.size(8.dp).graphicsLayer(scaleX = s, scaleY = s).background(color, CircleShape)) }
+        }
+    }
+
+    @Composable private fun RippleWaveLoaderCompose() {
+        val t = rememberInfiniteTransition(label = "wave")
+        val anim = (0 until 7).map { i -> t.animateFloat(0.4f, 1.6f, infiniteRepeatable(tween(500), RepeatMode.Reverse, androidx.compose.animation.core.StartOffset(i * 80)), label = "w$i") }
+        Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+            anim.forEachIndexed { i, a -> Box(modifier = Modifier.width(3.dp).height(18.dp).graphicsLayer(scaleY = a.value).background(if (isDarkThemeGlobal && i % 2 == 0) Color(0xFFD6FF3D) else if (isDarkThemeGlobal) Color.White else Color.Black, RoundedCornerShape(99.dp)))
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // DIALOGS
+    // ─────────────────────────────────────────────────────────────────────────────
+    @Composable
+    private fun RenderSettingsDialogs() {
+        // Memories dialog — includes inline "Clear All" so the separate Forget button is gone
+        if (showMemoriesDialog.value) {
+            var newText by remember { mutableStateOf("") }
+            AlertDialog(
+                onDismissRequest = { showMemoriesDialog.value = false },
+                title = { Text("FRIDAY Memories", fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Behavioural models and preferences stored in FRIDAY's memory graph.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(4.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(value = newText, onValueChange = { newText = it }, label = { Text("New habit / info", fontSize = 11.sp) }, singleLine = true, modifier = Modifier.weight(1f))
+                            Button(onClick = { if (newText.isNotBlank()) { localMemories.add(newText.trim()); newText = ""; showToast("Stored!") } }, shape = RoundedCornerShape(8.dp)) { Text("Add", fontSize = 11.sp) }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        if (localMemories.isEmpty()) {
+                            Text("No memories stored yet.", fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            LazyColumn(modifier = Modifier.heightIn(max = 220.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(localMemories.size) { i ->
+                                    Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        Text(localMemories[i], fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                                        IconButton(onClick = { localMemories.removeAt(i); showToast("Deleted") }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Delete, "Delete", tint = Color.Red, modifier = Modifier.size(16.dp)) }
+                                    }
+                                }
+                            }
+                        }
+                        // Clear All inline — no separate dialog/button needed
+                        if (localMemories.isNotEmpty()) {
+                            Spacer(Modifier.height(4.dp))
+                            TextButton(onClick = { localMemories.clear(); showToast("All memories cleared") }, modifier = Modifier.align(Alignment.End)) {
+                                Text("Clear All", color = Color.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { showMemoriesDialog.value = false }) { Text("Done", fontWeight = FontWeight.Bold) } }
+            )
+        }
+
+        // Devices dialog
+        if (showDevicesDialog.value) {
+            var newDevice by remember { mutableStateOf("") }
+            AlertDialog(
+                onDismissRequest = { showDevicesDialog.value = false },
+                title = { Text("Synced Devices", fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Link a new device or manage existing sessions.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(4.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(value = newDevice, onValueChange = { newDevice = it }, label = { Text("Device name", fontSize = 11.sp) }, singleLine = true, modifier = Modifier.weight(1f))
+                            Button(onClick = { if (newDevice.isNotBlank()) { localDevices.add(newDevice.trim() to "ACTIVE"); newDevice = ""; showToast("Device linked!") } }, shape = RoundedCornerShape(8.dp)) { Text("Link", fontSize = 11.sp) }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        if (localDevices.isEmpty()) {
+                            Text("No devices linked.", fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            LazyColumn(modifier = Modifier.heightIn(max = 220.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(localDevices.size) { i ->
+                                    val (name, status) = localDevices[i]
+                                    Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        Column(modifier = Modifier.weight(1f)) { Text(name, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface); Text(status, fontSize = 9.sp, color = Color.Green, fontWeight = FontWeight.Bold) }
+                                        TextButton(onClick = { localDevices.removeAt(i); showToast("$name disconnected") }) { Text("Disconnect", color = Color.Red, fontSize = 11.sp) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { showDevicesDialog.value = false }) { Text("Done", fontWeight = FontWeight.Bold) } }
+            )
+        }
+
+        // Clear memories confirm
+        if (showClearMemoriesConfirmDialog.value) {
+            AlertDialog(
+                onDismissRequest = { showClearMemoriesConfirmDialog.value = false },
+                title = { Text("Clear All Memories?", fontWeight = FontWeight.Bold) },
+                text = { Text("This cannot be undone. FRIDAY will forget all learned behaviours.") },
+                confirmButton = { TextButton(onClick = { localMemories.clear(); showClearMemoriesConfirmDialog.value = false; showToast("All memories cleared!") }) { Text("Clear All", color = Color.Red, fontWeight = FontWeight.Bold) } },
+                dismissButton = { TextButton(onClick = { showClearMemoriesConfirmDialog.value = false }) { Text("Cancel") } }
+            )
+        }
+
+        // Disconnect devices confirm
+        if (showDisconnectDevicesConfirmDialog.value) {
+            AlertDialog(
+                onDismissRequest = { showDisconnectDevicesConfirmDialog.value = false },
+                title = { Text("Disconnect All Devices?", fontWeight = FontWeight.Bold) },
+                text = { Text("This will terminate active sync sessions on all linked devices.") },
+                confirmButton = { TextButton(onClick = { localDevices.clear(); showDisconnectDevicesConfirmDialog.value = false; showToast("All devices disconnected!") }) { Text("Disconnect All", color = Color.Red, fontWeight = FontWeight.Bold) } },
+                dismissButton = { TextButton(onClick = { showDisconnectDevicesConfirmDialog.value = false }) { Text("Cancel") } }
+            )
+        }
+
+        // Explain stress
+        if (showExplainStressDialog.value) {
+            AlertDialog(
+                onDismissRequest = { showExplainStressDialog.value = false },
+                title = { Text("Stress Analysis", fontWeight = FontWeight.Black) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("FRIDAY evaluates stress via three signals:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("① App Switching — ${appSwitchesCount.value} switches. High frequency indicates divided focus.", fontSize = 12.sp)
+                        Text("② Typing Rhythm — ${if (averageTypingCadenceMs.value == 0L) "No input yet" else "${averageTypingCadenceMs.value}ms"}. Outliers indicate fatigue or urgency.", fontSize = 12.sp)
+                        Text("③ Notification Density — ${notificationsCount.value} interrupts. High volume causes chronic cognitive load.", fontSize = 12.sp)
+                        Spacer(Modifier.height(6.dp))
+                        Text("Current index: ${stressScore.value}% — ${when { stressScore.value >= 75 -> "Elevated. Enable Focus Mode to suppress notifications."; stressScore.value >= 50 -> "Moderate. Try reducing multitasking."; else -> "Optimal. Great steady focus!" }}", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                },
+                confirmButton = { TextButton(onClick = { showExplainStressDialog.value = false }) { Text("Close", fontWeight = FontWeight.Bold) } }
+            )
         }
     }
 }
 
+// Small helper data class used for destructuring the anomaly badge state
+private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+private operator fun <A, B, C, D> Quad<A, B, C, D>.component1() = first
+private operator fun <A, B, C, D> Quad<A, B, C, D>.component2() = second
+private operator fun <A, B, C, D> Quad<A, B, C, D>.component3() = third
+private operator fun <A, B, C, D> Quad<A, B, C, D>.component4() = fourth
