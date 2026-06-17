@@ -115,7 +115,7 @@ class Orchestrator:
         logger.info(f"Condition: {condition} | Chain: {agent_names}")
 
         # Run agents
-        agent_results = await asyncio.gather(*(self._run_chain(agent_names, ctx,results) for name in agent_names),return_exceptions=True)
+        agent_results = await self._run_chain(agent_names, ctx)
 
         # Score the candidate response
         score, response_text, agent_used = self._assemble(ctx, agent_results, condition)
