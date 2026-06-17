@@ -1,387 +1,135 @@
-Problem Statement Title
+# FRIDAY
 
-Designing Empathetic Intelligence User Experience for Everyday Life
+**Problem Statement Number** - 5
+**Problem Statement Title** - Designing Empathetic Intelligence User Experience for Everyday Life
+**Team name** - Team Stack Overflow
+**Team members (Names)** - Soumya Gupta, Nirvik Goswami
+**Institute/College Name** - Vellore Institute of Technology Chennai, Chennai
 
-⸻
+**Final Presentation Google Drive Link** - [Insert Google Drive PDF Link Here]
+**Full Submission Demo Video Link** - [Insert YouTube Link Here]
+**Setup & Result Reproducibility Video Link** - [Insert YouTube Link Here]
 
-Team Details
+---
 
-Team Name:
-Team Stack Overflow
+## Project Artefacts
 
-Team Members:
+* **Technical Documentation** - Please see the `docs/` folder for all technical details, including our Tech Stack, OSS libraries used, technical architecture, implementation details, installation instructions, and user guide with screenshots.
+* **[Important] Agentic Setup** - Please see `docs/ax.md` for a detailed explanation of how we utilized open weight models, agentic workflows, multi-agent orchestration systems (LangGraph), memory handling (ChromaDB), and our experiences on what worked and what didn't.
+* **Source Code** - All developed project source codes, training scripts, and benchmark evaluation codes are located in the `src/` folder.
+* **Models Used**:
+* [Phi-3 Mini](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct) - Offline mobile inference
+* [Llama 3.1 8B](https://huggingface.co/meta-llama/Meta-Llama-3.1-8B) - Backend reasoning & Orchestration
+* [WhisperFlow](https://huggingface.co/) - Voice transcription
+* [Coqui TTS](https://huggingface.co/) - Voice output
+* [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) - Semantic embeddings
 
-* Nirvik Goswami
-* Soumya Gupta
 
-Institute/College Name:
-Vellore Institute of Technology Chennai,Chennai
+* **Models Published** - [Insert Link if applicable, or state "N/A"]
+* **Datasets Used**:
+* [WESAD] - Physiological stress detection
+* [StudentLife] - Smartphone behavior and stress
+* [SWELL-KW] - Burnout and workload analysis
+* [ExtraSensory] - Context and activity recognition
+* [K-EmoPhone] - Notification overload analysis
+* [FSD50K] - Environmental sound stress detection
+* [Sleep Health Dataset] - Fatigue and sleep modeling
 
-⸻
 
-Overview
+* **Datasets Published** - [Insert Link if applicable, or state "N/A"]
+
+---
+
+## Attribution
+
+This project references and builds upon concepts from the following open-source technologies:
+
+* **ChromaDB**: Used for local vector memory and semantic workspace clustering.
+* **Ollama**: Used for serving local LLMs without relying on cloud APIs.
+* **AgentScope / LangGraph**: Referenced for our multi-agent orchestration pipeline.
+* **mobile-use**: Referenced for accessibility and system-level hooking strategies.
+* **WhisperFlow & Coqui TTS**: Utilized for localized speech-to-text and text-to-speech without network latency.
+
+---
+
+---
+
+# Project Overview: FRIDAY
 
 FRIDAY is an AI-powered empathetic ambient intelligence platform designed to reduce cognitive overload for Gen Z and Gen Alpha users in hyper-connected digital environments.
 
-Unlike traditional assistants that react only to commands, FRIDAY continuously understands user context, emotional state, behavioral patterns, and environmental signals across devices to proactively assist users with minimal interruption.
+Unlike traditional assistants that react only to commands, FRIDAY continuously understands user context, emotional state, behavioral patterns, and environmental signals across devices to proactively assist users with minimal interruption. The system integrates behavioral sensing, contextual AI agents, semantic memory, and adaptive decision scoring to create a personalized, privacy-first, cross-device experience.
 
-The system integrates behavioral sensing, contextual AI agents, semantic memory, and adaptive decision scoring to create a personalized, privacy-first, cross-device experience.
+### Key Goals
 
-FRIDAY aims to:
-
-* Reduce cognitive load
-* Improve task continuity
-* Minimize notification overload
-* Detect stress and burnout signals
+* Reduce cognitive load & minimize notification overload
+* Improve task continuity across digital environments
+* Detect stress and burnout signals proactively
 * Deliver context-aware proactive assistance
-* Maintain privacy through local-first AI processing
+* Maintain absolute privacy through local-first AI processing
 
-⸻
+## Core Innovation: Adaptive Behavioral Scoring Engine
 
-Key Features
+FRIDAY’s central innovation is its dynamic behavioral scoring engine. Before deciding whether to respond to a prompt or interrupt the user, the engine evaluates emotional relevance, timing sensitivity, historical memory alignment, interruption cost, action quality, and environmental context.
 
-Empathetic Behavioral Intelligence
+**The Decision Formula:**
+`SCORE = (Emotional_Relevance × 0.30) + (Timing × 0.25) + (Memory_Alignment × 0.20) + (Action_Quality × 0.10) + (Intrusiveness × 0.15)`
 
-FRIDAY continuously analyzes:
+* **SCORE < 40** → System remains silent (Protects user from micro-decision fatigue).
+* **SCORE ≥ 40** → Response shown / Action triggered.
 
-* typing cadence
-* app switching patterns
-* notification overload
-* emotional tone
-* workload pressure
-* sleep and fatigue indicators
-* historical behavioral trends
+## System Architecture
 
-to estimate user stress and cognitive load in real time.
+FRIDAY uses a distributed three-layer architecture:
 
-⸻
+### 1. Signal Layer (Android)
 
-Adaptive AI Layer
+Collects contextual and behavioral signals from the user ecosystem via `NotificationListenerService`, `AccessibilityService`, and `ForegroundService`.
 
-The system dynamically adapts to:
+* **Inputs:** Notifications, app switching, typing cadence, typo frequency, calendar events, screen time, battery state, and environmental audio.
+* **Buffering:** Uses Room Database for local caching to prevent data loss.
 
-* user habits
-* emotional trends
-* productivity cycles
-* interruption tolerance
-* historical interactions
+### 2. Intelligence Layer (Compute Hub)
 
-No static assistant personality is used.
+Specialized AI agents process user context asynchronously:
 
-⸻
+* **Emotion Agent:** Stress estimation
+* **Burnout Agent:** Long-term fatigue detection
+* **Memory Agent:** Semantic memory retrieval via ChromaDB
+* **Context Agent:** Environment understanding
+* **Notification Agent:** Smart interruption filtering
+* **Decision Agent:** Response scoring and prioritization
+* **Wellbeing Agent:** Emotional support and workload balancing
 
-Cross-Device Continuity
+### 3. Experience Layer (Cross-Device)
 
-FRIDAY operates across:
+Delivers empathetic interactions across smartphones, laptops, and browsers. Outputs include continuity prompts, notification summaries, adaptive reminders, "smart silence", and synchronized workflow recovery.
 
-* Android smartphones
-* laptops/desktops
-* browser environments
+## Technology Stack
 
-allowing seamless continuity between tasks and devices.
+| Component | Technology |
+| --- | --- |
+| **Android App** | Kotlin |
+| **Backend Framework** | FastAPI (Python) |
+| **Local AI Runtime** | ONNX Runtime Mobile |
+| **LLMs** | Phi-3 Mini (Device), Llama 3.1 (Hub) |
+| **Vector Database** | ChromaDB |
+| **Relational Storage** | SQLite |
+| **Communication** | Secure WebSockets |
 
-⸻
+## Privacy, Security & Reliability
 
-Proactive Assistance
+FRIDAY follows a strict privacy-first architecture. Sensitive raw behavioral data never leaves the local device network without encryption.
 
-Examples:
+* **Security:** AES-256 encrypted local storage, Android Keystore session management, event hashing, and encrypted WebSocket communication.
+* **Offline Fallback:** If backend connectivity fails, local on-device **Phi-3 Mini** inference activates automatically alongside Room database buffering. Automatic sync occurs upon reconnection.
+* **Battery Optimization:** Features dynamic states including Ghost Mode (Minimal sensing), Aware Mode (Balanced), and Active Mode (Full capability).
 
-* summarize unread notifications after inactivity
-* suppress low-priority interruptions during stress
-* prioritize urgent tasks during deadlines
-* recommend focus sessions during burnout risk
-* restore previous workflows and browsing context
+## KPI Evaluation Targets
 
-⸻
-
-Offline AI Support
-
-If network connectivity is unavailable:
-
-* on-device Phi-3 Mini inference activates automatically
-* local memory retrieval remains operational
-* no user disruption occurs
-
-⸻
-
-System Architecture
-
-FRIDAY uses a distributed three-layer architecture.
-
-⸻
-
-1. Signal Layer
-
-Collects contextual and behavioral signals from the user ecosystem.
-
-Inputs
-
-* notifications
-* app usage
-* app switching
-* typing cadence
-* typo frequency
-* calendar events
-* location
-* screen time
-* battery state
-* voice tone
-* weather
-* environmental audio
-
-Android Services
-
-* NotificationListenerService
-* AccessibilityService
-* ForegroundService
-* Room Database Buffering
-
-⸻
-
-2. Intelligence Layer
-
-Specialized AI agents process user context.
-Emotion Agent  Stress estimation
-
-Burnout Agent Long-term fatigue detection
-
-Memory Agent Semantic memory retrieval
-
-Context Agent Environment understanding
-
-Notification Agent Smart interruption filtering
-
-Decision Agent Response scoring and prioritization
-
-Wellbeing Agent Emotional support and workload balancing
-------------------------
-
-3. Experience Layer
-
-Delivers empathetic interactions across devices.
-
-Outputs
-
-* continuity prompts
-* notification summaries
-* adaptive reminders
-* smart silence
-* proactive focus assistance
-* contextual recommendations
------------------------
-Core Innovation
-
-Adaptive Behavioral Scoring Engine
-
-FRIDAY’s central innovation is its dynamic behavioral scoring engine.
-
-The engine evaluates:
-
-* emotional relevance
-* timing sensitivity
-* historical memory alignment
-* interruption cost
-* action quality
-* environmental context
-
-before deciding whether the system should respond.
-
-Decision Formula
-
-SCORE =
-(Emotional_Relevance × 0.30) +
-(Timing × 0.25) +
-(Memory_Alignment × 0.20) +
-(Action_Quality × 0.10) +
-(Intrusiveness × 0.15)
-
-Threshold Logic
-
-* SCORE < 40 → system remains silent
-* SCORE ≥ 40 → response shown
-
-This prevents unnecessary interruptions and notification fatigue.
--------------------------
-
-Technology Stack
-Component	Technology
-Android   App	Kotlin
-Backend Framework	FastAPI
-Local AI Runtime	ONNX Runtime
-LLMs	Phi-3 Mini, Llama 3.1
-Vector Database	ChromaDB
-Relational Storage	SQLite
-Cloud Database	Firebase / MongoDB
-Speech Recognition	WhisperFlow
-Text-to-Speech	Coqui TTS
-Communication	WebSockets
-Embeddings	all-MiniLM-L6-v2
--------------
-Models Used
-
-Model	Purpose
-Phi-3 Mini	Offline mobile inference
-Llama 3.1 8B	Backend reasoning
-WhisperFlow	Voice transcription
-Coqui TTS	Voice output
-all-MiniLM-L6-v2	Semantic embeddings
--------------
-Datasets Used
-
-Dataset	Usage
-WESAD	Physiological stress detection
-StudentLife	Smartphone behavior and stress
-SWELL-KW	Burnout and workload analysis
-ExtraSensory	Context and activity recognition
-K-EmoPhone	Notification overload analysis
-FSD50K	Environmental sound stress detection
-Sleep Health Dataset	Fatigue and sleep modeling
-Model	Purpose
-Phi-3 Mini	Offline mobile inference
-Llama 3.1 8B	Backend reasoning
-WhisperFlow	Voice transcription
-Coqui TTS	Voice output
-all-MiniLM-L6-v2	Semantic embeddings
-------------
-
-Privacy & Security
-
-FRIDAY follows a privacy-first architecture.
-
-Security Measures
-
-* AES-256 encrypted local storage
-* Android Keystore session management
-* local-first inference
-* encrypted WebSocket communication
-* semantic memory compression before upload
-* event hashing and audit logging
-
-Sensitive raw behavioral data never leaves the device without encryption.
-------------------
-Reliability Features
-
-Offline Fallback
-
-If backend connectivity fails:
-
-* local Phi-3 Mini inference activates
-* buffered events stored in Room database
-* automatic synchronization occurs on reconnection
-
-Battery Optimization
-
-Mode	Behavior
-Ghost Mode	Minimal sensing
-Aware Mode	Balanced sensing
-Active Mode	Full AI capability
------------------
-KPI Evaluation
-FRIDAY is evaluated using both qualitative and quantitative metrics.
-KPI	Target
-Effort Reduction	≥ 30%
-Task Completion Rate	≥ 90%
-AI Recommendation Quality	≥ 85%
-User Satisfaction	≥ 4.5 / 5
-Willingness to Pay	≥ 60%
-
-Additional System KPIs
-
-Notification Acceptance Rate
-Measures relevance of proactive suggestions.
-Stress Reduction Score
-Measures reduction in user stress over time.
-Burnout Prediction Accuracy
-Measures correctness of burnout detection.
-False Interruption Rate
-Measures unnecessary AI interruptions.
-Context Understanding Accuracy
-Evaluates environmental and behavioral understanding.
-Energy Efficiency
-Measures CPU, battery, and inference overhead.
-
-User Testing Plan
-
-Qualitative Testing
-
-8–10 participants:
-
-* emotional usability interviews
-* stress and interruption feedback
-* contextual experience analysis
-
-⸻
-
-Quantitative Survey
-
-30–50 participants:
-
-* workload reduction analysis
-* satisfaction scoring
-* recommendation relevance scoring
-* willingness-to-pay evaluation
-
-⸻
-
-Proof of Concept
-
-Android Prototype
-
-* real-time signal sensing
-* encrypted WebSocket streaming
-* local fallback inference
-* notification summarization
-
-⸻
-
-Backend Prototype
-
-* multi-agent orchestration
-* semantic memory retrieval
-* response scoring engine
-* KPI audit logging
-
-⸻
-
-Laptop Extension
-
-* cross-device continuity prompts
-* contextual sidebar assistance
-* synchronized workflow recovery
-
-⸻
-
-Future Scope
-
-* smartwatch integration
-* multimodal emotional reasoning
-* federated personalization learning
-* Samsung ecosystem integration
-* predictive cognitive scheduling
-* adaptive mental wellbeing support
-
-⸻
-
-Open Source Attribution
-
-This project builds upon and references several open-source technologies and research systems.
-
-Referenced Projects
-
-* AgentScope
-* mobile-use
-* ChromaDB
-* Ollama
-* WhisperFlow
-* Coqui TTS
-
-All referenced tools retain their original licenses and attribution.
-
-⸻
-
-Conclusion
-
-FRIDAY transforms AI from a reactive assistant into an empathetic ambient intelligence system capable of understanding behavioral context, emotional state, and cognitive pressure in real time.
-
-By combining adaptive AI agents, semantic memory, proactive assistance, and privacy-first local intelligence, FRIDAY creates a seamless and emotionally aware computing experience designed for the next generation of users.
-
+* **Effort Reduction:** ≥ 30%
+* **Task Completion Rate:** ≥ 90%
+* **AI Recommendation Quality:** ≥ 85%
+* **User Satisfaction:** ≥ 4.5 / 5
+* **Willingness to Pay:** ≥ 60%
+*(Additional tracked internal KPIs include Notification Acceptance Rate, Stress Reduction Score, Burnout Prediction Accuracy, False Interruption Rate, and Energy Efficiency).*
