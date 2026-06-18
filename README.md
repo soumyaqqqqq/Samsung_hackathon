@@ -48,7 +48,7 @@ A fine-tuned RoBERTa regression model replaces heuristic scoring entirely. Train
 | ExtraSensory | Activity and context signal calibration |
 | FRIDAY Synthetic Telemetry (ours) | RoBERTa fine-tune training set |
 
-**Dataset published**: [your-hf-username/FRIDAY-Synthetic-Burnout-Telemetry](https://huggingface.co/) — Apache 2.0
+**Dataset published**: [Rabbit-bot/FRIDAY-Synthetic-Burnout-Telemetry](https://huggingface.co/) — Apache 2.0
 
 ---
 
