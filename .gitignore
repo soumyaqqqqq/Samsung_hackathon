@@ -92,3 +92,6 @@ logs/
 .vscode-remote/
 
 src/backend/whisper.cpp/build
+src/backend/scripts/
+src/backend/data/datasets/
+src/backend/models/
