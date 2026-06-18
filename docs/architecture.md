@@ -21,7 +21,8 @@ These constraints shape every architectural decision from sensor collection to U
 
 The FRIDAY ecosystem is divided into three specialized tiers communicating asynchronously over WebSockets via mDNS local discovery or a private Tailscale/ZeroTier mesh VPN for cross-network operation.
 
-![alt text](images/image.png)
+<img width="467" height="659" alt="Screenshot from 2026-06-18 21-15-42" src="https://github.com/user-attachments/assets/22507370-112d-4dc2-a6ec-fabd9580b9b3" />
+
 
 
 ## 3. Tier 1 — Android Sensing Node
@@ -38,7 +39,8 @@ The Android application operates purely as a background sensory layer. No reason
 
 If the laptop hub goes offline, Android does not degrade to a broken state. `LocalFallbackEngine.kt` routes traffic to an on-device **Phi-3 Mini (INT4)** via ONNX Runtime Mobile. All events during the outage are buffered in an encrypted Room DB and flushed to the hub in strict write-order on reconnection — before any new reasoning begins.
 
-![alt text](images/image-3.png)
+<img width="362" height="618" alt="Screenshot from 2026-06-18 21-16-43" src="https://github.com/user-attachments/assets/62127ec1-60cc-40b6-851d-72996cdafc52" />
+
 
 
 ## 4. Tier 2 — Laptop Compute Hub
@@ -107,7 +109,8 @@ The Shadow DOM ensures:
 - **Ghost Mode** — on high cognitive-load detection, distracting visual elements are hidden. The workspace is shielded.
 - **Tab Restoration** — if the user confirms a Context Card, the full task cluster (related tabs, open PDFs, active documents) is restored together.
 
-![alt text](images/image-4.png)
+<img width="499" height="749" alt="Screenshot from 2026-06-18 21-17-21" src="https://github.com/user-attachments/assets/daaf4b9d-8312-4717-be6c-9d9aec9766b3" />
+
 ## 6. The Decision Engine — Empathetic Silence
 
 Every candidate action produced by LangGraph passes through a mathematical scoring gate before any output reaches the user.
@@ -134,7 +137,8 @@ User feedback on every action card is returned to the hub via WebSocket and appl
 
 Session-level weight changes never permanently alter the baseline. A stressful meeting cannot mute FRIDAY forever.
 
-![alt text](images/image-2.png)
+<img width="498" height="792" alt="Screenshot from 2026-06-18 21-17-54" src="https://github.com/user-attachments/assets/35c7d3c1-55d7-4ee8-8c27-e78a57b33a48" />
+
 
 ## 7. Cross-Network Resilience
 
