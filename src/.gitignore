@@ -33,7 +33,7 @@ pip-delete-this-directory.txt
 chroma/
 data/chroma/
 data/chroma_backup/
-src/backend/data/audio/
+backend/data/audio/
 *.wav
 *.aac
 *.pcm
@@ -56,7 +56,8 @@ src/backend/data/audio/
 
 # macOS
 .DS_Store
-.AppleDoublewhisper.cpp/build/
+.AppleDouble
+backend/whisper.cpp/build/
 .LSOverride
 
 # Linux
@@ -91,4 +92,9 @@ logs/
 *.sublime-workspace
 .vscode-remote/
 
-src/backend/whisper.cpp/build
+backend/whisper.cpp/build
+backend/data/audio/
+backend/data/datasets/
+backend/models/
+backend/quantized_models/
+backend/scripts/
