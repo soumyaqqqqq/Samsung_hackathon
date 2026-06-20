@@ -240,20 +240,53 @@ class Orchestrator:
     # ──────────────────────────────────────────────────────────────────────────
 
     async def _run_chain(self, agent_names: list[str], ctx: dict) -> dict[str, Any]:
-        """Lazy-load and run each agent in the chain, collecting results."""
+        """
+        Lazy-load and run each agent in the chain.
+        OPTIMIZATION #4: Parallel execution for independent agents.
+        Sequential when dependencies exist (e.g., decision depends on emotion).
+        """
         results: dict[str, Any] = {}
-        for name in agent_names:
-            agent = self._load_agent(name)
-            if agent is None:
-                logger.warning(f"Agent '{name}' could not be loaded — skipping")
-                continue
-            try:
-                result = await agent.run(ctx, results, self.db, self.chroma)
+        
+        # Determine which agents can run in parallel
+        # emotion, memory, task can run independently
+        # decision depends on all others
+        parallel_agents = [name for name in agent_names if name != "decision"]
+        sequential_agents = [name for name in agent_names if name == "decision"]
+        
+        # Run parallel agents concurrently
+        if parallel_agents:
+            tasks = [self._run_agent(name, ctx, results) for name in parallel_agents]
+            parallel_results = await asyncio.gather(*tasks, return_exceptions=True)
+            for name, result in zip(parallel_agents, parallel_results):
+                if isinstance(result, Exception):
+                    logger.exception(f"Agent '{name}' raised: {result}")
+                    results[name] = {"error": str(result)}
+                else:
+                    results[name] = result
+        
+        # Run sequential agents (decision)
+        for name in sequential_agents:
+            result = await self._run_agent(name, ctx, results)
+            if isinstance(result, Exception):
+                logger.exception(f"Agent '{name}' raised: {result}")
+                results[name] = {"error": str(result)}
+            else:
                 results[name] = result
-            except Exception as exc:
-                logger.exception(f"Agent '{name}' raised: {exc}")
-                results[name] = {"error": str(exc)}
+        
         return results
+
+    async def _run_agent(self, name: str, ctx: dict, results: dict[str, Any]) -> dict[str, Any] | Exception:
+        """Helper to run a single agent and return its result."""
+        agent = self._load_agent(name)
+        if agent is None:
+            logger.warning(f"Agent '{name}' could not be loaded — skipping")
+            return {"skipped": True}
+        
+        try:
+            result = await agent.run(ctx, results, self.db, self.chroma)
+            return result
+        except Exception as exc:
+            return exc
 
     def _load_agent(self, name: str) -> Optional[Any]:
         """Lazy-load an agent by name from the registry."""

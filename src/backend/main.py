@@ -587,21 +587,82 @@ async def get_telemetry(session_id: Optional[str] = Query(None)):
 # Inactivity summary generation helper
 # ──────────────────────────────────────────────────────────────────────────────
 
+import uuid
+
+class BatchQueue:
+    def __init__(self):
+        self.queue = asyncio.Queue()
+        self.results = {}
+        self.events = {}
+        self._worker_task = None
+
+    async def put(self, item):
+        req_id = str(uuid.uuid4())
+        event = asyncio.Event()
+        self.events[req_id] = event
+        await self.queue.put((req_id, item[0], item[1]))
+        if not self._worker_task:
+            self._worker_task = asyncio.create_task(self._worker())
+        return req_id
+
+    async def get_result(self, req_id: str, timeout: float = 10.0):
+        try:
+            await asyncio.wait_for(self.events[req_id].wait(), timeout)
+            return self.results.pop(req_id, None)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            self.events.pop(req_id, None)
+
+    async def _worker(self):
+        while True:
+            try:
+                batch = []
+                # Wait for first item
+                item = await self.queue.get()
+                batch.append(item)
+                
+                # Gather more if available
+                while len(batch) < 5:
+                    try:
+                        item = self.queue.get_nowait()
+                        batch.append(item)
+                    except asyncio.QueueEmpty:
+                        break
+                
+                # Process sequentially for now (reduces concurrency overload)
+                for req_id, item_type, payload in batch:
+                    if item_type == "summary":
+                        res = await _execute_summary_internal(payload)
+                        self.results[req_id] = res
+                    self.events[req_id].set()
+            except Exception as e:
+                logger.error(f"BatchQueue worker error: {e}")
+
+_batch_queue = BatchQueue()
+
 async def execute_hub_context_summary_generation(raw_payload: str) -> str:
+    req_id = await _batch_queue.put(("summary", raw_payload))
+    res = await _batch_queue.get_result(req_id, timeout=10.0)
+    if res:
+        return res
+    return "You had missed notifications during inactivity."
+
+async def _execute_summary_internal(raw_payload: str) -> str:
     """
     Run Ollama to summarize the batch of notifications missed during inactivity.
     If Ollama is not running/unreachable, falls back to a rule-based summary helper.
+    OPTIMIZATION #7: Reduce prompt size to 500 chars
+    OPTIMIZATION #8: Reduce token predictions to 50
     """
     import httpx
-    
+
     system_prompt = (
-        "You are FRIDAY, an empathetic AI assistant. "
-        "The user has been away from their device. Below is a batch of notifications they missed. "
-        "Summarize these notifications in a single concise, friendly, and structured sentence or two. "
-        "Format it nicely and highlight any critical action items or key updates. "
-        "Do not repeat details if they are not important."
+        "Summarize notifications in 1-2 sentences. "
+        "Highlight critical items. Be concise and friendly."
     )
-    user_prompt = f"Missed notifications:\n{raw_payload}"
+    # OPTIMIZATION #7: Truncate payload
+    user_prompt = f"Missed notifications:\n{raw_payload[:500]}"
     
     try:
         async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT) as client:
@@ -611,7 +672,13 @@ async def execute_hub_context_summary_generation(raw_payload: str) -> str:
                     "model": settings.PRIMARY_LLM_MODEL,
                     "prompt": f"<system>{system_prompt}</system>\n{user_prompt}",
                     "stream": False,
-                    "options": {"temperature": 0.5, "num_predict": 120},
+                    # OPTIMIZATION #8: Reduced token prediction
+                    "options": {
+                        "temperature": 0.5,
+                        "num_predict": settings.LLM_MAX_TOKENS,
+                        "top_k": 20,
+                        "top_p": 0.8,
+                    },
                 },
             )
             resp.raise_for_status()

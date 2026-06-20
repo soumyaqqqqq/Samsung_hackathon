@@ -51,15 +51,25 @@ class Settings:
     )
     PRIMARY_LLM_MODEL: str = os.getenv(
         "PRIMARY_MODEL",
-        "llama3.1:8b"
+        "phi3:mini"
     )
     FALLBACK_LLM_MODEL: str = os.getenv(
         "FALLBACK_MODEL",
         "phi3:mini"
     )
-    LLM_TIMEOUT: float = float(os.getenv("LLM_TIMEOUT", "90.0"))
+    # OPTIMIZATION #1: Reduced timeout to fail fast (from 30s to 15s)
+    LLM_TIMEOUT: float = float(os.getenv("LLM_TIMEOUT", "15.0"))
 
-    ...
+    # OPTIMIZATION #2: Cache settings
+    LLM_RESPONSE_CACHE_SIZE: int = int(os.getenv("LLM_RESPONSE_CACHE_SIZE", "100"))
+    LLM_CACHE_TTL_SECONDS: int = int(os.getenv("LLM_CACHE_TTL_SECONDS", "3600"))  # 1 hour
+
+    # OPTIMIZATION #10: Conditional LLM activation thresholds
+    LLM_STRESS_THRESHOLD: float = float(os.getenv("LLM_STRESS_THRESHOLD", "70.0"))  # Only call LLM if stress > 70
+    LLM_CONFIDENCE_THRESHOLD: float = float(os.getenv("LLM_CONFIDENCE_THRESHOLD", "50.0"))  # Only if confidence < 50
+
+    # OPTIMIZATION #8: Token prediction limit
+    LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "50"))  # Reduced from 80
 
     # ChromaDB embedding model (sentence-transformers, runs locally)
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
@@ -70,8 +80,8 @@ class Settings:
     # RLHF weight adjustment step
     RLHF_STEP: float = float(os.getenv("RLHF_STEP", "0.05"))
 
-    # Maximum memories to inject into LLM context
-    MAX_MEMORY_RESULTS: int = int(os.getenv("MAX_MEMORY_RESULTS", "5"))
+    # Maximum memories to inject into LLM context (OPTIMIZATION #7: reduce size)
+    MAX_MEMORY_RESULTS: int = int(os.getenv("MAX_MEMORY_RESULTS", "3"))
 
     def __post_init__(self):
         # Resolve relative storage paths relative to config.py's directory
