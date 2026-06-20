@@ -902,8 +902,18 @@ async def android_ws(websocket: WebSocket):
 
             # Orchestrate
             t0 = time.time()
+
+            logger.info("=== ORCHESTRATOR START ===")
+
             response = await orchestrator.process(data)
-            latency  = int((time.time() - t0) * 1000)
+
+            elapsed = time.time() - t0
+
+            logger.info(
+                f"=== ORCHESTRATOR END === {elapsed:.2f}s ({elapsed*1000:.0f} ms)"
+            )
+
+            latency = int(elapsed * 1000)
 
             # Update latency in session log
             db.log_session_event(

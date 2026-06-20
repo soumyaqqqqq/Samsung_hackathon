@@ -239,20 +239,25 @@ class Orchestrator:
     # Agent chain execution
     # ──────────────────────────────────────────────────────────────────────────
 
-    async def _run_chain(self, agent_names: list[str], ctx: dict) -> dict[str, Any]:
-        """Lazy-load and run each agent in the chain, collecting results."""
-        results: dict[str, Any] = {}
+    async def _run_chain(self, agent_names, ctx):
+        results = {}
+
         for name in agent_names:
+            start = time.time()
+
             agent = self._load_agent(name)
+
             if agent is None:
-                logger.warning(f"Agent '{name}' could not be loaded — skipping")
                 continue
-            try:
-                result = await agent.run(ctx, results, self.db, self.chroma)
-                results[name] = result
-            except Exception as exc:
-                logger.exception(f"Agent '{name}' raised: {exc}")
-                results[name] = {"error": str(exc)}
+
+            result = await agent.run(ctx, results, self.db, self.chroma)
+
+            logger.info(
+                f"AGENT {name} took {time.time() - start:.2f}s"
+            )
+
+            results[name] = result
+
         return results
 
     def _load_agent(self, name: str) -> Optional[Any]:
