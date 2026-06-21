@@ -110,9 +110,17 @@ class DecisionAgent:
                 })
 
         # 4. LLM-generated empathetic response (best effort)
-        llm_candidate = await self._llm_candidate(ctx, previous_results)
-        if llm_candidate:
-            candidates.append(llm_candidate)
+        # Skip background LLM candidate generation for normal context shifts to save CPU resources
+        stress_score = state.get("stress_score", 0)
+        is_stressed = stress_score >= 60 or emotion_result.get("emotion_label") in ["stressed", "anxious", "overwhelmed"]
+
+        llm_candidate = None
+        if is_stressed:
+            llm_candidate = await self._llm_candidate(ctx, previous_results)
+            if llm_candidate:
+                candidates.append(llm_candidate)
+        else:
+            logger.info("Skipping background LLM candidate generation to preserve CPU (stress levels normal)")
 
         # 5. Guarantee at least one candidate
         if not candidates:
@@ -141,6 +149,7 @@ class DecisionAgent:
         """
         Call Ollama to generate a short, empathetic response.
         Returns a candidate dict or None on failure.
+        Respects the Ollama concurrency lock and yields to voice commands.
         """
         
         state   = ctx.get("user_state",  {})
@@ -173,28 +182,35 @@ class DecisionAgent:
         )
 
         try:
-            async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT) as client:
-                resp = await client.post(
-                    f"{settings.OLLAMA_BASE_URL}/api/generate",
-                    json={
-                        "model":  settings.PRIMARY_LLM_MODEL,
-                        "prompt": f"<system>{system_prompt}</system>\n{user_prompt}",
-                        "stream": False,
-                        "options": {"temperature": 0.7, "num_predict": 80},
-                    },
-                )
-            resp.raise_for_status()
-            text = resp.json().get("response", "").strip()
+            # Import concurrency controls — skip if voice command is active
+            from main import _ollama_lock, _voice_active
+            if _voice_active:
+                logger.info("Skipping background LLM candidate — voice command has priority")
+                return None
 
-            if text:
-                aq, intr = _RESPONSE_PROFILES["STRESS_CHECK_IN"]
-                return {
-                    "text":           text,
-                    "type":           "LLM_GENERATED",
-                    "action_quality": aq + 10,   # LLM responses get a slight bonus
-                    "intrusiveness":  intr - 5,
-                    "agent":          "llm",
-                }
+            async with _ollama_lock:
+                async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT) as client:
+                    resp = await client.post(
+                        f"{settings.OLLAMA_BASE_URL}/api/generate",
+                        json={
+                            "model":  settings.FALLBACK_LLM_MODEL,
+                            "prompt": f"<system>{system_prompt}</system>\n{user_prompt}",
+                            "stream": False,
+                            "options": {"temperature": 0.7, "num_predict": 80},
+                        },
+                    )
+                    resp.raise_for_status()
+                    text = resp.json().get("response", "").strip()
+
+                    if text:
+                        aq, intr = _RESPONSE_PROFILES["STRESS_CHECK_IN"]
+                        return {
+                            "text":           text,
+                            "type":           "LLM_GENERATED",
+                            "action_quality": aq + 10,   # LLM responses get a slight bonus
+                            "intrusiveness":  intr - 5,
+                            "agent":          "llm",
+                        }
 
         except httpx.TimeoutException:
             logger.warning("LLM call timed out — using rule-based candidates only")
@@ -202,3 +218,4 @@ class DecisionAgent:
             logger.warning(f"LLM call failed: {exc}")
 
         return None
+
