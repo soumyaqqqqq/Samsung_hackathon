@@ -1,4 +1,4 @@
-FRIDAY Technical Documentation
+##FRIDAY Technical Documentation
 1. Project Overview
 FRIDAY
 
@@ -15,18 +15,18 @@ Burnout Prediction Framework
 Decision Intelligence Layer
 
 
-2.System Architecture
+##2.System Architecture
 
 ![alt text](image-3.png)
 
-3.Core Technical Innovation
+##3.Core Technical Innovation
 Instead of relying on a single LLM prompt, FRIDAY decomposes reasoning into specialized agents.
 
 
 
 ![alt text](image.png)
 
-4.Emotion Detection Engine
+##4.Emotion Detection Engine
 
 The Emotion Agent estimates a real-time stress score using behavioral signals collected from the device.
 
@@ -43,7 +43,7 @@ Stress Score =0.20 × App Switches +0.20 × Notifications +0.20 × Typo Rate +0.
 
 ![alt text](image-1.png)
 
-5.Context Awareness Engine
+##5.Context Awareness Engine
 The Context Agent enriches raw sensor information.
 
 Context Signals
@@ -55,7 +55,7 @@ Device Usage Pattern
 
 ![alt text](image-2.png)
 
-6. Semantic Memory System
+##6. Semantic Memory System
 Long-Term Memory Architecture
 
 FRIDAY stores significant user episodes in a local ChromaDB vector database.
@@ -63,7 +63,7 @@ FRIDAY stores significant user episodes in a local ChromaDB vector database.
 ![alt text](image.png)
 This allows FRIDAY to remember similar past situations and adapt recommendations accordingly.
 
-7. Burnout Prediction Framework
+##7. Burnout Prediction Framework
 
 The Burnout Agent predicts long-term fatigue risk.
 
@@ -78,7 +78,7 @@ Burnout Score =0.40 × Sustained Stress+0.35 × Workload+0.15 × Social Pressure
 
 ![alt text](image-1.png)
 
-8. Wellbeing Monitoring
+##8. Wellbeing Monitoring
 
 The Wellbeing Agent performs longitudinal emotional analysis.
 
@@ -90,7 +90,7 @@ Crisis Indicators
 
 ![alt text](image-2.png)
 
-9. Decision Intelligence Layer
+##9. Decision Intelligence Layer
 
 The Decision Agent is responsible for choosing the most useful intervention.
 
@@ -109,7 +109,7 @@ Response Score =Action Quality+
 Context Relevance+Memory Alignment-
 Intrusiveness
 
-10. Privacy & Security
+##10. Privacy & Security
 
 FRIDAY is designed around privacy-first principles.
 
@@ -127,11 +127,11 @@ Local memory retrieval
 Offline operation
 Device-side behavioral analysis
 
-11. Performance Metrics
+##11. Performance Metrics
 
 ![alt text](image-4.png)
 
-12. Future Enhancements
+##12. Future Enhancements
 Samsung Ecosystem Integration
 Galaxy Watch Integration
 
