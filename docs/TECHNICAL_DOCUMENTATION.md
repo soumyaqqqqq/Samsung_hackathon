@@ -123,9 +123,26 @@ Privacy Features:
 
 ![alt text](image-4.png)
 
-## 12. Future Enhancements
-Samsung Ecosystem Integration
-Galaxy Watch Integration
+## 12.AI Models & Datasets
+Burnout Prediction Model<br>
+Base Architecture: RoBERTa + LoRA Fine-Tuning<br>
+Purpose: Burnout risk classification and wellbeing signal detection<br>
+Model: https://huggingface.co/Rabbit-bot/FRIDAY-roberta-burnout-lora<br>
+Training Dataset: https://huggingface.co/datasets/Rabbit-bot/burnout-telemetry<br>
+
+## 13.On-Device AI Infrastructure
+FRIDAY uses an on-device language model for offline reasoning and response generation.<br>
+
+Model: https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-onnx
+
+## 14.Voice Processing Pipeline
+Speech-to-Text Engine<br>
+Voice interactions are processed locally using Whisper.cpp.<br>
+Framework: https://github.com/ggml-org/whisper.cpp
+
+## 15. Future Enhancements
+Samsung Ecosystem Integration<br>
+Galaxy Watch Integration<br>
 
 FRIDAY can incorporate physiological signals from Galaxy Watch devices, including:
 
