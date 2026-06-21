@@ -19,15 +19,15 @@ Instead of relying on a single LLM prompt, FRIDAY decomposes reasoning into spec
 
 The Emotion Agent estimates a real-time stress score using behavioral signals collected from the device.
 
-Inputs are taken from :
-1.App Switching Frequency
-2.Notification Volume
-3.Typing Cadence
-4.Typographical Error Rate
-5.Screen-On Duration
-6.On-Device Stress Model Output
+### Inputs are taken from :
+1. App Switching Frequency
+2. Notification Volume
+3. Typing Cadence
+4. Typographical Error Rate
+5. Screen-On Duration
+6. On-Device Stress Model Output
 
-Weighted Stress Formula:
+### Weighted Stress Formula:
 Stress Score =0.20 × App Switches +0.20 × Notifications +0.20 × Typo Rate +0.15 × Typing Cadence +0.15 × Screen Time +0.10 × On-Device Model
 
 ![alt text](image-1.png)
@@ -35,34 +35,36 @@ Stress Score =0.20 × App Switches +0.20 × Notifications +0.20 × Typo Rate +0.
 ## 5.Context Awareness Engine
 The Context Agent enriches raw sensor information.
 
-Context Signals
-Location
-Time of Day
-Battery Status
-Charging State
-Device Usage Pattern
+### Context Signals:
+1. Location
+2. Time of Day
+3. Battery Status
+4. Charging State
+5. Device Usage Pattern
 
 ![alt text](image-2.png)
 
 ## 6. Semantic Memory System
-Long-Term Memory Architecture
+### Long-Term Memory Architecture
 
 FRIDAY stores significant user episodes in a local ChromaDB vector database.
 
 ![alt text](image.png)
+
 This allows FRIDAY to remember similar past situations and adapt recommendations accordingly.
 
 ## 7. Burnout Prediction Framework
 
 The Burnout Agent predicts long-term fatigue risk.
 
-Inputs
-Historical Stress Logs
-Screen Usage
-Notification Load
-App Switching Frequency
-Recovery Indicators
+### Inputs:
+1. Historical Stress Logs
+2. Screen Usage
+3. Notification Load
+4. pp Switching Frequency
+5. Recovery Indicators
 
+### Formula:
 Burnout Score =0.40 × Sustained Stress+0.35 × Workload+0.15 × Social Pressure+0.10 × Recovery
 
 ![alt text](image-1.png)
@@ -71,11 +73,11 @@ Burnout Score =0.40 × Sustained Stress+0.35 × Workload+0.15 × Social Pressure
 
 The Wellbeing Agent performs longitudinal emotional analysis.
 
-Detection Capabilities
-Sustained High Stress
-Self-Critical Language
-Burnout Signals
-Crisis Indicators
+1. Detection Capabilities
+2. Sustained High Stress
+3. Self-Critical Language
+4. Burnout Signals
+5. Crisis Indicators
 
 ![alt text](image-2.png)
 
@@ -83,17 +85,18 @@ Crisis Indicators
 
 The Decision Agent is responsible for choosing the most useful intervention.
 
-Candidate responses are collected from:
+### Candidate responses are collected from:
 
-Task Agent
-Emotion Agent
-Memory Agent
-Notification Agent
-LLM Generator
-Candidate Evaluation
+1. Task Agent
+2. Emotion Agent
+3. Memory Agent
+4. Notification Agent
+5. LLM Generator
+6. Candidate Evaluation
 
 Each candidate is scored using:
 
+### Formula:
 Response Score =Action Quality+
 Context Relevance+Memory Alignment-
 Intrusiveness
@@ -104,17 +107,17 @@ FRIDAY is designed around privacy-first principles.
 
 Local Components:
 
-SQLite Database
-ChromaDB Memory Store
-Stress Detection Engine
-Decision Engine
+1. SQLite Database
+2. ChromaDB Memory Store
+3. Stress Detection Engine
+4. Decision Engine
 
 Privacy Features:
 
-No cloud storage of personal data
-Local memory retrieval
-Offline operation
-Device-side behavioral analysis
+1. No cloud storage of personal data
+2. Local memory retrieval
+3. Offline operation
+4. Device-side behavioral analysis
 
 ## 11. Performance Metrics
 
@@ -124,13 +127,13 @@ Device-side behavioral analysis
 Samsung Ecosystem Integration
 Galaxy Watch Integration
 
-### FRIDAY can incorporate physiological signals from Galaxy Watch devices, including:
+FRIDAY can incorporate physiological signals from Galaxy Watch devices, including:
 
-Heart Rate Variability (HRV)
-Resting Heart Rate
-Sleep Quality
-Physical Activity
-Stress Measurements
+1. Heart Rate Variability (HRV)
+2. Resting Heart Rate
+3. Sleep Quality
+4. Physical Activity
+5. Stress Measurements
 
 This would allow FRIDAY to combine behavioral and physiological indicators for more accurate wellbeing assessment.
 
@@ -138,9 +141,9 @@ This would allow FRIDAY to combine behavioral and physiological indicators for m
 
 Future versions can leverage Samsung Health APIs to analyze:
 
-Daily activity levels
-Sleep patterns
-Recovery metrics
-Exercise consistency
+1. Daily activity levels
+2. Sleep patterns
+3. Recovery metrics
+4. Exercise consistency
 
 
