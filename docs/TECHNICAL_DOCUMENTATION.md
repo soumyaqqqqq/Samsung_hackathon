@@ -1,19 +1,8 @@
 # FRIDAY Technical Documentation
 ## 1. Project Overview
-FRIDAY
+FRIDAY (Focus, Resilience, Intelligence, Decision & Assistance for You) is a privacy-first multi-agent AI wellbeing assistant designed to help users manage cognitive overload, stress, and burnout. Unlike traditional assistants that rely solely on user commands, FRIDAY continuously analyzes behavioral and contextual signals such as notification activity, app switching patterns, screen usage, and historical interactions to provide proactive, context-aware support.
 
-FRIDAY is a privacy-first multi-agent wellbeing assistant designed for Samsung devices.
-
-Unlike traditional assistants that react only to explicit commands, FRIDAY continuously evaluates behavioral signals, emotional state, workload patterns, and contextual information to provide proactive support while minimizing cognitive overload.
-
-The system operates locally using a hybrid architecture consisting of:
-
-Context Awareness Engine
-Emotion Detection Engine
-Semantic Memory System
-Burnout Prediction Framework
-Decision Intelligence Layer
-
+The system combines specialized AI agents for emotion analysis, memory retrieval, context understanding, burnout prediction, and decision-making. By leveraging local memory storage, on-device reasoning, and adaptive response scoring, FRIDAY delivers personalized interventions while maintaining user privacy and minimizing unnecessary interruptions.
 
 ## 2.System Architecture
 
