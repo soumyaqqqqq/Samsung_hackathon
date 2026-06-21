@@ -135,7 +135,7 @@ Device-side behavioral analysis
 Samsung Ecosystem Integration
 Galaxy Watch Integration
 
-FRIDAY can incorporate physiological signals from Galaxy Watch devices, including:
+### FRIDAY can incorporate physiological signals from Galaxy Watch devices, including:
 
 Heart Rate Variability (HRV)
 Resting Heart Rate
@@ -145,7 +145,7 @@ Stress Measurements
 
 This would allow FRIDAY to combine behavioral and physiological indicators for more accurate wellbeing assessment.
 
-Samsung Health Integration
+### Samsung Health Integration
 
 Future versions can leverage Samsung Health APIs to analyze:
 
