@@ -20,9 +20,7 @@ Most digital assistants wait to be asked something. FRIDAY does not work that wa
 
 FRIDAY is a passive, ambient system that runs across your phone and laptop simultaneously. It watches how you work, not what you type, and uses that signal to protect your focus, triage your notifications, and rebuild your workspace when you return from a break. Everything it does runs on your own hardware. Nothing leaves your devices.
 
-> **[SCREEN: Hero concept mockup]** Two-device illustration: phone on the left, laptop on the right, connected by a local network line. Four small callout labels radiating from the center: "Focus Protection", "Notification Digest", "Workspace Restore", "Ghost Mode". This should be the very first thing a judge or user sees. It establishes the mental model before any text is read.
-
----
+![alt text](images/image.png)
 
 ## 2. Getting Started
 
@@ -42,10 +40,6 @@ Because FRIDAY processes everything locally, your phone and laptop need to disco
 - [ ] Notification access granted on Android
 - [ ] Microphone permission granted on Android
 
-> **[DIAGRAM: Device pairing flow]** Horizontal flow showing: Android App → mDNS Discovery → Local Wi-Fi → Laptop Hub (FastAPI). Add a crossed-out cloud icon above the Wi-Fi node with the label "no external server". This answers the single most common question new users have ("where does my data go?") in one glance.
-
----
-
 ## 3. Core Features
 
 ### Focus Protection (Empathetic Silence)
@@ -56,21 +50,16 @@ FRIDAY monitors your typing pace and active window context. When it detects a su
 
 The decision to hold or deliver is governed by a mathematical scoring formula. If the computed score falls below a threshold of 40, FRIDAY suppresses the interruption entirely and logs the context silently. No alert, no badge, no vibration.
 
-> **[DIAGRAM: Decision flowchart]** Input signals (typing pace, active window, time on screen) feed into a scoring box. Two output branches: SCORE >= 40 leads to "Deliver notification", SCORE < 40 leads to "Hold silently + log". Keep it simple, three inputs and two outputs, so it reads in under five seconds.
+![alt text](images/image2.jpg)
 
----
 
 ### Notification Digest
 
 When you pick up your phone after a long session, FRIDAY does not show you a wall of 50 missed alerts. Instead it shows a single digest card summarizing what happened while you were focused.
 
 Example output:
+![alt text](images/image3.jpg)
 
-> "Soumya sent 4 messages about the hackathon database. You have a calendar reminder at 3:00 PM. One email from your university arrived."
-
-Nothing is hidden permanently. The full notification list is available below the digest if you need it.
-
-> **[SCREEN: Before and after mockup]** Two side-by-side phone screens. Left screen: standard Android notification shade with 40+ stacked alerts. Right screen: FRIDAY app showing a single clean digest card with three bullet lines and a "Show all" link at the bottom. This is the highest-impact screenshot in the entire guide. Print it large.
 
 ---
 
@@ -86,9 +75,7 @@ If you confirm, FRIDAY reopens the full cluster together: related research tabs,
 
 Nothing is restored without your explicit confirmation.
 
-> **[DIAGRAM: Workspace restore sequence]** Three-step horizontal flow. Step 1: "Leave laptop" with a small icon of stacked tabs being saved. Step 2: "Return and click extension" showing the confirmation card. Step 3: "Full cluster restored" showing tabs reopening together. A small vector database icon between steps 1 and 2 can label where the context is stored (ChromaDB, local).
-
----
+![alt text](images/image4.jpg)
 
 ### Ghost Mode
 
@@ -98,9 +85,6 @@ Ghost Mode activates in two situations:
 
 **Unrecognized User.** Because FRIDAY builds a behavioral fingerprint from your personal typing patterns, a different person typing on your laptop produces a mismatch. Ghost Mode triggers automatically, obscuring your workspace until your own rhythm is detected again.
 
-> **[DIAGRAM: Ghost Mode state machine]** Three nodes: "Aware Mode" (lilac) in the center. Two trigger arrows leading into "Ghost Mode" (navy): one labeled "Burnout detected (erratic typing)", one labeled "Rhythm mismatch (different user)". One recovery arrow from Ghost Mode back to Aware Mode labeled "Verified return / rhythm restored". Simple three-node diagram, two triggers converging on one state.
-
----
 
 ### Voice Commands
 
@@ -110,9 +94,7 @@ Say the wake word **"FRIDAY"** near your phone, followed by a natural language r
 
 Voice is transcribed locally using a C++ audio engine (Whisper.cpp). The audio never leaves your device. Response time is under one second on standard hardware.
 
-> **[DIAGRAM: Voice pipeline]** Four boxes in a horizontal row: "Wake word detected" → "Local C++ transcription (Whisper.cpp)" → "Intent parsed (Llama 3.1)" → "Action executed". Add a badge somewhere on the diagram: "0 network calls". This reinforces the privacy story with a technical visual rather than just a claim.
-
----
+![alt text](images/image5.png)
 
 ## 4. Interface and Visual States
 
@@ -127,10 +109,6 @@ High stress or unrecognized typing rhythm detected. The interface darkens, non-e
 **Block Lime (Interaction Mode)**
 FRIDAY has a card that needs your response. This is when workspace restore prompts or break suggestions appear.
 
-> **[SCREEN: Extension state mockup]** Three small extension popup mockups side by side, one in each color. Each popup shows the FRIDAY logo, the state name, and a one-line status message. This replaces the need for a table entirely and lets judges see the actual UI rather than reading a description of it.
-
----
-
 ## 5. Network and Offline Behavior
 
 FRIDAY operates across three network conditions without any manual intervention.
@@ -144,9 +122,7 @@ FRIDAY bridges the connection through a private encrypted mesh (Tailscale or Zer
 **Fully offline (fallback)**
 If the laptop is unreachable entirely, the Android app routes to an on-device AI model (Phi-3 Mini, INT4 quantized). FRIDAY continues generating digests and logging context. Everything recorded during the offline period syncs back to the laptop hub in write-order when the connection returns.
 
-> **[DIAGRAM: Connectivity decision tree]** Flowchart with a single starting question: "Is the laptop hub reachable?" Yes branch: use local hub via mDNS. No branch leads to a second question: "Is any network available?" Yes: bridge via Tailscale/ZeroTier mesh. No: fall back to Phi-3 Mini on-device, buffer in Room DB, sync on reconnect. Clean three-outcome decision tree.
 
----
 
 ## 6. Privacy: What Stays On Your Device
 
@@ -166,9 +142,7 @@ Every piece of analysis FRIDAY performs happens on your own hardware.
 
 FRIDAY has no internet permission on Android. It is architecturally incapable of transmitting data to a cloud server because the permission does not exist in the manifest.
 
-> **[DIAGRAM: Privacy boundary]** A dashed rectangle labeled "Your Devices" containing two icons: a phone and a laptop. Inside the boundary, show arrows looping between them (local processing, context sync, WebSocket). Outside the boundary, draw a crossed-out cloud icon with the label "No external servers". This is the most trust-building diagram in the guide. Judges at a Samsung hackathon will check for this.
 
----
 
 ## 7. Settings and Customization
 
