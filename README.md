@@ -40,6 +40,11 @@ A fine-tuned RoBERTa regression model replaces heuristic scoring entirely. Train
 
 ### Datasets used
 
+
+**Dataset published**: [Rabbit-bot/FRIDAY-Synthetic-Burnout-Telemetry](https://huggingface.co/) — Apache 2.0
+
+#### Reference Dataset
+
 | Dataset | Used for |
 |---|---|
 | WESAD | Physiological stress baseline |
@@ -47,8 +52,6 @@ A fine-tuned RoBERTa regression model replaces heuristic scoring entirely. Train
 | SWELL-KW | Cognitive load and task-switch modeling |
 | ExtraSensory | Activity and context signal calibration |
 | FRIDAY Synthetic Telemetry (ours) | RoBERTa fine-tune training set |
-
-**Dataset published**: [Rabbit-bot/FRIDAY-Synthetic-Burnout-Telemetry](https://huggingface.co/) — Apache 2.0
 
 ---
 
