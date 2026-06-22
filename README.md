@@ -1,6 +1,8 @@
-# Samsung EnnovateX 2026 AI Challenge Submission
+# Friday : An Ambient Intelliegence
 
-* **Problem Statement** — 5: Designing Empathetic Intelligence User Experience for Everyday Life
+
+* **Problem Number** — 5
+* **Problem Statement** — Designing Empathetic Intelligence User Experience for Everyday Life
 * **Team name** — Team Stack Overflow
 * **Team members** — Soumya Gupta, Nirvik Goswami
 * **Institute** — Vellore Institute of Technology Chennai
