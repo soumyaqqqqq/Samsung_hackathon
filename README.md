@@ -6,7 +6,7 @@
 * **Institute** — Vellore Institute of Technology Chennai
 * **Final Presentation** — https://drive.google.com/file/d/1s2QWWhq6A83bSUeoH9CLRmr5HXF2cjEt/view?usp=sharing
 * **Demo Video** — [CLICK HERE TO WATCH](#) *(Insert YouTube link before submission)*
-* **Setup & Reproducibility Video** — [CLICK HERE TO WATCH](#) *(Insert YouTube link before submission)*
+* **Setup & Reproducibility Video** — https://youtu.be/uFKSZyt4N3U
 
 
 ## Project Overview
