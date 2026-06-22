@@ -6,14 +6,14 @@ The system combines specialized AI agents for emotion analysis, memory retrieval
 
 ## 2.System Architecture
 
-![alt text](image-3.png)
+![alt text](images/image6.png)
 
 ## 3.Core Technical Innovation
 Instead of relying on a single LLM prompt, FRIDAY decomposes reasoning into specialized agents.
 
 
 
-![alt text](image.png)
+![alt text](images/image7.png)
 
 ## 4.Emotion Detection Engine
 
@@ -30,7 +30,7 @@ The Emotion Agent estimates a real-time stress score using behavioral signals co
 ### Weighted Stress Formula:
 Stress Score =0.20 × App Switches +0.20 × Notifications +0.20 × Typo Rate +0.15 × Typing Cadence +0.15 × Screen Time +0.10 × On-Device Model
 
-![alt text](image-1.png)
+![alt text](images/image8.png)
 
 ## 5.Context Awareness Engine
 The Context Agent enriches raw sensor information.
@@ -42,14 +42,14 @@ The Context Agent enriches raw sensor information.
 4. Charging State
 5. Device Usage Pattern
 
-![alt text](image-2.png)
+![alt text](images/image9.png)
 
 ## 6. Semantic Memory System
 ### Long-Term Memory Architecture
 
 FRIDAY stores significant user episodes in a local ChromaDB vector database.
 
-![alt text](image.png)
+![alt text](images/image10.png)
 
 This allows FRIDAY to remember similar past situations and adapt recommendations accordingly.
 
@@ -67,7 +67,7 @@ The Burnout Agent predicts long-term fatigue risk.
 ### Formula:
 Burnout Score =0.40 × Sustained Stress+0.35 × Workload+0.15 × Social Pressure+0.10 × Recovery
 
-![alt text](image-1.png)
+![alt text](images/image11.png)
 
 ## 8. Wellbeing Monitoring
 
@@ -79,7 +79,7 @@ The Wellbeing Agent performs longitudinal emotional analysis.
 4. Burnout Signals
 5. Crisis Indicators
 
-![alt text](image-2.png)
+![alt text](images/image12.png)
 
 ## 9. Decision Intelligence Layer
 
@@ -121,7 +121,7 @@ Privacy Features:
 
 ## 11. Performance Metrics
 
-![alt text](image-4.png)
+![alt text](images/image13.jpeg)
 
 ## 12.AI Models & Datasets
 Burnout Prediction Model<br>
