@@ -55,6 +55,9 @@ A fine-tuned RoBERTa regression model replaces heuristic scoring entirely. Train
 | ExtraSensory | Activity and context signal calibration |
 | FRIDAY Synthetic Telemetry (ours) | RoBERTa fine-tune training set |
 
+Due to permission requirement and dataset size we cannot use the abive dataset.
+
+
 ---
 
 ## Architecture
@@ -120,7 +123,6 @@ Built from scratch using the following open-source technologies:
 
 * **ChromaDB** — local vector memory
 * **Ollama** — localized LLM serving
-* **LangGraph** — multi-agent state orchestration
 * **whisper.cpp** — high-performance audio transcription
 * **ONNX Runtime** — on-device model inference
 * **Android Jetpack** — Room, WorkManager, Compose
