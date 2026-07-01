@@ -43,20 +43,84 @@ logging.basicConfig(
 logger = logging.getLogger("friday.main")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Global state
+# Connection Manager (thread-safe singleton)
 # ──────────────────────────────────────────────────────────────────────────────
 
-# Active WebSocket connections
-android_connections: dict[str, WebSocket] = {}   # device_id → ws
-laptop_connections:  dict[str, WebSocket] = {}   # session_id → ws
-latest_contexts:     dict[str, dict] = {}        # session_id → latest ContextObject dict
+class ConnectionManager:
+    """
+    Singleton that wraps all active WebSocket connections and shared session
+    state behind asyncio.Lock() guards.  Persistent state (recent apps, tabs,
+    context snapshots) is backed by SQLite so nothing is lost on restart.
+    """
+    _instance: Optional["ConnectionManager"] = None
 
-# Shared history lists for telemetry sync
-recent_apps_history: list[dict] = []
-recent_tabs_history: list[dict] = []
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
 
-last_notified_laptop_url: Optional[str] = None
-last_notified_laptop_timestamp: float = 0
+    def __init__(self):
+        if self._initialized:
+            return
+        self._initialized = True
+
+        # Live connection maps (inherently ephemeral — websockets die on restart)
+        self.android_connections: dict[str, WebSocket] = {}
+        self.laptop_connections:  dict[str, WebSocket] = {}
+        self._conn_lock = asyncio.Lock()
+
+        # In-memory caches (hydrated from SQLite on startup)
+        self.latest_contexts: dict[str, dict] = {}
+        self.recent_apps_history: list[dict] = []
+        self.recent_tabs_history: list[dict] = []
+
+        self.last_notified_laptop_url: Optional[str] = None
+        self.last_notified_laptop_timestamp: float = 0
+
+    def hydrate_from_db(self, db_store):
+        """Load persisted state from SQLite on startup."""
+        self.recent_apps_history = db_store.get_recent_apps(limit=4)
+        self.recent_tabs_history = db_store.get_recent_tabs(limit=3)
+        # Hydrate latest contexts from persisted snapshots
+        import json as _json
+        for row in db_store._conn.execute(
+            "SELECT session_id, payload FROM context_snapshots ORDER BY updated_at DESC LIMIT 10"
+        ).fetchall():
+            try:
+                self.latest_contexts[row[0]] = _json.loads(row[1])
+            except Exception:
+                pass
+        logger.info(
+            f"ConnectionManager hydrated: {len(self.recent_apps_history)} apps, "
+            f"{len(self.recent_tabs_history)} tabs, {len(self.latest_contexts)} contexts"
+        )
+
+    async def add_android(self, device_id: str, ws: WebSocket):
+        async with self._conn_lock:
+            self.android_connections[device_id] = ws
+
+    async def remove_android(self, device_id: str):
+        async with self._conn_lock:
+            self.android_connections.pop(device_id, None)
+
+    async def add_laptop(self, session_id: str, ws: WebSocket):
+        async with self._conn_lock:
+            self.laptop_connections[session_id] = ws
+
+    async def remove_laptop(self, session_id: str):
+        async with self._conn_lock:
+            self.laptop_connections.pop(session_id, None)
+
+
+conn_mgr = ConnectionManager()
+
+# Backward-compatible module-level aliases so existing code keeps working
+android_connections = conn_mgr.android_connections
+laptop_connections  = conn_mgr.laptop_connections
+latest_contexts     = conn_mgr.latest_contexts
+recent_apps_history = conn_mgr.recent_apps_history
+recent_tabs_history = conn_mgr.recent_tabs_history
 
 async def broadcast_laptop_status():
     status_payload = {
@@ -97,18 +161,26 @@ def get_app_details(package_name: str) -> dict:
     return {"name": name, "icon": "category", "color": "#757575"}
 
 def update_recent_apps(package_name: str):
-    global recent_apps_history
     if not package_name:
         return
     details = get_app_details(package_name)
     details["timestamp"] = time.time()
-    # Remove existing
-    recent_apps_history = [app for app in recent_apps_history if app["name"] != details["name"]]
-    recent_apps_history.insert(0, details)
-    recent_apps_history = recent_apps_history[:4]
+    # Update in-memory cache
+    conn_mgr.recent_apps_history[:] = [
+        app for app in conn_mgr.recent_apps_history if app["name"] != details["name"]
+    ]
+    conn_mgr.recent_apps_history.insert(0, details)
+    conn_mgr.recent_apps_history[:] = conn_mgr.recent_apps_history[:4]
+    # Persist to SQLite
+    if db:
+        db.upsert_recent_app(
+            name=details["name"],
+            icon=details["icon"],
+            color=details["color"],
+            timestamp=details["timestamp"],
+        )
 
 def update_recent_tabs(title: str, url: str):
-    global recent_tabs_history
     if not url or not title:
         return
     # Clean up url format for display: e.g. remove protocol and long path
@@ -120,21 +192,29 @@ def update_recent_tabs(title: str, url: str):
             display_url = display_url[:37] + "..."
     except Exception:
         display_url = url
-    
+
     details = {
         "title": title,
         "url": display_url,
         "link": url,
         "timestamp": time.time()
     }
-    # Remove existing matching URLs
-    recent_tabs_history = [tab for tab in recent_tabs_history if tab["link"] != url]
-    recent_tabs_history.insert(0, details)
-    recent_tabs_history = recent_tabs_history[:3]
+    # Update in-memory cache
+    conn_mgr.recent_tabs_history[:] = [
+        tab for tab in conn_mgr.recent_tabs_history if tab["link"] != url
+    ]
+    conn_mgr.recent_tabs_history.insert(0, details)
+    conn_mgr.recent_tabs_history[:] = conn_mgr.recent_tabs_history[:3]
+    # Persist to SQLite
+    if db:
+        db.upsert_recent_tab(
+            title=title,
+            url=display_url,
+            link=url,
+            timestamp=details["timestamp"],
+        )
 
 async def push_laptop_leftover_notification(device_id: str, android_ws: WebSocket):
-    global last_notified_laptop_url, last_notified_laptop_timestamp
-    
     lm = getattr(orchestrator, "last_laptop_media", None)
     lp = getattr(orchestrator, "last_laptop_page", None)
     
@@ -152,11 +232,11 @@ async def push_laptop_leftover_notification(device_id: str, android_ws: WebSocke
     tasks.sort(key=lambda x: x[0], reverse=True)
     ts, task_type, task_data, target_url = tasks[0]
     
-    if target_url == last_notified_laptop_url:
+    if target_url == conn_mgr.last_notified_laptop_url:
         return
         
-    last_notified_laptop_url = target_url
-    last_notified_laptop_timestamp = ts
+    conn_mgr.last_notified_laptop_url = target_url
+    conn_mgr.last_notified_laptop_timestamp = ts
     
     title = task_data.get("title", "YouTube Video" if task_type == "media" else "Webpage")
     update_recent_tabs(title, target_url)
@@ -288,6 +368,9 @@ async def lifespan(app: FastAPI):
     orchestrator.last_laptop_page = None
     orchestrator.last_phone_media = None
     orchestrator.last_phone_page = None
+
+    # Hydrate persistent state from SQLite (recent apps, tabs, contexts)
+    conn_mgr.hydrate_from_db(db)
 
     # Initialize voice transcription agent (whisper.cpp)
     try:
@@ -806,11 +889,16 @@ async def android_ws(websocket: WebSocket):
                 continue
 
             device_id = data["metadata"]["device_id"]
-            android_connections[device_id] = websocket
+            await conn_mgr.add_android(device_id, websocket)
             session_id = data["metadata"]["session_id"]
             
             prev_context = latest_contexts.get(session_id)
             latest_contexts[session_id] = data
+
+            # Persist incoming context snapshot to SQLite
+            if db:
+                import json as _json
+                db.save_context_snapshot(session_id, _json.dumps(data), time.time())
 
             # Extract focused app and active page/media from the context to keep recent histories up-to-date
             sensor = data.get("sensor_data", {})
@@ -930,8 +1018,8 @@ async def android_ws(websocket: WebSocket):
     except Exception as exc:
         logger.exception(f"Android WS error: {exc}")
     finally:
-        if device_id and device_id in android_connections:
-            del android_connections[device_id]
+        if device_id:
+            await conn_mgr.remove_android(device_id)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -958,7 +1046,7 @@ async def laptop_ws(websocket: WebSocket):
         session_id = data.get("session_id")
         if not session_id:
             session_id = f"laptop_{int(time.time())}"
-        laptop_connections[session_id] = websocket
+        await conn_mgr.add_laptop(session_id, websocket)
         logger.info(f"Laptop registered session: {session_id}")
         await websocket.send_json({"type": "REGISTERED", "session_id": session_id})
         await broadcast_laptop_status()
@@ -1033,8 +1121,8 @@ async def laptop_ws(websocket: WebSocket):
     except Exception as exc:
         logger.exception(f"Laptop WS error: {exc}")
     finally:
-        if session_id and session_id in laptop_connections:
-            del laptop_connections[session_id]
+        if session_id:
+            await conn_mgr.remove_laptop(session_id)
             await broadcast_laptop_status()
 
 

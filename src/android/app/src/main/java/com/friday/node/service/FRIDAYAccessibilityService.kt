@@ -248,26 +248,15 @@ class FRIDAYAccessibilityService : AccessibilityService() {
             }
         }
 
-        // 3. Fallback: traverse tree
-        return searchTreeForUrl(rootNode)
-    }
+        // 3. Try Firefox URL bar ID
+        val firefoxUrlBar = rootNode.findAccessibilityNodeInfosByViewId("org.mozilla.firefox:id/url_bar_title")
+        if (!firefoxUrlBar.isNullOrEmpty()) {
+            val text = firefoxUrlBar[0].text?.toString()
+            if (!text.isNullOrBlank()) {
+                return text
+            }
+        }
 
-    private fun searchTreeForUrl(node: AccessibilityNodeInfo): String? {
-        val text = node.text?.toString()
-        if (!text.isNullOrBlank()) {
-            val trimmed = text.trim()
-            if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || 
-                trimmed.contains("www.") || trimmed.contains(".com") || trimmed.contains(".org") || trimmed.contains(".net")) {
-                return trimmed
-            }
-        }
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            val found = searchTreeForUrl(child)
-            if (found != null) {
-                return found
-            }
-        }
         return null
     }
 
@@ -278,23 +267,6 @@ class FRIDAYAccessibilityService : AccessibilityService() {
             val text = titleNodes[0].text?.toString()
             if (!text.isNullOrBlank()) {
                 return text
-            }
-        }
-        return searchTreeForYoutubeTitle(rootNode)
-    }
-
-    private fun searchTreeForYoutubeTitle(node: AccessibilityNodeInfo): String? {
-        val text = node.text?.toString()
-        if (!text.isNullOrBlank() && node.className == "android.widget.TextView") {
-            if (text.length in 10..100 && !text.contains("Subscriber") && !text.contains("views") && !text.contains("likes")) {
-                return text
-            }
-        }
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            val found = searchTreeForYoutubeTitle(child)
-            if (found != null) {
-                return found
             }
         }
         return null

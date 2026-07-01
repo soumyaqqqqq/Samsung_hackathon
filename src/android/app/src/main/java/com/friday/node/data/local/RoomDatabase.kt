@@ -4,8 +4,9 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import com.friday.node.utils.CryptoUtils
 
-class RoomDatabase private constructor(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
+class RoomDatabase private constructor(private val context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
     companion object {
         private const val DATABASE_NAME = "friday_local.db"
@@ -47,10 +48,14 @@ class RoomDatabase private constructor(context: Context) : SQLiteOpenHelper(cont
     @Synchronized
     fun insertEvent(event: EventEntity): Boolean {
         val db = writableDatabase
+        val sharedPrefs = context.getSharedPreferences("friday_prefs", Context.MODE_PRIVATE)
+        val isEncryptionEnabled = sharedPrefs.getBoolean("data_encryption", true)
+        val finalPayload = if (isEncryptionEnabled) CryptoUtils.encrypt(event.payload) else event.payload
+
         val values = ContentValues().apply {
             put(KEY_MESSAGE_ID, event.messageId)
             put(KEY_TYPE, event.type)
-            put(KEY_PAYLOAD, event.payload)
+            put(KEY_PAYLOAD, finalPayload)
             put(KEY_TIMESTAMP, event.timestamp)
         }
         val result = db.insertWithOnConflict(TABLE_EVENTS, null, values, SQLiteDatabase.CONFLICT_REPLACE)
@@ -71,11 +76,13 @@ class RoomDatabase private constructor(context: Context) : SQLiteOpenHelper(cont
             val timestampIndex = cursor.getColumnIndexOrThrow(KEY_TIMESTAMP)
 
             do {
+                val rawPayload = cursor.getString(payloadIndex)
+                val decryptedPayload = CryptoUtils.decrypt(rawPayload)
                 events.add(
                     EventEntity(
                         messageId = cursor.getString(idIndex),
                         type = cursor.getString(typeIndex),
-                        payload = cursor.getString(payloadIndex),
+                        payload = decryptedPayload,
                         timestamp = cursor.getLong(timestampIndex)
                     )
                 )
