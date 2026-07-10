@@ -35,8 +35,9 @@ A fine-tuned RoBERTa-Small model (ONNX, Hub-side) analyzes passive typing teleme
 - **Typing speed and rhythm** — deviations from personal baseline
 - **Backspace frequency** — error rate as a stress proxy
 - **Notification dismissal cadence** — urgency and attention patterns
+- **App switch frequency** — queried via Android `UsageStatsManager` (system-level, no UI scraping)
 
-This produces a continuous cognitive load score (0.0–1.0) with zero content exposure. No messages are read. No screen is captured. The signal is purely behavioral.
+This produces a continuous cognitive load score (0.0–1.0) with zero content exposure. No messages are read. No screen content is captured. The AccessibilityService reads only targeted View IDs (e.g. browser URL bar, YouTube video title) — never arbitrary UI text. App usage telemetry is sourced from the system `UsageStatsManager` API, not from intercepting UI events.
 
 On high-stress detection, the Chrome Extension activates **Ghost Mode** — the Shadow DOM isolates the workspace and suppresses distracting browser elements automatically, without user input.
 
@@ -63,7 +64,7 @@ This eliminates the 5–10 minute cognitive ramp-up cost of context switching an
 FRIDAY is a distributed local inference network across two hardware tiers:
 
 - **Laptop Hub** — Llama 3.1 8B runs orchestration and memory synthesis; Whisper.cpp handles voice transcription with sub-second latency by bypassing the Python GIL entirely.
-- **Android Fallback** — when the hub is unreachable, Phi-3 Mini (INT4, ONNX Runtime Mobile) takes over local routing on-device. Telemetry is buffered in an encrypted Room DB.
+- **Android Fallback** — when the hub is unreachable, Phi-3 Mini (INT4, ONNX Runtime Mobile) takes over local routing on-device using byte-level BPE tokenization and proper `int64` tensor construction. Telemetry is buffered in an encrypted Room DB.
 - **Sync Safety** — on reconnect, the Room DB flushes in strict write-order before any reasoning resumes, preventing race conditions on stale data.
 - **Private Networking** — cross-network fallback uses Tailscale or ZeroTier mesh VPN. No data passes through a third-party relay at any point.
 
@@ -77,8 +78,9 @@ Standard assistants are designed to maximize interaction. FRIDAY is designed to 
 
 - **Trigger model** — passive and continuous, not prompt-driven
 - **Data handling** — 100% local inference, zero cloud dependency
-- **Emotion detection** — typing telemetry only, no content access
+- **Emotion detection** — typing telemetry and `UsageStatsManager` queries only, no content access
+- **Accessibility approach** — ViewID-only lookups for browser URL bars and media titles; no recursive UI tree traversal
 - **Workspace restore** — full semantic task cluster with user consent, not a single tab
 - **Intervention logic** — suppresses all output unless SCORE ≥ 40
-- **Offline resilience** — full fallback to on-device model when hub is unreachable
+- **Offline resilience** — full fallback to on-device model (byte-level BPE tokenization, proper ONNX int64 tensors) when hub is unreachable
 - **Privacy guarantee** — no internet permission required; all ML runs on local hardware

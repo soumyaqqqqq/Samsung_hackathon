@@ -66,7 +66,7 @@ FRIDAY is a three-layer distributed system designed so the critical path never l
 
 ### Layer 1 — Signal capture (Android)
 
-`NotificationListenerService` and `AccessibilityService` collect raw behavioral events. A local Room Database buffers all signals to prevent data loss during network drops. No raw data is ever transmitted off-device.
+`NotificationListenerService` and `AccessibilityService` collect raw behavioral events. The AccessibilityService uses targeted View ID lookups only (browser URL bars, YouTube titles) — no recursive UI tree traversal. App switch counts are sourced from the system `UsageStatsManager` API. A local Room Database buffers all signals to prevent data loss during network drops. No raw data is ever transmitted off-device.
 
 ### Layer 2 — Intelligence (Compute Hub)
 

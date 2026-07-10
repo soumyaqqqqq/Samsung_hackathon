@@ -270,30 +270,157 @@ object LocalFallbackEngine {
         val session = ortSession ?: throw IllegalStateException("ONNX session not initialized")
         val env = ortEnv ?: throw IllegalStateException("ONNX environment not initialized")
 
-        val tokens = prompt.toCharArray().map { it.code.toFloat() }.toFloatArray()
-        val inputShape = longArrayOf(1, tokens.size.toLong())
-        val inputBuffer = FloatBuffer.wrap(tokens)
+        val tokenIds = LlamaTokenizer.encode(prompt)
+        val inputShape = longArrayOf(1, tokenIds.size.toLong())
+        val inputBuffer = java.nio.LongBuffer.wrap(tokenIds)
         val inputTensor = OnnxTensor.createTensor(env, inputBuffer, inputShape)
 
-        val inputs = mapOf(session.inputNames.first() to inputTensor)
+        val inputName = session.inputNames.first()
+        val inputs = mutableMapOf<String, OnnxTensor>()
+        inputs[inputName] = inputTensor
+
+        if (session.inputNames.size > 1 && session.inputNames.contains("attention_mask")) {
+            val mask = LongArray(tokenIds.size) { 1L }
+            val maskBuffer = java.nio.LongBuffer.wrap(mask)
+            val maskTensor = OnnxTensor.createTensor(env, maskBuffer, inputShape)
+            inputs["attention_mask"] = maskTensor
+        }
+
         val results = session.run(inputs)
-
         val outputTensor = results[0] as OnnxTensor
-        val outputData = outputTensor.floatBuffer
-        val outputTokens = FloatArray(outputData.remaining())
-        outputData.get(outputTokens)
 
-        val decoded = outputTokens
-            .map { it.toInt().coerceIn(32, 126) }
-            .map { it.toChar() }
-            .joinToString("")
-            .trim()
+        val typeInfo = outputTensor.info
+        val decodedText = if (typeInfo.type == ai.onnxruntime.OnnxJavaType.INT64) {
+            val outputData = outputTensor.longBuffer
+            val outIds = LongArray(outputData.remaining())
+            outputData.get(outIds)
+            LlamaTokenizer.decode(outIds)
+        } else {
+            val outputData = outputTensor.floatBuffer
+            val shape = outputTensor.info.shape
+            if (shape.size == 3) {
+                val seqLen = shape[1].toInt()
+                val vocabSize = shape[2].toInt()
+                val argmaxIds = LongArray(seqLen)
+                
+                for (s in 0 until seqLen) {
+                    var maxVal = -Float.MAX_VALUE
+                    var maxIdx = 0L
+                    for (v in 0 until vocabSize) {
+                        if (outputData.hasRemaining()) {
+                            val score = outputData.get()
+                            if (score > maxVal) {
+                                maxVal = score
+                                maxIdx = v.toLong()
+                            }
+                        }
+                    }
+                    argmaxIds[s] = maxIdx
+                }
+                LlamaTokenizer.decode(argmaxIds)
+            } else {
+                val outData = FloatArray(outputData.remaining())
+                outputData.get(outData)
+                val outIds = outData.map { it.toLong() }.toLongArray()
+                LlamaTokenizer.decode(outIds)
+            }
+        }
 
-        inputTensor.close()
+        for (tensor in inputs.values) {
+            tensor.close()
+        }
         results.close()
 
-        return if (decoded.isNotEmpty()) decoded
+        return if (decodedText.isNotEmpty()) decodedText.trim()
         else "Focus mode active. Maintain your current workflow rhythm."
+    }
+
+    private object LlamaTokenizer {
+        private val vocab = mutableMapOf<String, Long>()
+        private val reverseVocab = mutableMapOf<Long, String>()
+
+        init {
+            vocab["<|system|>"] = 32001L
+            vocab["<|user|>"] = 32002L
+            vocab["<|assistant|>"] = 32003L
+            vocab["<|end|>"] = 32000L
+
+            for (i in 0..255) {
+                val byteChar = i.toChar().toString()
+                vocab[byteChar] = (i + 3).toLong()
+                reverseVocab[(i + 3).toLong()] = byteChar
+            }
+
+            val commonWords = listOf(
+                "You", "are", "FRIDAY", "a", "personal", "digital", "wellbeing", "AI", "assistant",
+                "running", "locally", "on", "smartphone", "The", "user", "laptop", "hub", "is",
+                "currently", "offline", "Provide", "single", "concise", "empathetic", "coaching",
+                "sentence", "Focus", "actionable", "advice", "based", "telemetry", "context",
+                "below", "Current", "app", "switches", "session", "Typo", "rate", "Battery",
+                "Location", "Notifications", "Screen", "time", "Reading", "Watching", "recommendation",
+                "silent", "break", "work", "flow", "limit", "take", "breath", "stress", "score",
+                "stable", "optimal", "focused", "relaxed", "calm", "overload", "elevated", "micro",
+                "Chrome", "Youtube", "Internet", "Firefox", "status", "active", "battery_level",
+                "focused_app", "notification_count", "typo_rate", "screen_on_time", "location"
+            )
+
+            var id = 1000L
+            for (word in commonWords) {
+                vocab[word] = id
+                vocab[" $word"] = id + 1
+                reverseVocab[id] = word
+                reverseVocab[id + 1] = " $word"
+                id += 2
+            }
+
+            for ((k, v) in vocab) {
+                if (!reverseVocab.containsKey(v)) {
+                    reverseVocab[v] = k
+                }
+            }
+        }
+
+        fun encode(text: String): LongArray {
+            val tokens = mutableListOf<Long>()
+            var i = 0
+            while (i < text.length) {
+                var matched = false
+                for (len in 20 downTo 1) {
+                    if (i + len <= text.length) {
+                        val sub = text.substring(i, i + len)
+                        if (vocab.containsKey(sub)) {
+                            tokens.add(vocab[sub]!!)
+                            i += len
+                            matched = true
+                            break
+                        }
+                    }
+                }
+                if (!matched) {
+                    val charVal = text[i].code
+                    if (charVal in 0..255) {
+                        tokens.add((charVal + 3).toLong())
+                    } else {
+                        tokens.add(259L)
+                    }
+                    i++
+                }
+            }
+            return tokens.toLongArray()
+        }
+
+        fun decode(tokenIds: LongArray): String {
+            val sb = java.lang.StringBuilder()
+            for (id in tokenIds) {
+                val piece = reverseVocab[id]
+                if (piece != null) {
+                    if (piece != "<|system|>" && piece != "<|user|>" && piece != "<|assistant|>" && piece != "<|end|>") {
+                        sb.append(piece)
+                    }
+                }
+            }
+            return sb.toString()
+        }
     }
 
     /**

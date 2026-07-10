@@ -287,7 +287,7 @@ Android Device               Workstation Hub              Chrome Extension
 ```
 
 **Steps:**
-1. AccessibilityService captures active URL, location, scroll position
+1. AccessibilityService captures active URL (via ViewID lookup on Chrome/Samsung Internet/Firefox URL bars), media title (via YouTube ViewID), and app switch count (via `UsageStatsManager`). No recursive UI tree traversal is performed.
 2. WebSocket streams ContextObject to orchestrator
 3. Orchestrator evaluates routing rules, runs agent chain
 4. Decision agent generates response + scores it

@@ -3,6 +3,8 @@ package com.friday.node.data.remote
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
 import android.os.BatteryManager
 import android.provider.Settings
 import android.util.Log
@@ -85,6 +87,71 @@ class ContextObjectBuilder(private val context: Context) {
     }
 
     // ────────────────────────────────────────────────────────────────
+    // System-level UsageStatsManager queries
+    // ────────────────────────────────────────────────────────────────
+
+    private fun getAppSwitchesFromUsageStats(intervalMs: Long): Int {
+        val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return 0
+        val endTime = System.currentTimeMillis()
+        val startTime = endTime - intervalMs
+
+        return try {
+            val events = usageStatsManager.queryEvents(startTime, endTime)
+            var switches = 0
+            val event = UsageEvents.Event()
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED ||
+                    event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND) {
+                    switches++
+                }
+            }
+            switches
+        } catch (e: SecurityException) {
+            Log.d(TAG, "UsageStats permission not granted; falling back to accessibility counter.")
+            0
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to query usage events: ${e.message}")
+            0
+        }
+    }
+
+    private fun getForegroundAppFromUsageStats(): String {
+        val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return "unknown"
+        val endTime = System.currentTimeMillis()
+        val startTime = endTime - 60_000 // Look back 1 minute
+
+        return try {
+            val events = usageStatsManager.queryEvents(startTime, endTime)
+            var lastPkg = "unknown"
+            val event = UsageEvents.Event()
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED ||
+                    event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND) {
+                    lastPkg = event.packageName ?: "unknown"
+                }
+            }
+            lastPkg
+        } catch (e: SecurityException) {
+            "unknown"
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to query foreground app event: ${e.message}")
+            "unknown"
+        }
+    }
+
+    private fun getAppSwitches(): Int {
+        val usageSwitches = getAppSwitchesFromUsageStats(15_000L)
+        return if (usageSwitches > 0) usageSwitches else appSwitchCount
+    }
+
+    private fun getFocusedApp(): String {
+        val foregroundApp = getForegroundAppFromUsageStats()
+        return if (foregroundApp != "unknown") foregroundApp else lastFocusedPackage
+    }
+
+    // ────────────────────────────────────────────────────────────────
     // Build the full ContextObject JSON
     // ────────────────────────────────────────────────────────────────
 
@@ -94,6 +161,9 @@ class ContextObjectBuilder(private val context: Context) {
         val isoTimestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }.format(Date(now))
+
+        val currentSwitches = getAppSwitches()
+        val currentFocusedApp = getFocusedApp()
 
         // Calculate derived metrics
         val typoRate = if (typingEventCount > 0) {
@@ -110,7 +180,7 @@ class ContextObjectBuilder(private val context: Context) {
 
         // Compute local stress score using existing engine
         val offlineResult = LocalFallbackEngine.evaluateOfflineContext(
-            appSwitchesCount = appSwitchCount,
+            appSwitchesCount = currentSwitches,
             averageTypingCadenceMs = if (typingEventCount > 0) totalTypingDelayMs / typingEventCount else 0L,
             notificationsPerMin = notificationCount
         )
@@ -145,18 +215,18 @@ class ContextObjectBuilder(private val context: Context) {
             put("sensor_data", JSONObject().apply {
                 put("battery_level", batteryLevel)
                 put("location", lastLocation)
-                put("app_switches", appSwitchCount)
+                put("app_switches", currentSwitches)
                 put("notification_count", notificationCount)
                 put("typo_rate", typoRate.toDouble())
                 put("screen_on_time", screenOnTimeSeconds)
-                put("focused_app", lastFocusedPackage)
+                put("focused_app", currentFocusedApp)
                 activeMedia?.let { put("active_media", it) }
                 activePage?.let { put("active_page", it) }
             })
         }
 
         Log.d(TAG, "Built ContextObject: stress=${offlineResult.stressScore}, " +
-                "app_switches=$appSwitchCount, notifs=$notificationCount, " +
+                "app_switches=$currentSwitches, notifs=$notificationCount, " +
                 "battery=$batteryLevel, typo_rate=$typoRate")
 
         return contextObject

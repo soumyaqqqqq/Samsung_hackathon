@@ -61,7 +61,7 @@ The Burnout Agent predicts long-term fatigue risk.
 1. Historical Stress Logs
 2. Screen Usage
 3. Notification Load
-4. pp Switching Frequency
+4. App Switching Frequency (via `UsageStatsManager`)
 5. Recovery Indicators
 
 ### Formula:
@@ -97,9 +97,9 @@ The Decision Agent is responsible for choosing the most useful intervention.
 Each candidate is scored using:
 
 ### Formula:
-Response Score =Action Quality+
-Context Relevance+Memory Alignment-
-Intrusiveness
+Response Score = (E × 0.30) + (T × 0.25) + (M × 0.20) + (Q × 0.10) + (P × 0.15)
+
+Where E = Emotional Relevance, T = Timing Context, M = Memory Alignment, Q = Action Quality, P = 100 − Intrusiveness. Weights are adjusted via RLHF and renormalized every 10 interactions.
 
 ## 10. Privacy & Security
 
@@ -118,6 +118,9 @@ Privacy Features:
 2. Local memory retrieval
 3. Offline operation
 4. Device-side behavioral analysis
+5. AccessibilityService uses ViewID-only lookups (browser URL bars, YouTube titles) — no recursive UI tree traversal
+6. App usage tracked via system `UsageStatsManager` API
+7. Thread-safe backend state with `asyncio.Lock()` guarded `ConnectionManager`
 
 ## 11. Performance Metrics
 

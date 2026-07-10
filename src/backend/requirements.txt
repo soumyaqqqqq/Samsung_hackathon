@@ -10,3 +10,4 @@ pydantic==2.7.1
 numpy==1.26.4
 zeroconf
 huggingface-hub
+cryptography==42.0.5
