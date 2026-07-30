@@ -37,6 +37,7 @@ class WebSocketManager private constructor() {
     private var isConnected = false
     private var serverUrl: String? = null
     private var context: Context? = null
+    private var activeConnectionId: String? = null
     
     // UI state callback
     var onConnectionStateChanged: ((Boolean) -> Unit)? = null
@@ -96,6 +97,8 @@ class WebSocketManager private constructor() {
 
         disconnect()
         this.serverUrl = url
+        val connectionId = java.util.UUID.randomUUID().toString()
+        this.activeConnectionId = connectionId
 
         Log.i(TAG, "Connecting to target hub: $url")
         val request = Request.Builder()
@@ -104,12 +107,13 @@ class WebSocketManager private constructor() {
             .build()
         val newWebSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                if (webSocket != this@WebSocketManager.webSocket) {
+                if (connectionId != this@WebSocketManager.activeConnectionId) {
                     webSocket.close(1000, "Stale connection")
                     return
                 }
                 Log.i(TAG, "WebSocket Connection successfully established!")
                 isConnected = true
+                this@WebSocketManager.webSocket = webSocket
                 onConnectionStateChanged?.invoke(true)
                 context?.sendBroadcast(android.content.Intent("com.friday.node.CONNECTION_STATE_CHANGED").apply {
                     putExtra("is_connected", true)
@@ -118,7 +122,7 @@ class WebSocketManager private constructor() {
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                if (webSocket != this@WebSocketManager.webSocket) {
+                if (connectionId != this@WebSocketManager.activeConnectionId) {
                     return
                 }
                 Log.d(TAG, "Received message from Hub: $text")
@@ -126,7 +130,7 @@ class WebSocketManager private constructor() {
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                if (webSocket != this@WebSocketManager.webSocket) {
+                if (connectionId != this@WebSocketManager.activeConnectionId) {
                     return
                 }
                 Log.e(TAG, "WebSocket connection failure: ${t.message}")
@@ -139,7 +143,7 @@ class WebSocketManager private constructor() {
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                if (webSocket != this@WebSocketManager.webSocket) {
+                if (connectionId != this@WebSocketManager.activeConnectionId) {
                     return
                 }
                 Log.w(TAG, "WebSocket closing: $code / $reason")
@@ -152,7 +156,7 @@ class WebSocketManager private constructor() {
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                if (webSocket != this@WebSocketManager.webSocket) {
+                if (connectionId != this@WebSocketManager.activeConnectionId) {
                     return
                 }
                 Log.i(TAG, "WebSocket closed.")
@@ -452,6 +456,10 @@ class WebSocketManager private constructor() {
         ws?.close(1000, "Service stopping")
         serverUrl = null
         isConnected = false
+        activeConnectionId = null
+        context?.sendBroadcast(Intent("com.friday.node.CONNECTION_STATE_CHANGED").apply {
+            putExtra("is_connected", false)
+        })
         onConnectionStateChanged?.invoke(false)
     }
 

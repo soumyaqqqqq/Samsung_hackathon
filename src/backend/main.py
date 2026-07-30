@@ -17,6 +17,8 @@ from typing import Optional
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Request as FastAPIRequest
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 import os
 import sys
@@ -422,6 +424,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Serve static demo files (assignment_submit.html etc.)
+_static_dir = Path(__file__).resolve().parent / "static"
+if _static_dir.is_dir():
+    app.mount("/static", StaticFiles(directory=str(_static_dir), html=True), name="static")
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -530,6 +537,116 @@ async def onboarding_complete(request: FastAPIRequest):
         "modules_acknowledged": modules_count,
         "message": "Onboarding configuration received. FRIDAY backend ready.",
     }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Cross-Device Handoff
+# ──────────────────────────────────────────────────────────────────────────────
+
+BROWSER_PACKAGES = {
+    "com.android.chrome", "com.sec.android.app.sbrowser",
+    "org.mozilla.firefox", "com.google.android.youtube",
+}
+
+
+async def handle_device_disconnect(device_id: str):
+    """
+    Called when an Android device drops its WebSocket.
+    Queries the last persisted context snapshot and, if the user was mid-browser
+    session or has pending items, flags a PENDING_HANDOFF.
+    """
+    if not db:
+        return
+
+    last_ctx = db.get_latest_context(device_id)
+    active_app = last_ctx.get("active_app", "")
+    active_page = last_ctx.get("active_page")
+    raw_data = last_ctx.get("raw", {})
+    items = raw_data.get("sensor_data", {}).get("items", [])
+
+    if active_app in BROWSER_PACKAGES or active_page or items:
+        context_summary = json.dumps({
+            "active_app": active_app,
+            "active_page": active_page,
+            "active_media": last_ctx.get("active_media"),
+            "items": items,
+            "device_id": device_id,
+            "disconnect_ts": int(time.time() * 1000),
+        })
+        db.set_handoff_state(device_id, status="PENDING_HANDOFF", context_json=context_summary)
+        logger.info(f"PENDING_HANDOFF flagged for {device_id} (app={active_app}, items_count={len(items)})")
+
+        # Push instant notification to every connected laptop
+        handoff_payload = {
+            "type": "PENDING_HANDOFF",
+            "user_id": device_id,
+            "active_app": active_app,
+            "active_page": active_page,
+            "items": items,
+            "timestamp": int(time.time() * 1000),
+        }
+        for l_sid, l_ws in list(laptop_connections.items()):
+            try:
+                await l_ws.send_json(handoff_payload)
+            except Exception:
+                pass
+
+
+@app.post("/api/handoff/simulate_disconnect", tags=["continuity"])
+async def simulate_disconnect():
+    """
+    Demo-only endpoint: pretends the Android device just dropped offline
+    with a browser session and multiple background tasks active.
+    """
+    demo_id = "demo_samsung_phone"
+    mock_ctx = {
+        "metadata": {
+            "session_id": demo_id,
+            "device_id": demo_id,
+            "message_id": f"msg_sim_{int(time.time())}",
+            "timestamp": int(time.time() * 1000),
+        },
+        "sensor_data": {
+            "focused_app": "com.android.chrome",
+            "active_page": {
+                "title": "DBMS Assignment Submission",
+                "url": f"http://localhost:{settings.PORT}/static/assignment_submit.html",
+            },
+            "items": [
+                {
+                    "title": "DBMS Assignment Submission",
+                    "url": f"http://localhost:{settings.PORT}/static/assignment_submit.html",
+                    "app": "com.android.chrome",
+                    "type": "Assignment Submission"
+                },
+                {
+                    "title": "WhatsApp Web",
+                    "url": "https://web.whatsapp.com",
+                    "app": "com.whatsapp",
+                    "type": "Messaging"
+                },
+                {
+                    "title": "Gmail Inbox",
+                    "url": "https://mail.google.com",
+                    "app": "com.google.android.gm",
+                    "type": "Email"
+                },
+                {
+                    "title": "Samsung InnovaeX Portal",
+                    "url": "https://innovaeX.samsung.com",
+                    "app": "com.sec.android.app.sbrowser",
+                    "type": "InnovaeX Portal"
+                }
+            ]
+        },
+        "user_state": {"stress_score": 42},
+    }
+    if db:
+        db.save_context_snapshot(demo_id, json.dumps(mock_ctx), time.time())
+
+    # Reuse the real disconnect handler
+    await handle_device_disconnect(demo_id)
+    return {"status": "simulated", "message": "PENDING_HANDOFF with multiple mock sites flagged and broadcast."}
 
 
 @app.get("/api/telemetry", tags=["telemetry"])
@@ -875,6 +992,26 @@ async def android_ws(websocket: WebSocket):
                         update_recent_apps(package_name)
                 continue
 
+            # ── Handle AMBIENT_CONTEXT_UPDATE (lightweight state heartbeat) ──
+            if msg_type == "AMBIENT_CONTEXT_UPDATE":
+                payload = data.get("payload", {})
+                active_app = payload.get("active_app", "")
+                device_state = payload.get("device_state", "ACTIVE")
+                logger.debug(f"Ambient context: app={active_app}, state={device_state}")
+                if active_app:
+                    update_recent_apps(active_app)
+                # Persist as a lightweight snapshot so disconnect handler can read it
+                if db and device_id:
+                    ambient_snapshot = {
+                        "metadata": {"session_id": device_id, "device_id": device_id,
+                                     "message_id": f"ambient_{int(time.time())}",
+                                     "timestamp": int(time.time() * 1000)},
+                        "sensor_data": {"focused_app": active_app},
+                        "user_state": {"stress_score": 0},
+                    }
+                    db.save_context_snapshot(device_id, json.dumps(ambient_snapshot), time.time())
+                continue
+
             # HMAC verification (optional; skip if sig absent for dev)
             sig = data.pop("hmac_signature", None)
             if settings.ENFORCE_HMAC and sig:
@@ -1019,6 +1156,7 @@ async def android_ws(websocket: WebSocket):
         logger.exception(f"Android WS error: {exc}")
     finally:
         if device_id:
+            await handle_device_disconnect(device_id)
             await conn_mgr.remove_android(device_id)
 
 

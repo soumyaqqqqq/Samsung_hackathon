@@ -50,6 +50,17 @@ class FRIDAYAccessibilityService : AccessibilityService() {
                     Log.d(TAG, "Window switched to focus app: $currentPackage")
                     WebSocketManager.getInstance().sendEvent(contextPacket.toString())
 
+                    // Emit lightweight AMBIENT_CONTEXT_UPDATE for cross-device handoff continuity
+                    val ambientPacket = JSONObject().apply {
+                        put("type", "AMBIENT_CONTEXT_UPDATE")
+                        put("payload", JSONObject().apply {
+                            put("active_app", currentPackage)
+                            put("timestamp", System.currentTimeMillis())
+                            put("device_state", "ACTIVE")
+                        })
+                    }
+                    WebSocketManager.getInstance().sendEvent(ambientPacket.toString())
+
                     // Local broadcast for UI update
                     val localIntent = android.content.Intent("com.friday.node.APP_SWITCH_DETECTED").apply {
                         putExtra("package_name", currentPackage)

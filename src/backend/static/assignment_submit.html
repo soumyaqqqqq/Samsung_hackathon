@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DBMS Assignment Submission</title>
+    <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --ink: #1a1d23;
+            --muted: #5b6270;
+            --line: #dfe2e8;
+            --surface: #ffffff;
+            --page: #f6f7f9;
+            --accent: #2f5d50;
+            --accent-soft: #eaf1ee;
+            --warn: #b3541e;
+            --warn-soft: #fbf0e7;
+            --radius: 10px;
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--page);
+            font-family: 'Inter', sans-serif;
+            color: var(--ink);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            padding: 56px 20px;
+            line-height: 1.5;
+        }
+
+        .portal {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            box-shadow: 0 1px 2px rgba(20,22,28,0.04), 0 8px 24px rgba(20,22,28,0.05);
+            max-width: 480px;
+            width: 100%;
+            padding: 40px 40px 36px;
+        }
+
+        .eyebrow {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--accent);
+            margin-bottom: 14px;
+        }
+
+        h1 {
+            font-family: 'Source Serif 4', serif;
+            font-weight: 700;
+            font-size: 26px;
+            letter-spacing: -0.01em;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            font-size: 14.5px;
+            margin-bottom: 26px;
+        }
+
+        .timer-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            padding: 14px 18px;
+            margin-bottom: 28px;
+            background: var(--page);
+        }
+        .timer-label {
+            font-size: 12.5px;
+            color: var(--muted);
+            font-weight: 500;
+        }
+        .timer-value {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--ink);
+            letter-spacing: 0.02em;
+        }
+        .timer-row.expired {
+            background: var(--warn-soft);
+            border-color: #e7c7ab;
+        }
+        .timer-row.expired .timer-value { color: var(--warn); }
+
+        .field { margin-bottom: 18px; }
+        .field label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 7px;
+            color: var(--ink);
+        }
+        .field .hint {
+            font-size: 12px;
+            color: var(--muted);
+            font-weight: 400;
+        }
+        .field input[type="text"] {
+            width: 100%;
+            padding: 11px 13px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 14.5px;
+            color: var(--ink);
+            outline: none;
+            background: var(--surface);
+            transition: border-color .15s, box-shadow .15s;
+        }
+        .field input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-soft);
+        }
+
+        /* File upload */
+        .dropzone {
+            border: 1.5px dashed var(--line);
+            border-radius: 8px;
+            padding: 22px 16px;
+            text-align: center;
+            cursor: pointer;
+            background: var(--page);
+            transition: border-color .15s, background .15s;
+        }
+        .dropzone:hover, .dropzone.dragover {
+            border-color: var(--accent);
+            background: var(--accent-soft);
+        }
+        .dropzone-icon {
+            width: 34px;
+            height: 34px;
+            margin: 0 auto 10px;
+            color: var(--accent);
+        }
+        .dropzone-text {
+            font-size: 13.5px;
+            font-weight: 500;
+            color: var(--ink);
+        }
+        .dropzone-subtext {
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 3px;
+        }
+        .dropzone input[type="file"] { display: none; }
+
+        .file-list { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+        .file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 9px 12px;
+            font-size: 13px;
+            background: var(--surface);
+        }
+        .file-item-name {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            overflow: hidden;
+        }
+        .file-item-name span:first-child {
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 280px;
+        }
+        .file-item-size {
+            color: var(--muted);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11.5px;
+            flex-shrink: 0;
+        }
+        .file-item-remove {
+            border: none;
+            background: none;
+            color: var(--muted);
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            padding: 2px 4px;
+            margin-left: 10px;
+            flex-shrink: 0;
+        }
+        .file-item-remove:hover { color: var(--warn); }
+
+        .actions { margin-top: 26px; }
+
+        .btn {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            font-size: 14px;
+            padding: 13px 16px;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            cursor: pointer;
+            transition: opacity .15s, background .15s;
+            width: 100%;
+            background: var(--accent);
+            color: #fff;
+        }
+        .btn:hover { background: #274c41; }
+        .btn:active { opacity: 0.85; }
+
+        .status {
+            margin-top: 18px;
+            padding: 11px 14px;
+            border-radius: 8px;
+            font-size: 12.5px;
+            font-weight: 500;
+            text-align: center;
+            background: var(--page);
+            color: var(--muted);
+            border: 1px solid var(--line);
+        }
+        .status.error { background: #fbe9e9; color: #b3261e; border-color: #f0c2c0; }
+
+        /* ── Success overlay ── */
+        .overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(20, 22, 28, 0.45);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .25s ease;
+            z-index: 100;
+        }
+        .overlay.show { opacity: 1; pointer-events: auto; }
+
+        .success-card {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 40px 36px 32px;
+            width: 300px;
+            text-align: center;
+            transform: scale(0.85);
+            transition: transform .3s cubic-bezier(.34,1.56,.64,1);
+            box-shadow: 0 20px 50px rgba(20,22,28,0.25);
+        }
+        .overlay.show .success-card { transform: scale(1); }
+
+        .check-circle {
+            width: 76px;
+            height: 76px;
+            margin: 0 auto 20px;
+        }
+        .check-circle svg { width: 100%; height: 100%; }
+        .check-circle circle {
+            fill: none;
+            stroke: var(--accent);
+            stroke-width: 3;
+            stroke-dasharray: 220;
+            stroke-dashoffset: 220;
+            animation: circleDraw .5s ease forwards;
+        }
+        .check-circle path {
+            fill: none;
+            stroke: var(--accent);
+            stroke-width: 4;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke-dasharray: 40;
+            stroke-dashoffset: 40;
+            animation: checkDraw .35s ease forwards .45s;
+        }
+        @keyframes circleDraw { to { stroke-dashoffset: 0; } }
+        @keyframes checkDraw { to { stroke-dashoffset: 0; } }
+
+        .success-title {
+            font-family: 'Source Serif 4', serif;
+            font-weight: 700;
+            font-size: 20px;
+            margin-bottom: 8px;
+        }
+        .success-subtext {
+            font-size: 13.5px;
+            color: var(--muted);
+            margin-bottom: 24px;
+        }
+        .success-close {
+            background: var(--accent-soft);
+            color: var(--accent);
+            border: none;
+            border-radius: 8px;
+            padding: 10px 20px;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            width: 100%;
+        }
+        .success-close:hover { background: #dcece5; }
+    </style>
+</head>
+<body>
+    <div class="portal">
+        <div class="eyebrow">Database Management Systems</div>
+        <h1>Assignment Submission</h1>
+        <p class="subtitle">Enter the assignment details and attach your file before the deadline.</p>
+
+        <div class="timer-row" id="timerRow">
+            <span class="timer-label">Time remaining</span>
+            <span class="timer-value" id="timer">05:00</span>
+        </div>
+
+        <div class="field">
+            <label for="subject">Subject name</label>
+            <input id="subject" type="text" value="Database Management Systems">
+        </div>
+
+        <div class="field">
+            <label for="atitle">Assignment topic</label>
+            <input id="atitle" type="text" placeholder="e.g. Normalization and ER Modeling">
+        </div>
+
+        <div class="field">
+            <label for="fileInput">Attach assignment file <span class="hint">— PDF or DOCX preferred, up to 25MB</span></label>
+            <div class="dropzone" id="dropzone">
+                <svg class="dropzone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M12 16V4M12 4l-4 4M12 4l4 4" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <div class="dropzone-text">Click to browse or drag your file here</div>
+                <div class="dropzone-subtext">Assignment write-up, queries, or supporting files</div>
+                <input type="file" id="fileInput" multiple>
+            </div>
+            <div class="file-list" id="fileList"></div>
+        </div>
+
+        <div class="actions">
+            <button class="btn" id="subBtn">Submit assignment</button>
+        </div>
+
+        <div class="status" id="status" style="display:none;"></div>
+    </div>
+
+    <!-- Success overlay -->
+    <div class="overlay" id="overlay">
+        <div class="success-card">
+            <div class="check-circle">
+                <svg viewBox="0 0 80 80">
+                    <circle cx="40" cy="40" r="35"/>
+                    <path d="M24 41l11 11 21-23"/>
+                </svg>
+            </div>
+            <div class="success-title">Submitted</div>
+            <div class="success-subtext" id="successSubtext">Your assignment has been received.</div>
+            <button class="success-close" id="closeOverlay">Done</button>
+        </div>
+    </div>
+
+    <script>
+        // ── Countdown ──
+        let secs = 300;
+        const timerEl = document.getElementById('timer');
+        const timerRow = document.getElementById('timerRow');
+        const iv = setInterval(() => {
+            secs--;
+            const m = String(Math.floor(secs / 60)).padStart(2, '0');
+            const s = String(secs % 60).padStart(2, '0');
+            timerEl.textContent = `${m}:${s}`;
+            if (secs <= 0) {
+                clearInterval(iv);
+                timerEl.textContent = 'Expired';
+                timerRow.classList.add('expired');
+            }
+        }, 1000);
+
+        // ── File attachment handling ──
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        const status = document.getElementById('status');
+        let attachedFiles = [];
+
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        function renderFileList() {
+            fileList.innerHTML = '';
+            attachedFiles.forEach((file, idx) => {
+                const item = document.createElement('div');
+                item.className = 'file-item';
+                item.innerHTML = `
+                    <div class="file-item-name">
+                        <span>${file.name}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;">
+                        <span class="file-item-size">${formatSize(file.size)}</span>
+                        <button class="file-item-remove" data-idx="${idx}" aria-label="Remove file">&times;</button>
+                    </div>
+                `;
+                fileList.appendChild(item);
+            });
+            fileList.querySelectorAll('.file-item-remove').forEach(btn => {
+                btn.onclick = () => {
+                    attachedFiles.splice(Number(btn.dataset.idx), 1);
+                    renderFileList();
+                };
+            });
+        }
+
+        function addFiles(fileArr) {
+            for (const f of fileArr) attachedFiles.push(f);
+            renderFileList();
+        }
+
+        dropzone.onclick = () => fileInput.click();
+        fileInput.onchange = (e) => addFiles([...e.target.files]);
+
+        ['dragover', 'dragenter'].forEach(evt =>
+            dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add('dragover'); })
+        );
+        ['dragleave', 'drop'].forEach(evt =>
+            dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove('dragover'); })
+        );
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            addFiles([...e.dataTransfer.files]);
+        });
+
+        // ── Submit ──
+        const overlay = document.getElementById('overlay');
+        const successSubtext = document.getElementById('successSubtext');
+
+        function showError(msg) {
+            status.style.display = 'block';
+            status.className = 'status error';
+            status.textContent = msg;
+        }
+
+        document.getElementById('subBtn').onclick = () => {
+            const topic = document.getElementById('atitle').value.trim();
+
+            if (!topic) { showError('Please enter the assignment topic'); return; }
+            if (attachedFiles.length === 0) { showError('Please attach your assignment file'); return; }
+
+            status.style.display = 'none';
+            successSubtext.textContent = attachedFiles.length > 1
+                ? `${attachedFiles.length} files received for "${topic}"`
+                : `Received for "${topic}"`;
+            overlay.classList.add('show');
+        };
+
+        document.getElementById('closeOverlay').onclick = () => overlay.classList.remove('show');
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('show'); });
+    </script>
+</body>
+</html>

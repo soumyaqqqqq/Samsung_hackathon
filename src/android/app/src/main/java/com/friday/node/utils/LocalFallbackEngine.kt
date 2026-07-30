@@ -335,7 +335,7 @@ object LocalFallbackEngine {
         else "Focus mode active. Maintain your current workflow rhythm."
     }
 
-    private object LlamaTokenizer {
+    object LlamaTokenizer {
         private val vocab = mutableMapOf<String, Long>()
         private val reverseVocab = mutableMapOf<Long, String>()
 

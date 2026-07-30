@@ -419,6 +419,67 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun simulateNetworkDrop(context: Context) {
+        showToast("Simulating Network Failure...")
+        // Disconnect WebSocket to force offline mode
+        WebSocketManager.getInstance().disconnect()
+        
+        // Trigger local BPE fallback tokenization
+        val prompt = "User state: high stress detected. Recommendation: active coaching required."
+        val tokenIds = com.friday.node.utils.LocalFallbackEngine.LlamaTokenizer.encode(prompt)
+        val tokenListStr = tokenIds.joinToString(", ")
+        Log.i("FRIDAY_OFFLINE_DEMO", "Offline Fallback Tokenizer Active!")
+        Log.i("FRIDAY_OFFLINE_DEMO", "Input Prompt: \"$prompt\"")
+        Log.i("FRIDAY_OFFLINE_DEMO", "Generated BPE Token IDs: [$tokenListStr]")
+        
+        // Run rule-based or mock ONNX inference to verify
+        val mockContext = JSONObject().apply {
+            val meta = JSONObject().apply {
+                put("session_id", "demo_samsung_phone")
+                put("timestamp", System.currentTimeMillis())
+            }
+            val sensor = JSONObject().apply {
+                put("focused_app", "com.android.chrome")
+                put("typo_rate", 0.18)
+                put("app_switches", 12)
+            }
+            val user = JSONObject().apply {
+                put("stress_score", 88)
+            }
+            put("metadata", meta)
+            put("sensor_data", sensor)
+            put("user_state", user)
+        }
+        
+        // Directly send context through local fallback to trigger action card
+        CoroutineScope(Dispatchers.Main).launch {
+            val result = com.friday.node.utils.LocalFallbackEngine.processOfflineContext(mockContext)
+            Log.i("FRIDAY_OFFLINE_DEMO", "Local Fallback Inference: ${result.message}")
+            showToast("Offline fallback active: ${result.message.take(30)}...")
+            
+            val cardPayload = JSONObject().apply {
+                put("type", "FRIDAY_CARD")
+                put("action_id", "act_offline_${System.currentTimeMillis()}")
+                put("message", result.message)
+                put("agent", result.agent)
+                put("score", result.stressScore ?: 88)
+                put("condition", "offline_fallback")
+                put("tier", result.tier)
+                put("timestamp", System.currentTimeMillis())
+            }
+            
+            activeActionCard.value = cardPayload
+        }
+    }
+
+    private fun simulateReconnect(context: Context) {
+        showToast("Reconnecting Hub...")
+        // Try to connect manually to our normal ws url
+        val ip = hubIp.value.ifEmpty { "10.0.2.2" } // default emulator host loopback
+        val port = hubPort.value.ifEmpty { "8000" }
+        WebSocketManager.getInstance().connect("ws://$ip:$port/ws/android")
+    }
+
     private fun getAppNameFromPackage(pkg: String): String = when {
         pkg.contains("whatsapp", true) -> "WhatsApp"
         pkg.contains("slack", true) -> "Slack"
@@ -654,17 +715,24 @@ class MainActivity : ComponentActivity() {
             }
             // Connection banner
             item {
+                val isOffline = !isConnected.value
+                val bannerBg = if (isOffline) Color(0xFFD6FF3D) else MaterialTheme.colorScheme.surface
+                val bannerBorder = if (isOffline) Color(0xFFD6FF3D) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
+                val textColor = if (isOffline) Color.Black else MaterialTheme.colorScheme.onSurface
+                val labelColor = if (isOffline) Color.Black.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurfaceVariant
+                val statusText = if (isOffline) "STANDALONE LOCAL ENGINE ACTIVE" else connectionStatus.value
+
                 Row(
-                    modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(12.dp)).padding(16.dp),
+                    modifier = Modifier.fillMaxWidth().background(bannerBg, RoundedCornerShape(12.dp))
+                        .border(1.dp, bannerBorder, RoundedCornerShape(12.dp)).padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text(stringResource(R.string.title_node_connection), fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.title_node_connection), fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = labelColor, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(2.dp))
-                        Text(connectionStatus.value, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        Text(statusText, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textColor)
                     }
-                    Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(if (isConnected.value) Color(0xFF10B981) else Color(0xFFEF4444)))
+                    Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(if (isConnected.value) Color(0xFF10B981) else Color(0xFFD6FF3D)))
                 }
             }
             // Greeting
@@ -1419,6 +1487,42 @@ class MainActivity : ComponentActivity() {
                                     Spacer(Modifier.width(8.dp)); Text(s, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            // Sandbox Developer Tools Card
+            item {
+                Card(
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
+                ) {
+                    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text("SANDBOX / DEVELOPER TOOLS", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Live Demo Staging Tools", fontSize = 20.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+                        
+                        Button(
+                            onClick = {
+                                simulateNetworkDrop(this@MainActivity)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD6FF3D)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth().border(1.dp, Color.Black, RoundedCornerShape(12.dp))
+                        ) {
+                            Text("Trigger ONNX Fallback", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = {
+                                simulateReconnect(this@MainActivity)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Reconnect Hub", color = MaterialTheme.colorScheme.surface, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
