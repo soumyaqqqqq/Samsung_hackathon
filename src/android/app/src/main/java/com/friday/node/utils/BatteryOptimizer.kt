@@ -64,8 +64,8 @@ object BatteryOptimizer {
                 toggleSystemSenses(context, enableAccessibility = true)
             }
             RuntimeMode.AWARE -> {
-                // Safe baseline operational state
-                toggleSystemSenses(context, enableAccessibility = true)
+                // Throttled baseline: disable accessibility sensors, reduce telemetry frequency
+                toggleSystemSenses(context, enableAccessibility = false)
             }
             RuntimeMode.GHOST -> {
                 // Low power protection mode: Kill high-drain components to survive background execution

@@ -138,11 +138,8 @@ class FRIDAYForegroundService : Service() {
             registerReceiver(digestReceiver, digestFilter)
         }
 
-        // Initialize Local Fallback Intelligence engine (ONNX Phi-3 Mini INT4)
-        // Runs asynchronously on IO thread — does not block service startup
-        serviceScope.launch {
-            LocalFallbackEngine.initializeEngine(this@FRIDAYForegroundService)
-        }
+        // Evaluate battery mode at service creation (onCreate, not onStartCommand)
+        BatteryOptimizer.evaluateSystemState(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -158,8 +155,6 @@ class FRIDAYForegroundService : Service() {
         } else {
             startForeground(TRACKER_NOTIFICATION_ID, baseNotification)
         }
-
-        com.friday.node.utils.BatteryOptimizer.evaluateSystemState(this)
 
         Log.i(TAG, "Starting automatic network discovery for FRIDAY Compute Hub...")
         discoveryManager.startSearching()

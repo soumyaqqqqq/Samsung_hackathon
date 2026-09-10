@@ -16,9 +16,7 @@ class DiscoveryManager(
     private val SERVICE_TYPE = "_friday-hub._tcp"
     private var isDiscovering = false
 
-    // Replace this string with your active ngrok URL prefix
-    // NOTE: Convert 'https://' into the secure websocket identifier 'wss://'
-    private val REMOTE_FALLBACK_URL = "wss://stubbly-impotent-escargot.ngrok-free.dev/ws/android"
+    private val REMOTE_FALLBACK_URL = System.getenv("FRIDAY_NGROK_URL") ?: "ws://localhost:8000/ws/android"
 
     companion object {
         private var resolvedHubIp: String? = null

@@ -352,7 +352,7 @@ class MainActivity : ComponentActivity() {
             addAction("com.friday.node.ACTION_RECEIVED")
             addAction("com.friday.node.LOCATION_CHANGED")
         }
-        registerReceiver(telemetryReceiver, filter, RECEIVER_EXPORTED)
+        registerReceiver(telemetryReceiver, filter, if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Context.RECEIVER_NOT_EXPORTED else RECEIVER_EXPORTED)
 
         setContent {
             val showOnboarding = remember { mutableStateOf(!isOnboardingComplete) }
@@ -365,6 +365,7 @@ class MainActivity : ComponentActivity() {
                     OnboardingScreen(viewModel = vm, deviceId = deviceId, onOnboardingFinished = {
                         userName.value = configManager.getUserName().ifEmpty { userName.value }
                         showOnboarding.value = false
+                        LocalFallbackEngine.initializeEngine(this@MainActivity)
                         startFridayServices(fromOnboarding = true)
                         checkPermissionsState()
                         recalculateLocalStress()

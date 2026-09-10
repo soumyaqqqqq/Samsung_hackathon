@@ -2,6 +2,10 @@
 .venv/
 venv/
 env/
+backend/.venv/
+
+# Graphify
+graphify-out/
 
 # Python
 __pycache__/
@@ -34,6 +38,7 @@ chroma/
 data/chroma/
 data/chroma_backup/
 backend/data/audio/
+src/backend/data/audio/
 *.wav
 *.aac
 *.pcm
@@ -42,9 +47,13 @@ backend/data/audio/
 *.onnx
 *.onnx.data
 *.bin
-*.model 
+*.model
 
-# VS Code
+# Datasets and models
+src/backend/data/datasets/
+src/backend/models/
+src/backend/quantized_models/
+src/backend/scripts/
 .vscode/
 *.code-workspace
 
@@ -92,9 +101,9 @@ logs/
 *.sublime-workspace
 .vscode-remote/
 
-backend/whisper.cpp/build
-backend/data/audio/
-backend/data/datasets/
-backend/models/
-backend/quantized_models/
-backend/scripts/
+src/backend/whisper.cpp/build
+src/backend/data/audio/
+src/backend/data/datasets/
+src/backend/models/
+src/backend/quantized_models/
+src/backend/scripts/
