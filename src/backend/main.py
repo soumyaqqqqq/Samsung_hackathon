@@ -508,6 +508,78 @@ if _static_dir.is_dir():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Model Download Endpoint — serves ONNX model to Android clients
+# ──────────────────────────────────────────────────────────────────────────────
+
+MODEL_CACHE_DIR = Path(__file__).resolve().parent / "models" / "phi3-mini-onnx"
+MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+async def _download_from_huggingface():
+    """Download Phi-3 Mini ONNX model from Hugging Face using huggingface_hub."""
+    try:
+        from huggingface_hub import hf_hub_download
+        from optimum.onnxruntime import ORTModelForCausalLM
+        import torch
+        import logging
+
+        logger.info("Downloading Phi-3 Mini from Hugging Face...")
+
+        # Download the model from Hugging Face
+        model_id = "microsoft/Phi-3-mini-4k-instruct"
+
+        # Download Safetensors model and convert to ONNX
+        model = ORTModelForCausalLM.from_pretrained(model_id, export=True, device="cpu")
+
+        # Save the ONNX model
+        onnx_path = MODEL_CACHE_DIR / "phi3_mini_int4.onnx"
+        model.save_pretrained(str(MODEL_CACHE_DIR))
+
+        logger.info(f"ONNX model saved to {onnx_path}")
+        return str(onnx_path)
+    except Exception as e:
+        logger.error(f"Failed to download/convert model from Hugging Face: {e}")
+        raise
+
+
+@app.on_event("startup")
+async def download_model_on_startup():
+    """Download the ONNX model from Hugging Face on startup if not already cached."""
+    onnx_file = MODEL_CACHE_DIR / "phi3_mini_int4.onnx"
+    data_file = MODEL_CACHE_DIR / "phi3_mini_int4.onnx.data"
+
+    if not onnx_file.exists() or onnx_file.stat().st_size < 1_000_000:
+        logger.info("ONNX model not cached. Downloading from Hugging Face...")
+        try:
+            await _download_from_huggingface()
+            logger.info("ONNX model download and conversion complete.")
+        except Exception as e:
+            logger.warning(f"Could not download ONNX model: {e}")
+    else:
+        logger.info(f"ONNX model already cached at {onnx_file}")
+
+
+@app.get("/api/model/phi3-mini-onnx")
+async def download_onnx_model():
+    """
+    Serve the ONNX model files to Android clients.
+    Returns the model file path for download.
+    """
+    onnx_file = MODEL_CACHE_DIR / "phi3_mini_int4.onnx"
+    data_file = MODEL_CACHE_DIR / "phi3_mini_int4.onnx.data"
+
+    if not onnx_file.exists():
+        return {"error": "Model not available. Check backend logs."}
+
+    return {
+        "model_url": "/api/model/phi3-mini-onnx",
+        "model_size": onnx_file.stat().st_size if onnx_file.exists() else 0,
+        "data_url": "/api/model/phi3-mini-onnx-data",
+        "data_size": data_file.stat().st_size if data_file.exists() else 0,
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 

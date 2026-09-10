@@ -71,6 +71,7 @@ import com.friday.node.data.remote.VoiceAssistantManager
 import com.friday.node.data.remote.VoiceState
 import com.friday.node.service.FRIDAYForegroundService
 import com.friday.node.utils.LocalFallbackEngine
+import com.friday.node.utils.DiscoveryManager
 import com.friday.node.config.OnboardingConfigManager
 import com.friday.node.data.remote.OnboardingService
 import com.friday.node.onboarding.viewmodel.OnboardingViewModel
@@ -365,10 +366,26 @@ class MainActivity : ComponentActivity() {
                     OnboardingScreen(viewModel = vm, deviceId = deviceId, onOnboardingFinished = {
                         userName.value = configManager.getUserName().ifEmpty { userName.value }
                         showOnboarding.value = false
-                        LocalFallbackEngine.initializeEngine(this@MainActivity)
-                        startFridayServices(fromOnboarding = true)
-                        checkPermissionsState()
-                        recalculateLocalStress()
+                        LocalFallbackEngine.downloadModel(
+                            context = this@MainActivity,
+                            hubIp = if (hubIp.value.isNotEmpty()) hubIp.value else DiscoveryManager.getResolvedHubIp(),
+                            onProgress = { progress ->
+                                Log.d("FRIDAY", "Model download progress: ${(progress * 100).toInt()}%")
+                            },
+                            onComplete = {
+                                LocalFallbackEngine.initializeEngine(this@MainActivity)
+                                startFridayServices(fromOnboarding = true)
+                                checkPermissionsState()
+                                recalculateLocalStress()
+                            },
+                            onError = { error ->
+                                Log.e("FRIDAY", "Model download failed: $error. Starting services with rule-based fallback.")
+                                LocalFallbackEngine.initializeEngine(this@MainActivity)
+                                startFridayServices(fromOnboarding = true)
+                                checkPermissionsState()
+                                recalculateLocalStress()
+                            }
+                        )
                     })
                 } else {
                     MainContainer()
