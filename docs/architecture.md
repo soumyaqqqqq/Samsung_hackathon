@@ -27,19 +27,36 @@ The FRIDAY ecosystem is divided into three specialized tiers communicating async
 
 ## 3. Tier 1 — Android Sensing Node
 
-The Android application operates purely as a background sensory layer. No reasoning runs here during normal operation.
+The Android application operates as an intelligent background sensory layer with built-in privacy protection and statistical baseline modeling.
 
-### Signal Collection
+### Signal Collection & Privacy Sanitizer
 
-- **NotificationListenerService** — captures notification metadata (sender, app, timestamp). Content is never read.
-- **AccessibilityService** — captures passive typing telemetry: speed, rhythm, backspace frequency, and notification dismissal cadence.
-- **PII Sanitization** — strict Regex filters strip all identifiable content from every event before it leaves device memory.
+- **NotificationListenerService** — Captures notification metadata (timestamp, package ID, system category).
+  - *Sensitive Blacklist*: Banking, UPI, 2FA authenticators, and medical apps have title replaced with `[Private Notification]` and content replaced with `Content suppressed by FRIDAY Privacy Guard`.
+  - *OTP Redaction*: Universal regex pattern catches 4-8 digit verification pins and replaces them with `[REDACTED_SECURITY_CODE]`.
+- **AccessibilityService** — Captures passive typing cadence without logging raw keystrokes.
+  - *Domain-Only Trimming*: Strips paths, session tokens, and query strings from browser address bars (`https://$host`), discarding private URL parameters.
+  - *Search Term Suppression*: Raw queries in the URL bar are suppressed and categorized as `Web Research (SEARCH)`.
+  - *Domain Categorization*: Tags domains into `DEVELOPMENT`, `PRODUCTIVITY`, `COMMUNICATION`, `MEDIA_STREAMING`, and `RESEARCH_EDUCATION`.
+- **Personal Baseline Engine (Welford's Algorithm)**:
+  - Stored in a lightweight SQLite table (`personal_baseline`) in Room DB.
+  - Computes online rolling mean ($\mu$), $M2$, and standard deviation ($\sigma$) in $O(1)$ space and $O(1)$ time.
+  - Calculates personal $Z$-score deviations ($Z = \frac{x - \mu}{\sigma}$) to adapt dynamically to the user's personal baseline rather than using static thresholds.
+- **Contextual Ambiguity Engine**:
+  - Distinguishes between stressful context-switching vs productive deep-focus (`FLOW_STATE`). When active in development tools (GitHub, terminal, IDE) or research documents, rapid app switches are recognized as flow state and stress scores are appropriately discounted.
 
-### Offline Fallback — Phi-3 Mini
+### Storage Optimization & Consent-Driven Model Download
 
-If the laptop hub goes offline, Android does not degrade to a broken state. `LocalFallbackEngine.kt` routes traffic to an on-device **Phi-3 Mini (INT4)** via ONNX Runtime Mobile. All events during the outage are buffered in an encrypted Room DB and flushed to the hub in strict write-order on reconnection — before any new reasoning begins.
+- **Zero-Download Onboarding**: Initial app footprint is under 50 MB (37 MB) with immediate heuristic and statistical baseline functionality ready out of the box.
+- **On-Demand Phi-3 Mini Download**: The 2.3 GB quantized neural model (`phi3_mini_int4.onnx` + weights) is downloaded only upon explicit user consent via Settings, with automatic fallback from local LAN compute hub to verified Hugging Face CloudFront CDN.
 
-<img width="362" height="618" alt="Screenshot from 2026-06-18 21-16-43" src="https://github.com/user-attachments/assets/62127ec1-60cc-40b6-851d-72996cdafc52" />
+### Offline Fallback — Phi-3 Mini & Heuristic Safety Net
+
+If the laptop hub goes offline, Android routes traffic to either:
+1. On-device **Phi-3 Mini (INT4)** via ONNX Runtime Mobile (if downloaded), or
+2. Statistical **Personal Baseline Heuristic Engine** with flow-state awareness.
+
+All events during outages are buffered in an encrypted Room DB and flushed to the hub in strict write-order upon reconnection.
 
 
 
