@@ -110,7 +110,7 @@ class FRIDAYForegroundService : Service() {
         } else 0L
         val notifications = builder?.notificationCount ?: 0
 
-        val result = LocalFallbackEngine.evaluateOfflineContext(appSwitches, typingDelay, notifications)
+        val result = LocalFallbackEngine.evaluateOfflineContext(appSwitches, typingDelay, notifications, context = this)
         val currentCategory = result.cognitiveLoadStatus
         val categoryShifted = (currentCategory != lastReportedStressCategory)
 
@@ -291,7 +291,7 @@ class FRIDAYForegroundService : Service() {
         } else 0L
         val notifications = builder?.notificationCount ?: 0
 
-        val result = LocalFallbackEngine.evaluateOfflineContext(appSwitches, typingDelay, notifications)
+        val result = LocalFallbackEngine.evaluateOfflineContext(appSwitches, typingDelay, notifications, context = this)
         val stressScore = result.stressScore
         val statusString = when (result.cognitiveLoadStatus) {
             "CRITICAL_OVERLOAD" -> "Overload"

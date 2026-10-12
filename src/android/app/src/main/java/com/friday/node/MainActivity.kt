@@ -588,7 +588,8 @@ class MainActivity : ComponentActivity() {
         val result = LocalFallbackEngine.evaluateOfflineContext(
             appSwitchesCount = appSwitchesCount.value,
             averageTypingCadenceMs = averageTypingCadenceMs.value,
-            notificationsPerMin = notificationsCount.value
+            notificationsPerMin = notificationsCount.value,
+            context = this
         )
         stressScore.value = result.stressScore
         val now = System.currentTimeMillis()

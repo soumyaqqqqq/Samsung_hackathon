@@ -65,15 +65,17 @@ object LocalFallbackEngine {
 
     // Public internet fallback model URLs (Microsoft Hugging Face ONNX direct resolve URLs)
     private const val HF_ONNX_MODEL_URL =
-        "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-onnx/resolve/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/phi-3-mini-4k-instruct-cpu-int4-rtn-block-32-acc-level-4.onnx"
+        "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-onnx/resolve/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/phi3-mini-4k-instruct-cpu-int4-rtn-block-32-acc-level-4.onnx"
     private const val HF_ONNX_DATA_URL =
-        "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-onnx/resolve/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/phi-3-mini-4k-instruct-cpu-int4-rtn-block-32-acc-level-4.onnx.data"
+        "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-onnx/resolve/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/phi3-mini-4k-instruct-cpu-int4-rtn-block-32-acc-level-4.onnx.data"
 
-    // OkHttp client for model downloads
+    // OkHttp client for model downloads with full redirect handling
     private val httpClient = OkHttpClient.Builder()
+        .followRedirects(true)
+        .followSslRedirects(true)
         .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(300, java.util.concurrent.TimeUnit.SECONDS)
-        .writeTimeout(300, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(600, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(600, java.util.concurrent.TimeUnit.SECONDS)
         .build()
 
     // ONNX Runtime handles
@@ -145,7 +147,8 @@ object LocalFallbackEngine {
      * on demand with explicit user consent.
      *
      * Hybrid strategy: tries the local compute hub first (fast, private LAN),
-     * then falls back to public Hugging Face over the internet.
+     * and automatically falls back to public Hugging Face if the hub returns 404
+     * or is not reachable.
      *
      * @param context Application context
      * @param hubIp Optional local hub IP address (from DiscoveryManager.getResolvedHubIp()).
@@ -193,7 +196,7 @@ object LocalFallbackEngine {
             try {
                 if (!modelFile.exists() || modelFile.length() < 100) {
                     val tmpModel = File(modelDir, "$MODEL_FILENAME.tmp")
-                    downloadFile(modelUrl, tmpModel) { progress ->
+                    downloadFile(modelUrl, HF_ONNX_MODEL_URL, tmpModel) { progress ->
                         // Model topology is ~1% of total size
                         onProgress?.invoke(progress * 0.02f)
                     }
@@ -203,7 +206,7 @@ object LocalFallbackEngine {
 
                 if (!dataFile.exists() || dataFile.length() < 100) {
                     val tmpData = File(modelDir, "$DATA_FILENAME.tmp")
-                    downloadFile(dataUrl, tmpData) { progress ->
+                    downloadFile(dataUrl, HF_ONNX_DATA_URL, tmpData) { progress ->
                         // Weight tensor is ~98% of total size
                         onProgress?.invoke(0.02f + progress * 0.98f)
                     }
@@ -232,13 +235,31 @@ object LocalFallbackEngine {
         }
     }
 
-    private fun downloadFile(urlString: String, outputFile: File, onProgress: ((Float) -> Unit)? = null) {
-        val request = Request.Builder().url(urlString).build()
-        val call = httpClient.newCall(request)
+    private fun downloadFile(
+        primaryUrl: String,
+        fallbackUrl: String? = null,
+        outputFile: File,
+        onProgress: ((Float) -> Unit)? = null
+    ) {
+        var urlToUse = primaryUrl
+        var request = Request.Builder().url(urlToUse).build()
+        var call = httpClient.newCall(request)
         activeCall = call
-        val response = call.execute()
+        var response = call.execute()
+
+        // If hub returns 404 (not cached on laptop hub) and fallback is provided, switch to Hugging Face
+        if (!response.isSuccessful && response.code == 404 && fallbackUrl != null && primaryUrl != fallbackUrl) {
+            response.close()
+            Log.w(TAG, "Primary URL $primaryUrl returned 404. Falling back to public Hugging Face CDN: $fallbackUrl")
+            urlToUse = fallbackUrl
+            request = Request.Builder().url(urlToUse).build()
+            call = httpClient.newCall(request)
+            activeCall = call
+            response = call.execute()
+        }
+
         if (!response.isSuccessful) {
-            throw java.io.IOException("Download HTTP error: ${response.code}")
+            throw java.io.IOException("Download HTTP error: ${response.code} from $urlToUse")
         }
 
         val totalBytes = response.body?.contentLength() ?: -1L
@@ -246,7 +267,7 @@ object LocalFallbackEngine {
 
         response.body?.byteStream()?.use { input ->
             FileOutputStream(outputFile).use { output ->
-                val buffer = ByteArray(32768)
+                val buffer = ByteArray(65536)
                 var bytesRead: Int
                 while (input.read(buffer).also { bytesRead = it } != -1) {
                     if (isCancelled) {
@@ -352,7 +373,14 @@ object LocalFallbackEngine {
         }
 
         val typingCadence = if (typoRate > 0.05) 120L else if (typoRate > 0.03) 300L else 400L
-        val ruleResult = evaluateOfflineContext(appSwitches, typingCadence, notificationCount)
+        val domainCategory = activePage?.optString("category")
+        val ruleResult = evaluateOfflineContext(
+            appSwitchesCount = appSwitches,
+            averageTypingCadenceMs = typingCadence,
+            notificationsPerMin = notificationCount,
+            focusedApp = focusedApp,
+            domainCategory = domainCategory
+        )
 
         val enrichedMessage = buildString {
             append(ruleResult.empatheticRecommendation)
@@ -561,48 +589,100 @@ object LocalFallbackEngine {
     }
 
     /**
-     * Executes local rule-based inference simulating the Phi-3 Mini model
-     * when the backend compute hub is offline.
+     * Executes empathetic context evaluation incorporating Personal Baseline Z-Scores
+     * (Welford's algorithm) and Contextual Ambiguity handling when the compute hub is offline.
      */
     fun evaluateOfflineContext(
         appSwitchesCount: Int,
         averageTypingCadenceMs: Long,
-        notificationsPerMin: Int
+        notificationsPerMin: Int,
+        focusedApp: String? = null,
+        domainCategory: String? = null,
+        context: Context? = null
     ): OfflineEvaluationResult {
-        // Base stress is 50
-        var computedStress = 50.0f
+        val db = context?.let { com.friday.node.data.local.RoomDatabase.getInstance(it) }
 
-        // App switching indicates distraction/multitasking load
-        if (appSwitchesCount > 5) {
-            computedStress += (appSwitchesCount * 2.5f).coerceAtMost(20f)
+        // 1. Record live telemetry sample into Personal Baseline Engine (Welford's algorithm)
+        if (db != null) {
+            if (appSwitchesCount > 0) db.recordMetricSample("metric_app_switches", appSwitchesCount.toDouble())
+            if (averageTypingCadenceMs in 10..3000) db.recordMetricSample("metric_typing_cadence", averageTypingCadenceMs.toDouble())
+            if (notificationsPerMin > 0) db.recordMetricSample("metric_notifications", notificationsPerMin.toDouble())
         }
 
-        // Notification frequency increases cognitive friction
-        if (notificationsPerMin > 4) {
-            computedStress += (notificationsPerMin * 1.5f).coerceAtMost(15f)
+        // 2. Compute statistical deviations (Z-scores) against personal baseline
+        val zSwitches = db?.calculateZScore("metric_app_switches", appSwitchesCount.toDouble()) ?: 0.0
+        val zCadence = if (averageTypingCadenceMs > 0) db?.calculateZScore("metric_typing_cadence", averageTypingCadenceMs.toDouble()) ?: 0.0 else 0.0
+        val zNotifs = db?.calculateZScore("metric_notifications", notificationsPerMin.toDouble()) ?: 0.0
+        val baseline = db?.getPersonalBaseline("metric_app_switches")
+        val hasBaseline = baseline != null && baseline.sampleCount >= 5
+
+        // Neutral baseline resting stress starts at 30
+        var computedStress = 30.0f
+
+        if (hasBaseline) {
+            // Empathetic personal deviation: only score above personal norm
+            if (zSwitches > 1.0) {
+                computedStress += ((zSwitches - 1.0) * 15.0).toFloat().coerceAtMost(30f)
+            }
+            if (zNotifs > 1.0) {
+                computedStress += ((zNotifs - 1.0) * 12.0).toFloat().coerceAtMost(25f)
+            }
+            if (zCadence < -1.5) {
+                // Rushing / fast typing relative to personal baseline
+                computedStress += 10.0f
+            } else if (zCadence > 2.0) {
+                // Noticeable latency / hesitation relative to personal baseline
+                computedStress += 8.0f
+            }
+        } else {
+            // Adaptive heuristics while personal baseline warms up
+            if (appSwitchesCount > 6) {
+                computedStress += ((appSwitchesCount - 6) * 2.5f).coerceAtMost(25f)
+            }
+            if (notificationsPerMin > 4) {
+                computedStress += ((notificationsPerMin - 4) * 2.0f).coerceAtMost(20f)
+            }
+            if (averageTypingCadenceMs in 10..180) {
+                computedStress += 10.0f
+            } else if (averageTypingCadenceMs > 600) {
+                computedStress += 6.0f
+            }
         }
 
-        // Fast typing (< 180ms delay) combined with high switches indicates pressure
-        if (averageTypingCadenceMs in 10..180) {
-            computedStress += 10.0f
-        } else if (averageTypingCadenceMs > 600) {
-            // Very slow typing may indicate fatigue/exhaustion
-            computedStress += 5.0f
+        // 3. Contextual Ambiguity Engine:
+        // Distinguish between stressful context switching vs productive deep-focus flow state (e.g., coding, research)
+        val isDevFlow = (domainCategory == "DEVELOPMENT" ||
+                focusedApp?.contains("github", ignoreCase = true) == true ||
+                focusedApp?.contains("termux", ignoreCase = true) == true ||
+                focusedApp?.contains("android.studio", ignoreCase = true) == true ||
+                focusedApp?.contains("code", ignoreCase = true) == true)
+
+        val isProductiveFlow = (domainCategory == "PRODUCTIVITY" || domainCategory == "RESEARCH_EDUCATION" ||
+                focusedApp?.contains("docs", ignoreCase = true) == true ||
+                focusedApp?.contains("notion", ignoreCase = true) == true)
+
+        val isFlowState = (isDevFlow || isProductiveFlow) && notificationsPerMin <= 5
+
+        if (isFlowState) {
+            // High task switching in dev/research is positive flow, not anxiety
+            computedStress = (computedStress * 0.45f).coerceAtMost(40.0f)
         }
 
-        // Cap stress score between 0 and 100
+        // Cap final stress score within [0, 100]
         computedStress = computedStress.coerceIn(0.0f, 100.0f)
 
         val cognitiveLoadStatus = when {
+            isFlowState && appSwitchesCount > 3 -> "FLOW_STATE"
             computedStress > 75f -> "CRITICAL_OVERLOAD"
             computedStress > 50f -> "ELEVATED_STRESS"
             else -> "STABLE"
         }
 
         val recommendation = when (cognitiveLoadStatus) {
-            "CRITICAL_OVERLOAD" -> "We detected rapid task switching and notification spikes. We recommend silencing alerts for 25 minutes to restore focus."
-            "ELEVATED_STRESS" -> "Cognitive load is rising. Take a brief micro-break or focus on a single application."
-            else -> "Context stable. Your current workflow pacing is optimal."
+            "FLOW_STATE" -> "Flow state detected. Task switching aligns with active development and research."
+            "CRITICAL_OVERLOAD" -> "Activity levels exceed your personal baseline. We recommend a 20-minute notification shield."
+            "ELEVATED_STRESS" -> "Cognitive load is rising above your baseline. Pacing your current task may help maintain focus."
+            else -> "Context stable. Your workflow pacing is aligned with your personal baseline."
         }
 
         return OfflineEvaluationResult(
