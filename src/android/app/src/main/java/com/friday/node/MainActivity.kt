@@ -382,12 +382,17 @@ class MainActivity : ComponentActivity() {
 
     private fun startSessionTimer() {
         sessionTimerJob?.cancel()
-        sessionTimerJob = CoroutineScope(Dispatchers.Main).launch {
+        sessionTimerJob = CoroutineScope(Dispatchers.Default).launch {
             while (isActive) {
                 val ms = System.currentTimeMillis() - sessionStartTimeMs
                 val mins = (ms / 60000).toInt()
                 val secs = ((ms / 1000) % 60).toInt()
-                focusTimeDisplay.value = if (mins > 0) "${mins}m ${secs}s" else "${secs}s"
+                val formatted = if (mins > 0) "${mins}m ${secs}s" else "${secs}s"
+                if (formatted != focusTimeDisplay.value) {
+                    withContext(Dispatchers.Main) {
+                        focusTimeDisplay.value = formatted
+                    }
+                }
                 delay(1000)
             }
         }
@@ -584,43 +589,75 @@ class MainActivity : ComponentActivity() {
         configManager.setModuleEnabled("Location & Environment", locGranted)
     }
 
-    private fun recalculateLocalStress() {
-        val result = LocalFallbackEngine.evaluateOfflineContext(
-            appSwitchesCount = appSwitchesCount.value,
-            averageTypingCadenceMs = averageTypingCadenceMs.value,
-            notificationsPerMin = notificationsCount.value,
-            context = this
-        )
-        stressScore.value = result.stressScore
-        val now = System.currentTimeMillis()
-        if ((now - lastPromptUpdateTimeMs >= 60_000L || wellbeingPrompt.value.startsWith("FRIDAY ready"))
-            && (!isConnected.value || activeActionCard.value == null)) {
-            val newPrompt = result.empatheticRecommendation
-            if (newPrompt != wellbeingPrompt.value) { wellbeingPrompt.value = newPrompt; lastPromptUpdateTimeMs = now }
-        }
-        val intensity = (result.stressScore / 100f).coerceIn(0.02f, 1f)
-        if (activityIntensities.size >= 16) activityIntensities.removeAt(0)
-        activityIntensities.add(intensity)
+    private var lastStressCalcTimeMs = 0L
 
-        productivityPercentage.value = "${(96 - appSwitchesCount.value * 2 - notificationsCount.value).coerceIn(10, 100)}%"
-        focusPercentage.value = "${(92 - appSwitchesCount.value * 3).coerceIn(10, 100)}%"
-        confidencePercentage.value = "${(88 - result.stressScore / 5).coerceIn(10, 100)}%"
-        memoryMatchPercentage.value = "${(82 + appSwitchesCount.value).coerceIn(50, 99)}%"
-        if (result.stressScore > 60) stressSpikeTime.value = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+    private fun recalculateLocalStress() {
+        val now = System.currentTimeMillis()
+        // Debounce to at most once per 200ms to eliminate UI thread looper saturation
+        if (now - lastStressCalcTimeMs < 200L) return
+        lastStressCalcTimeMs = now
+
+        val switches = appSwitchesCount.value
+        val cadence = averageTypingCadenceMs.value
+        val notifs = notificationsCount.value
+
+        CoroutineScope(Dispatchers.Default).launch {
+            val result = LocalFallbackEngine.evaluateOfflineContext(
+                appSwitchesCount = switches,
+                averageTypingCadenceMs = cadence,
+                notificationsPerMin = notifs,
+                context = this@MainActivity
+            )
+            withContext(Dispatchers.Main) {
+                stressScore.value = result.stressScore
+                if ((now - lastPromptUpdateTimeMs >= 60_000L || wellbeingPrompt.value.startsWith("FRIDAY ready"))
+                    && (!isConnected.value || activeActionCard.value == null)) {
+                    val newPrompt = result.empatheticRecommendation
+                    if (newPrompt != wellbeingPrompt.value) {
+                        wellbeingPrompt.value = newPrompt
+                        lastPromptUpdateTimeMs = now
+                    }
+                }
+                val intensity = (result.stressScore / 100f).coerceIn(0.02f, 1f)
+                if (activityIntensities.size >= 16) activityIntensities.removeAt(0)
+                activityIntensities.add(intensity)
+
+                productivityPercentage.value = "${(96 - switches * 2 - notifs).coerceIn(10, 100)}%"
+                focusPercentage.value = "${(92 - switches * 3).coerceIn(10, 100)}%"
+                confidencePercentage.value = "${(88 - result.stressScore / 5).coerceIn(10, 100)}%"
+                memoryMatchPercentage.value = "${(82 + switches).coerceIn(50, 99)}%"
+                if (result.stressScore > 60) {
+                    stressSpikeTime.value = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+                }
+            }
+        }
     }
 
     private fun triggerTelemetryRefresh(onComplete: () -> Unit) {
-        CoroutineScope(Dispatchers.Main).launch {
+        CoroutineScope(Dispatchers.IO).launch {
             val connected = WebSocketManager.getInstance().isConnected()
-            isConnected.value = connected
-            connectionStatus.value = if (connected) "Connected to Hub" else "Searching for Hub..."
-            checkPermissionsState(); recalculateLocalStress()
-            bufferedEventsCount.value = RoomDatabase.getInstance(this@MainActivity).getEventCount()
+            val eventCount = RoomDatabase.getInstance(this@MainActivity).getEventCount()
             if (connected) {
-                try { WebSocketManager.getInstance().sendEvent(JSONObject().apply { put("type", "sync_request"); put("timestamp", System.currentTimeMillis()) }.toString()) }
-                catch (e: Exception) { Log.e(TAG, "Sync request failed: ${e.message}") }
+                try {
+                    WebSocketManager.getInstance().sendEvent(JSONObject().apply {
+                        put("type", "sync_request")
+                        put("timestamp", System.currentTimeMillis())
+                    }.toString())
+                } catch (e: Exception) {
+                    Log.e(TAG, "Sync request failed: ${e.message}")
+                }
             }
-            delay(800); onComplete()
+            withContext(Dispatchers.Main) {
+                isConnected.value = connected
+                connectionStatus.value = if (connected) "Connected to Hub" else "Searching for Hub..."
+                bufferedEventsCount.value = eventCount
+                checkPermissionsState()
+                recalculateLocalStress()
+            }
+            delay(400)
+            withContext(Dispatchers.Main) {
+                onComplete()
+            }
         }
     }
 
@@ -682,17 +719,22 @@ class MainActivity : ComponentActivity() {
             containerColor = MaterialTheme.colorScheme.background,
             modifier = Modifier.fillMaxSize()
         ) { innerPadding ->
-            PullToRefreshBox(
-                isRefreshing = isRefreshing,
-                onRefresh = { isRefreshing = true; triggerTelemetryRefresh { isRefreshing = false } },
-                modifier = Modifier.padding(innerPadding).fillMaxSize()
-            ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    when (activeTab) {
-                        0 -> DashboardTab(); 1 -> MindTab(); 2 -> ContinuityTab(); 3 -> SettingsTab()
+            Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
+                when (activeTab) {
+                    0 -> {
+                        PullToRefreshBox(
+                            isRefreshing = isRefreshing,
+                            onRefresh = { isRefreshing = true; triggerTelemetryRefresh { isRefreshing = false } },
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            DashboardTab()
+                        }
                     }
-                    if (showProactiveOverlay.value) ProactiveOverlayScreen { showProactiveOverlay.value = false }
+                    1 -> MindTab()
+                    2 -> ContinuityTab()
+                    3 -> SettingsTab()
                 }
+                if (showProactiveOverlay.value) ProactiveOverlayScreen { showProactiveOverlay.value = false }
             }
         }
     }
@@ -729,7 +771,17 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun NavItem(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean, onClick: () -> Unit) {
         val tint = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(onClick = onClick).padding(8.dp)) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = androidx.compose.material3.ripple(bounded = true),
+                    onClick = onClick
+                )
+                .padding(8.dp)
+        ) {
             Icon(icon, label, tint = tint, modifier = Modifier.size(24.dp))
             Spacer(modifier = Modifier.height(4.dp))
             Text(label, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = tint)
@@ -862,7 +914,9 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun AttentionPanel() {
-        val tasks = getProcessedAttentionTasks(attentionTasks).take(3)
+        val tasks = remember(attentionTasks.size, attentionTasks.toList()) {
+            getProcessedAttentionTasks(attentionTasks).take(3)
+        }
         Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockCream), modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(stringResource(R.string.title_what_needs_attention), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
@@ -942,9 +996,13 @@ class MainActivity : ComponentActivity() {
             appSwitchesCount.value > 8 -> "Frequent app switching detected. Try to isolate your environment to stay in deep focus."
             else -> "Focus metrics look solid today. Your typing cadence is consistent and app switching is minimal."
         }
-        val burnoutScore = if (stress == 0) 10f else (stress * 0.7f).coerceIn(10f, 100f)
-        val fatigueScore = if (stress == 0) 15f else (appSwitchesCount.value * 6f + averageTypingCadenceMs.value / 25f).coerceIn(10f, 100f)
-        val socialScore = if (notificationsCount.value == 0) 12f else (notificationsCount.value * 12f).coerceIn(10f, 100f)
+        val burnoutScore = remember(stress) { if (stress == 0) 10f else (stress * 0.7f).coerceIn(10f, 100f) }
+        val fatigueScore = remember(stress, appSwitchesCount.value, averageTypingCadenceMs.value) {
+            if (stress == 0) 15f else (appSwitchesCount.value * 6f + averageTypingCadenceMs.value / 25f).coerceIn(10f, 100f)
+        }
+        val socialScore = remember(notificationsCount.value) {
+            if (notificationsCount.value == 0) 12f else (notificationsCount.value * 12f).coerceIn(10f, 100f)
+        }
 
         LazyColumn(
             modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 24.dp),
@@ -1373,7 +1431,8 @@ class MainActivity : ComponentActivity() {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("LIVE ACTIVITY LOG", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
-                        timelineEvents.take(10).forEach { TimelineRowItem(it) }
+                        val recentTimeline = remember(timelineEvents.size) { timelineEvents.take(10) }
+                        recentTimeline.forEach { TimelineRowItem(it) }
                     }
                 }
             }
@@ -1702,6 +1761,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun BiometricsRadarChart(stress: Float, burnout: Float, fatigue: Float, social: Float) {
+        val radarPath = remember { Path() }
         Box(modifier = Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) {
             Canvas(modifier = Modifier.size(200.dp)) {
                 val c = size.width / 2; val maxR = size.width / 2 * 0.8f
@@ -1711,12 +1771,16 @@ class MainActivity : ComponentActivity() {
                 }
                 drawLine(Color.White.copy(alpha = 0.2f), androidx.compose.ui.geometry.Offset(c, c - maxR), androidx.compose.ui.geometry.Offset(c, c + maxR), 1.dp.toPx())
                 drawLine(Color.White.copy(alpha = 0.2f), androidx.compose.ui.geometry.Offset(c - maxR, c), androidx.compose.ui.geometry.Offset(c + maxR, c), 1.dp.toPx())
-                val path = Path().apply {
-                    moveTo(c, c - maxR * (stress / 100f)); lineTo(c + maxR * (social / 100f), c)
-                    lineTo(c, c + maxR * (burnout / 100f)); lineTo(c - maxR * (fatigue / 100f), c); close()
-                }
-                drawPath(path, ColorBlockLime.copy(alpha = 0.4f))
-                drawPath(path, ColorBlockLime, style = Stroke(2.dp.toPx()))
+                
+                radarPath.reset()
+                radarPath.moveTo(c, c - maxR * (stress / 100f))
+                radarPath.lineTo(c + maxR * (social / 100f), c)
+                radarPath.lineTo(c, c + maxR * (burnout / 100f))
+                radarPath.lineTo(c - maxR * (fatigue / 100f), c)
+                radarPath.close()
+
+                drawPath(radarPath, ColorBlockLime.copy(alpha = 0.4f))
+                drawPath(radarPath, ColorBlockLime, style = Stroke(2.dp.toPx()))
             }
             Box(modifier = Modifier.fillMaxSize()) {
                 Text("STRESS (${stress.toInt()})", fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.6f), modifier = Modifier.align(Alignment.TopCenter))
