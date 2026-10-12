@@ -5,7 +5,9 @@ import android.util.Log
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import ai.onnxruntime.OnnxTensor
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -61,9 +63,11 @@ object LocalFallbackEngine {
     private const val MODEL_FILENAME = "phi3_mini_int4.onnx"
     private const val DATA_FILENAME = "phi3_mini_int4.onnx.data"
 
-    // Model download URLs — hybrid strategy: local hub first, Hugging Face fallback
-    // The backend (hub) handles downloading from Hugging Face and serving ONNX format
-    private const val HF_MODEL_ID = "microsoft/Phi-3-mini-4k-instruct"
+    // Public internet fallback model URLs (Microsoft Hugging Face ONNX direct resolve URLs)
+    private const val HF_ONNX_MODEL_URL =
+        "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-onnx/resolve/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/phi-3-mini-4k-instruct-cpu-int4-rtn-block-32-acc-level-4.onnx"
+    private const val HF_ONNX_DATA_URL =
+        "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-onnx/resolve/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/phi-3-mini-4k-instruct-cpu-int4-rtn-block-32-acc-level-4.onnx.data"
 
     // OkHttp client for model downloads
     private val httpClient = OkHttpClient.Builder()
@@ -78,23 +82,73 @@ object LocalFallbackEngine {
     private var isModelLoaded = false
     private var initAttempted = false
     private var downloadProgressCallback: ((Float) -> Unit)? = null
+    private var activeCall: Call? = null
+    @Volatile
+    private var isDownloadingState = false
+    @Volatile
+    private var isCancelled = false
 
-    // ────────────────────────────────────────────────────────────────────────
-    // Model Download
-    // ────────────────────────────────────────────────────────────────────────
+    fun isModelLoaded(): Boolean = isModelLoaded
+
+    fun isDownloading(): Boolean = isDownloadingState
+
+    /**
+     * Checks if the Phi-3 Mini ONNX model files are downloaded and valid in internal app storage.
+     */
+    fun isModelDownloaded(context: Context): Boolean {
+        val modelDir = File(context.filesDir, "models")
+        val modelFile = File(modelDir, MODEL_FILENAME)
+        val dataFile = File(modelDir, DATA_FILENAME)
+        return (modelFile.exists() && modelFile.length() > 50_000L) &&
+               (dataFile.exists() && dataFile.length() > 1_000_000L)
+    }
+
+    /**
+     * Deletes downloaded model files from internal app storage to reclaim space.
+     */
+    fun deleteModel(context: Context): Boolean {
+        releaseEngine()
+        val modelDir = File(context.filesDir, "models")
+        val modelFile = File(modelDir, MODEL_FILENAME)
+        val dataFile = File(modelDir, DATA_FILENAME)
+        var deleted = false
+        if (modelFile.exists()) {
+            deleted = modelFile.delete() || deleted
+        }
+        if (dataFile.exists()) {
+            deleted = dataFile.delete() || deleted
+        }
+        initAttempted = false
+        Log.i(TAG, "Deleted on-device model files from storage to reclaim ~2.3GB.")
+        return deleted
+    }
+
+    /**
+     * Cancels an ongoing download and deletes temporary partial files.
+     */
+    fun cancelDownload(context: Context) {
+        isCancelled = true
+        try {
+            activeCall?.cancel()
+        } catch (_: Exception) {}
+        activeCall = null
+        isDownloadingState = false
+        // Clean up any temp files
+        val modelDir = File(context.filesDir, "models")
+        File(modelDir, "$MODEL_FILENAME.tmp").delete()
+        File(modelDir, "$DATA_FILENAME.tmp").delete()
+        Log.i(TAG, "Model download cancelled by user.")
+    }
 
     /**
      * Downloads the Phi-3 Mini INT4 ONNX model and its weight tensor file
-     * to the app's internal storage. Must be called after the user completes
-     * onboarding and grants all required permissions.
+     * on demand with explicit user consent.
      *
-     * Hybrid strategy: tries the local compute hub first (fast, private),
-     * then falls back to Hugging Face (public internet).
+     * Hybrid strategy: tries the local compute hub first (fast, private LAN),
+     * then falls back to public Hugging Face over the internet.
      *
      * @param context Application context
      * @param hubIp Optional local hub IP address (from DiscoveryManager.getResolvedHubIp()).
-     *              When provided, downloads from the local hub HTTP server.
-     *              When null, falls back to Hugging Face.
      * @param onProgress Optional callback for download progress (0.0 to 1.0)
      * @param onComplete Callback invoked when download completes successfully
      * @param onError Callback invoked if download fails
@@ -106,6 +160,11 @@ object LocalFallbackEngine {
         onComplete: () -> Unit,
         onError: (String) -> Unit = { Log.e(TAG, "Model download failed: $it") }
     ) {
+        if (isDownloadingState) {
+            Log.w(TAG, "Model download already in progress.")
+            return
+        }
+
         val modelDir = File(context.filesDir, "models")
         if (!modelDir.exists()) {
             modelDir.mkdirs()
@@ -115,95 +174,94 @@ object LocalFallbackEngine {
         val dataFile = File(modelDir, DATA_FILENAME)
 
         // Check if model already exists and is valid
-        if (modelFile.exists() && modelFile.length() > 1_000_000 &&
-            dataFile.exists() && dataFile.length() > 1_000_000
-        ) {
-            Log.i(TAG, "Model already exists locally (${modelFile.length()} bytes). Skipping download.")
+        if (isModelDownloaded(context)) {
+            Log.i(TAG, "Model already exists locally. Skipping download.")
             onComplete()
             return
         }
 
+        isCancelled = false
+        isDownloadingState = true
         downloadProgressCallback = onProgress
 
-        // Construct download URLs — only via backend hub (backend converts from Hugging Face Safetensors to ONNX)
-        if (hubIp == null) {
-            Log.w(TAG, "No backend hub found. Attempting to initialize with cached or asset model files.")
-            // Try to initialize engine with whatever model files exist (cached or assets fallback)
-            // initializeEngine() will be called from the caller, so just signal completion
-            onComplete()
-            return
-        }
-        val modelUrl = "http://$hubIp:8000/api/model/phi3-mini-onnx"
-        val dataUrl = "http://$hubIp:8000/api/model/phi3-mini-onnx-data"
+        val modelUrl = if (!hubIp.isNullOrBlank()) "http://$hubIp:8000/api/model/phi3-mini-onnx" else HF_ONNX_MODEL_URL
+        val dataUrl = if (!hubIp.isNullOrBlank()) "http://$hubIp:8000/api/model/phi3-mini-onnx-data" else HF_ONNX_DATA_URL
 
-        Log.i(TAG, "Downloading model from hub at http://$hubIp:8000/")
+        Log.i(TAG, "Initiating consent-approved on-demand model download from $modelUrl and $dataUrl")
 
-        // Download model topology file
-        val downloadTask = object : Runnable {
-            override fun run() {
-                try {
-                    if (!modelFile.exists() || modelFile.length() < 100) {
-                        Log.i(TAG, "Downloading Phi-3 Mini ONNX model topology from $modelUrl...")
-                        downloadFile(modelUrl, modelFile, onProgress)
-                        Log.i(TAG, "Model topology downloaded: ${modelFile.length()} bytes")
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                if (!modelFile.exists() || modelFile.length() < 100) {
+                    val tmpModel = File(modelDir, "$MODEL_FILENAME.tmp")
+                    downloadFile(modelUrl, tmpModel) { progress ->
+                        // Model topology is ~1% of total size
+                        onProgress?.invoke(progress * 0.02f)
                     }
+                    if (isCancelled) throw java.io.IOException("Download cancelled")
+                    tmpModel.renameTo(modelFile)
+                }
 
-                    // Download model weight tensor file
-                    if (!dataFile.exists() || dataFile.length() < 100) {
-                        Log.i(TAG, "Downloading Phi-3 Mini ONNX weight tensor from $dataUrl...")
-                        downloadFile(dataUrl, dataFile, onProgress)
-                        Log.i(TAG, "Model weight tensor downloaded: ${dataFile.length()} bytes")
+                if (!dataFile.exists() || dataFile.length() < 100) {
+                    val tmpData = File(modelDir, "$DATA_FILENAME.tmp")
+                    downloadFile(dataUrl, tmpData) { progress ->
+                        // Weight tensor is ~98% of total size
+                        onProgress?.invoke(0.02f + progress * 0.98f)
                     }
+                    if (isCancelled) throw java.io.IOException("Download cancelled")
+                    tmpData.renameTo(dataFile)
+                }
 
+                isDownloadingState = false
+                activeCall = null
+                withContext(Dispatchers.Main) {
+                    onComplete()
+                }
+            } catch (e: Exception) {
+                isDownloadingState = false
+                activeCall = null
+                if (isCancelled) {
                     withContext(Dispatchers.Main) {
-                        onComplete()
+                        onError("Download cancelled")
                     }
-                } catch (e: Exception) {
+                } else {
                     withContext(Dispatchers.Main) {
                         onError("Failed to download model: ${e.message}")
                     }
                 }
             }
         }
-
-        Thread(downloadTask).start()
     }
 
     private fun downloadFile(urlString: String, outputFile: File, onProgress: ((Float) -> Unit)? = null) {
         val request = Request.Builder().url(urlString).build()
         val call = httpClient.newCall(request)
+        activeCall = call
+        val response = call.execute()
+        if (!response.isSuccessful) {
+            throw java.io.IOException("Download HTTP error: ${response.code}")
+        }
 
-        call.enqueue(object : Callback {
-            override fun onFailure(call: Call, e: java.io.IOException) {
-                Log.e(TAG, "Download failed for $urlString: ${e.message}")
-                throw e
-            }
+        val totalBytes = response.body?.contentLength() ?: -1L
+        var downloadedBytes = 0L
 
-            override fun onResponse(call: Call, response: Response) {
-                if (!response.isSuccessful) {
-                    throw java.io.IOException("Unexpected code $response")
-                }
-
-                val totalBytes = response.body?.contentLength() ?: -1
-                var downloadedBytes = 0L
-
-                response.body?.byteStream()?.use { input ->
-                    FileOutputStream(outputFile).use { output ->
-                        val buffer = ByteArray(8192)
-                        var bytesRead: Int
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            output.write(buffer, 0, bytesRead)
-                            downloadedBytes += bytesRead
-                            if (totalBytes > 0 && onProgress != null) {
-                                val progress = downloadedBytes.toFloat() / totalBytes
-                                onProgress(progress.coerceIn(0f, 1f))
-                            }
-                        }
+        response.body?.byteStream()?.use { input ->
+            FileOutputStream(outputFile).use { output ->
+                val buffer = ByteArray(32768)
+                var bytesRead: Int
+                while (input.read(buffer).also { bytesRead = it } != -1) {
+                    if (isCancelled) {
+                        throw java.io.IOException("Download cancelled by user")
+                    }
+                    output.write(buffer, 0, bytesRead)
+                    downloadedBytes += bytesRead
+                    if (totalBytes > 0 && onProgress != null) {
+                        val progress = downloadedBytes.toFloat() / totalBytes
+                        onProgress(progress.coerceIn(0f, 1f))
                     }
                 }
-                response.close()
             }
-        })
+        }
+        response.close()
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -212,56 +270,24 @@ object LocalFallbackEngine {
 
     /**
      * Initializes the ONNX Runtime environment and loads the quantized
-     * Phi-3 Mini INT4 model from internal storage (downloaded via
-     * [downloadModel] after onboarding completes). Falls back to
-     * assets if downloaded files are missing.
+     * Phi-3 Mini INT4 model from internal storage ONLY if previously downloaded.
+     * If the model files are not found, skips neural initialization and
+     * allows the app to operate in zero-overhead rule-based fallback mode.
      */
     suspend fun initializeEngine(context: Context) = withContext(Dispatchers.IO) {
         if (isModelLoaded || initAttempted) return@withContext
         initAttempted = true
 
+        val modelDir = File(context.filesDir, "models")
+        val modelFile = File(modelDir, MODEL_FILENAME)
+        val dataFile = File(modelDir, DATA_FILENAME)
+
+        if (!modelFile.exists() || !dataFile.exists() || modelFile.length() < 1000 || dataFile.length() < 1000) {
+            Log.i(TAG, "Neural model files not present in storage. Using ultra-fast rule-based heuristic fallback (<10ms, 0MB).")
+            return@withContext
+        }
+
         try {
-            val modelDir = File(context.filesDir, "models")
-            val modelFile = File(modelDir, MODEL_FILENAME)
-            val dataFile = File(modelDir, DATA_FILENAME)
-
-            // First try downloaded model files
-            if (!modelFile.exists() || !dataFile.exists()) {
-                Log.w(TAG, "Downloaded model files not found. Trying APK assets as fallback...")
-                if (!modelFile.exists()) {
-                    try {
-                        Log.i(TAG, "Extracting Phi-3 Mini INT4 model topology asset to internal storage...")
-                        val modelDirForAsset = File(context.filesDir, "models")
-                        if (!modelDirForAsset.exists()) modelDirForAsset.mkdirs()
-                        context.assets.open(MODEL_FILENAME).use { inputStream ->
-                            File(modelDirForAsset, MODEL_FILENAME).outputStream().use { outputStream ->
-                                inputStream.copyTo(outputStream, bufferSize = 8192)
-                            }
-                        }
-                        Log.i(TAG, "Model structural shell extracted: ${modelFile.length()} bytes")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Model topology asset '$MODEL_FILENAME' not found in APK assets. Neural fallback disabled.", e)
-                        return@withContext
-                    }
-                }
-                if (!dataFile.exists()) {
-                    try {
-                        Log.i(TAG, "Extracting Phi-3 Mini INT4 tensor weight assets (.onnx.data) to internal storage...")
-                        val modelDirForAsset = File(context.filesDir, "models")
-                        if (!modelDirForAsset.exists()) modelDirForAsset.mkdirs()
-                        context.assets.open(DATA_FILENAME).use { inputStream ->
-                            File(modelDirForAsset, DATA_FILENAME).outputStream().use { outputStream ->
-                                inputStream.copyTo(outputStream, bufferSize = 16384)
-                            }
-                        }
-                        Log.i(TAG, "Model weight tensor block extracted: ${dataFile.length()} bytes")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Critical: Weight sheet asset '$DATA_FILENAME' missing. Secondary fallback required.", e)
-                        return@withContext
-                    }
-                }
-            }
-
             val env = OrtEnvironment.getEnvironment()
             val options = OrtSession.SessionOptions().apply {
                 setIntraOpNumThreads(2)
@@ -273,10 +299,10 @@ object LocalFallbackEngine {
             ortSession = session
             isModelLoaded = true
 
-            Log.i(TAG, "ONNX Runtime Phi-3 Mini INT4 fallback engine initialized successfully. " +
-                    "Input names: ${session.inputNames}, Output names: ${session.outputNames}")
+            Log.i(TAG, "ONNX Runtime Phi-3 Mini INT4 fallback engine initialized successfully from user-downloaded storage.")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize ONNX fallback engine. Rule-based inference will be used as safety net.", e)
+            Log.e(TAG, "Error initializing ONNX runtime session: ${e.message}. Using rule-based fallback.", e)
+            releaseEngine()
         }
     }
 
@@ -532,6 +558,58 @@ object LocalFallbackEngine {
             }
             return sb.toString()
         }
+    }
+
+    /**
+     * Executes local rule-based inference simulating the Phi-3 Mini model
+     * when the backend compute hub is offline.
+     */
+    fun evaluateOfflineContext(
+        appSwitchesCount: Int,
+        averageTypingCadenceMs: Long,
+        notificationsPerMin: Int
+    ): OfflineEvaluationResult {
+        // Base stress is 50
+        var computedStress = 50.0f
+
+        // App switching indicates distraction/multitasking load
+        if (appSwitchesCount > 5) {
+            computedStress += (appSwitchesCount * 2.5f).coerceAtMost(20f)
+        }
+
+        // Notification frequency increases cognitive friction
+        if (notificationsPerMin > 4) {
+            computedStress += (notificationsPerMin * 1.5f).coerceAtMost(15f)
+        }
+
+        // Fast typing (< 180ms delay) combined with high switches indicates pressure
+        if (averageTypingCadenceMs in 10..180) {
+            computedStress += 10.0f
+        } else if (averageTypingCadenceMs > 600) {
+            // Very slow typing may indicate fatigue/exhaustion
+            computedStress += 5.0f
+        }
+
+        // Cap stress score between 0 and 100
+        computedStress = computedStress.coerceIn(0.0f, 100.0f)
+
+        val cognitiveLoadStatus = when {
+            computedStress > 75f -> "CRITICAL_OVERLOAD"
+            computedStress > 50f -> "ELEVATED_STRESS"
+            else -> "STABLE"
+        }
+
+        val recommendation = when (cognitiveLoadStatus) {
+            "CRITICAL_OVERLOAD" -> "We detected rapid task switching and notification spikes. We recommend silencing alerts for 25 minutes to restore focus."
+            "ELEVATED_STRESS" -> "Cognitive load is rising. Take a brief micro-break or focus on a single application."
+            else -> "Context stable. Your current workflow pacing is optimal."
+        }
+
+        return OfflineEvaluationResult(
+            stressScore = computedStress.toInt(),
+            cognitiveLoadStatus = cognitiveLoadStatus,
+            empatheticRecommendation = recommendation
+        )
     }
 
     /**

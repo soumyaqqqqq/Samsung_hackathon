@@ -6,6 +6,11 @@ import android.net.NetworkCapabilities
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class DiscoveryManager(
     private val context: Context,
@@ -86,6 +91,9 @@ class DiscoveryManager(
         }
     }
 
+    private var discoveryTimeoutJob: kotlinx.coroutines.Job? = null
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default)
+
     fun startSearching() {
         if (isUsingCellularOrRemote()) {
             Log.i(TAG, "Cross-Network routing detected. Routing traffic through public edge relay.")
@@ -99,6 +107,15 @@ class DiscoveryManager(
                 isDiscovering = true
                 try {
                     nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
+                    // Auto-stop after 30 seconds to prevent battery drain from indefinite multicast scanning
+                    discoveryTimeoutJob?.cancel()
+                    discoveryTimeoutJob = scope.launch {
+                        kotlinx.coroutines.delay(30_000L)
+                        if (isDiscovering) {
+                            Log.i(TAG, "NSD discovery timeout (30s) reached. Stopping scan to preserve battery.")
+                            stopSearching()
+                        }
+                    }
                 } catch (e: Exception) {
                     Log.e("FRIDAY_NSD", "Failed to start service discovery: ${e.message}")
                     isDiscovering = false
@@ -108,6 +125,8 @@ class DiscoveryManager(
     }
 
     fun stopSearching() {
+        discoveryTimeoutJob?.cancel()
+        discoveryTimeoutJob = null
         synchronized(this) {
             if (isDiscovering) {
                 try {

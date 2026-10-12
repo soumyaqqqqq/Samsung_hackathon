@@ -24,7 +24,7 @@ from fastapi import (
     Request as FastAPIRequest,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import os
@@ -548,7 +548,7 @@ async def download_model_on_startup():
     onnx_file = MODEL_CACHE_DIR / "phi3_mini_int4.onnx"
     data_file = MODEL_CACHE_DIR / "phi3_mini_int4.onnx.data"
 
-    if not onnx_file.exists() or onnx_file.stat().st_size < 1_000_000:
+    if not onnx_file.exists() or onnx_file.stat().st_size < 1_000 or not data_file.exists() or data_file.stat().st_size < 1_000_000:
         logger.info("ONNX model not cached. Downloading from Hugging Face...")
         try:
             await _download_from_huggingface()
@@ -560,23 +560,46 @@ async def download_model_on_startup():
 
 
 @app.get("/api/model/phi3-mini-onnx")
-async def download_onnx_model():
+async def download_onnx_model(request: FastAPIRequest, info: bool = False):
     """
-    Serve the ONNX model files to Android clients.
-    Returns the model file path for download.
+    Serve the ONNX model files to Android clients, or return metadata.
     """
     onnx_file = MODEL_CACHE_DIR / "phi3_mini_int4.onnx"
     data_file = MODEL_CACHE_DIR / "phi3_mini_int4.onnx.data"
 
     if not onnx_file.exists():
-        return {"error": "Model not available. Check backend logs."}
+        return JSONResponse(status_code=404, content={"error": "Model not available. Check backend logs."})
 
-    return {
-        "model_url": "/api/model/phi3-mini-onnx",
-        "model_size": onnx_file.stat().st_size if onnx_file.exists() else 0,
-        "data_url": "/api/model/phi3-mini-onnx-data",
-        "data_size": data_file.stat().st_size if data_file.exists() else 0,
-    }
+    accept = request.headers.get("accept", "")
+    if info or ("application/json" in accept and "application/octet-stream" not in accept and "*/*" not in accept):
+        return {
+            "model_url": "/api/model/phi3-mini-onnx",
+            "model_size": onnx_file.stat().st_size if onnx_file.exists() else 0,
+            "data_url": "/api/model/phi3-mini-onnx-data",
+            "data_size": data_file.stat().st_size if data_file.exists() else 0,
+        }
+
+    return FileResponse(
+        path=str(onnx_file.resolve()),
+        media_type="application/octet-stream",
+        filename="phi3_mini_int4.onnx",
+    )
+
+
+@app.get("/api/model/phi3-mini-onnx-data")
+async def download_onnx_model_data():
+    """
+    Serve the ONNX model tensor weight data file to Android clients.
+    """
+    data_file = MODEL_CACHE_DIR / "phi3_mini_int4.onnx.data"
+    if not data_file.exists():
+        return JSONResponse(status_code=404, content={"error": "Model data not available. Check backend logs."})
+
+    return FileResponse(
+        path=str(data_file.resolve()),
+        media_type="application/octet-stream",
+        filename="phi3_mini_int4.onnx.data",
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -43,7 +43,8 @@ src/backend/data/audio/
 *.pcm
 
 # Large data assets (Android app ONNX model weights)
-src/android/app/src/main/assets/
+*.onnx.data
+src/android/app/src/main/assets/*.onnx.data
 
 # Large model files (backend only — Android assets must NOT be ignored)
 src/backend/phi3-mini-onnx/

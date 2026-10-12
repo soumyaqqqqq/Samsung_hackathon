@@ -113,21 +113,31 @@ class FRIDAYAccessibilityService : AccessibilityService() {
             }
 
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
-                if (currentPackage.isNotEmpty()) {
+                // In Aware or Ghost mode, skip heavy view-tree inspection to preserve battery
+                if (BatteryOptimizer.getCurrentMode() != BatteryOptimizer.RuntimeMode.ACTIVE) {
+                    return
+                }
+                if (currentPackage.isNotEmpty() && isTargetBrowserOrMediaApp(currentPackage)) {
                     trackBrowserOrYoutubeActivity(currentPackage)
                 }
             }
         }
     }
 
+    private fun isTargetBrowserOrMediaApp(packageName: String): Boolean {
+        return packageName == "com.android.chrome" ||
+                packageName == "com.sec.android.app.sbrowser" ||
+                packageName == "org.mozilla.firefox" ||
+                packageName == "com.google.android.youtube"
+    }
+
     private fun trackBrowserOrYoutubeActivity(packageName: String) {
         val now = System.currentTimeMillis()
-        if (now - lastTrackTime < 1000L) return
+        if (now - lastTrackTime < 5000L) return
         lastTrackTime = now
 
         try {
-            if (packageName != "com.android.chrome" && packageName != "com.sec.android.app.sbrowser" && 
-                packageName != "org.mozilla.firefox" && packageName != "com.google.android.youtube") {
+            if (!isTargetBrowserOrMediaApp(packageName)) {
                 val wasActive = (ContextObjectBuilder.activePage != null || ContextObjectBuilder.activeMedia != null)
                 ContextObjectBuilder.activePage = null
                 ContextObjectBuilder.activeMedia = null

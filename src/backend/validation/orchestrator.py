@@ -165,14 +165,13 @@ class Orchestrator:
 
         # Push to laptop if connected
         await self._push_to_laptop(session_id, response, ctx)
-        await self._push_to_laptop(session_id, response, ctx)
 
         # Store memory episode in ChromaDB (async, don't block response)
         asyncio.create_task(self._store_memory(ctx, response_text, agent_used))
 
         return response
 
-async def record_feedback(self, action_id: str, reaction: str):
+    async def record_feedback(self, action_id: str, reaction: str):
         """
         Called when user responds to a FRIDAY card (helpful / dismissed / ignored).
         Updates the KPI log and adjusts scoring weights (RLHF).

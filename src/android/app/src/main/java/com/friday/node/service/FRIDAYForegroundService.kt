@@ -43,6 +43,9 @@ class FRIDAYForegroundService : Service() {
     private var lastInterceptedTitle: String? = null
     private var lastInterceptedContent: String? = null
 
+    private var lastNotificationUpdateTime = 0L
+    private var lastReportedStressCategory = ""
+
     // Broadcast receiver to feed sensor events into the ContextObjectBuilder
     private val sensorFeedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -70,6 +73,11 @@ class FRIDAYForegroundService : Service() {
                     }
                     updateNotificationLayout()
                 }
+                "com.friday.node.BATTERY_MODE_CHANGED" -> {
+                    Log.i(TAG, "Battery mode changed to ${BatteryOptimizer.getCurrentMode()}. Adjusting push loop and notification cadence.")
+                    startContextPushLoop()
+                    updateNotificationLayout(force = true)
+                }
                 "com.friday.node.CONNECTION_STATE_CHANGED" -> {
                     val isConnected = intent.getBooleanExtra("is_connected", false)
                     if (!isConnected) {
@@ -84,7 +92,35 @@ class FRIDAYForegroundService : Service() {
         }
     }
 
-    private fun updateNotificationLayout() {
+    private fun updateNotificationLayout(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        val currentMode = BatteryOptimizer.getCurrentMode()
+
+        // Debounce intervals to protect CPU and avoid SystemUI remote view flood
+        val minIntervalMs = when (currentMode) {
+            BatteryOptimizer.RuntimeMode.GHOST -> 60_000L
+            BatteryOptimizer.RuntimeMode.AWARE -> 45_000L
+            BatteryOptimizer.RuntimeMode.ACTIVE -> 25_000L
+        }
+
+        val builder = contextBuilder
+        val appSwitches = builder?.appSwitchCount ?: 0
+        val typingDelay = if ((builder?.typingEventCount ?: 0) > 0) {
+            (builder?.totalTypingDelayMs ?: 0L) / (builder?.typingEventCount ?: 1)
+        } else 0L
+        val notifications = builder?.notificationCount ?: 0
+
+        val result = LocalFallbackEngine.evaluateOfflineContext(appSwitches, typingDelay, notifications)
+        val currentCategory = result.cognitiveLoadStatus
+        val categoryShifted = (currentCategory != lastReportedStressCategory)
+
+        if (!force && !categoryShifted && (now - lastNotificationUpdateTime < minIntervalMs)) {
+            return
+        }
+
+        lastNotificationUpdateTime = now
+        lastReportedStressCategory = currentCategory
+
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(TRACKER_NOTIFICATION_ID, buildCustomStressNotification())
     }
@@ -121,6 +157,7 @@ class FRIDAYForegroundService : Service() {
             addAction("com.friday.node.APP_SWITCH_DETECTED")
             addAction("com.friday.node.TYPING_CADENCE_DETECTED")
             addAction("com.friday.node.NOTIFICATION_INTERCEPTED")
+            addAction("com.friday.node.BATTERY_MODE_CHANGED")
             addAction("com.friday.node.CONNECTION_STATE_CHANGED")
             addAction("com.friday.node.TRIGGER_CONTEXT_PUSH")
         }
@@ -138,7 +175,8 @@ class FRIDAYForegroundService : Service() {
             registerReceiver(digestReceiver, digestFilter)
         }
 
-        // Evaluate battery mode at service creation (onCreate, not onStartCommand)
+        // Register dynamic battery listener and evaluate hardware state
+        BatteryOptimizer.registerBatteryListener(this)
         BatteryOptimizer.evaluateSystemState(this)
     }
 
@@ -384,10 +422,10 @@ class FRIDAYForegroundService : Service() {
         contextPushJob = serviceScope.launch {
             Log.i(TAG, "Context push loop started (session: ${contextBuilder?.sessionId})")
             while (isActive) {
-                val intervalMs = if (BatteryOptimizer.getCurrentMode() == BatteryOptimizer.RuntimeMode.GHOST) {
-                    60_000L // Ghost mode: push every 60s
-                } else {
-                    15_000L // Active/Aware mode: push every 15s
+                val intervalMs = when (BatteryOptimizer.getCurrentMode()) {
+                    BatteryOptimizer.RuntimeMode.GHOST -> 120_000L // Ghost mode: push every 120s
+                    BatteryOptimizer.RuntimeMode.AWARE -> 60_000L  // Aware mode: push every 60s
+                    BatteryOptimizer.RuntimeMode.ACTIVE -> 30_000L // Active mode: push every 30s
                 }
 
                 delay(intervalMs)
@@ -450,6 +488,7 @@ class FRIDAYForegroundService : Service() {
         } catch (e: Exception) {
             Log.w(TAG, "Digest receiver already unregistered: ${e.message}")
         }
+        BatteryOptimizer.unregisterBatteryListener(this)
         discoveryManager.stopSearching()
         WebSocketManager.getInstance().disconnect()
         LocalFallbackEngine.releaseEngine()

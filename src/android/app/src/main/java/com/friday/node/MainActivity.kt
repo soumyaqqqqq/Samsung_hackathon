@@ -80,7 +80,9 @@ import com.friday.node.onboarding.ui.screens.OnboardingScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.res.stringResource
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -170,6 +172,12 @@ class MainActivity : ComponentActivity() {
     private var showExplainStressDialog = mutableStateOf(false)
     private var showClearMemoriesConfirmDialog = mutableStateOf(false)
     private var showDisconnectDevicesConfirmDialog = mutableStateOf(false)
+
+    // ── Model Download & AI State ────────────────────────────────────────────────
+    private var isModelDownloadedState = mutableStateOf(false)
+    private var isDownloadingModel = mutableStateOf(false)
+    private var downloadProgress = mutableStateOf(0f)
+    private var showConsentDialog = mutableStateOf(false)
 
     // ── Permission State ─────────────────────────────────────────────────────────
     private var isAccessibilityGranted = mutableStateOf(false)
@@ -329,20 +337,10 @@ class MainActivity : ComponentActivity() {
             recalculateLocalStress()
         }
 
-        // DB buffer count poller
-        CoroutineScope(Dispatchers.Main).launch {
-            val db = RoomDatabase.getInstance(this@MainActivity)
-            while (true) { bufferedEventsCount.value = db.getEventCount(); delay(1000) }
-        }
-        // Session timer
-        CoroutineScope(Dispatchers.Main).launch {
-            while (true) {
-                val ms = System.currentTimeMillis() - sessionStartTimeMs
-                val mins = (ms / 60000).toInt(); val secs = ((ms / 1000) % 60).toInt()
-                focusTimeDisplay.value = if (mins > 0) "${mins}m ${secs}s" else "${secs}s"
-                delay(1000)
-            }
-        }
+        // Event-driven buffer count update (no continuous polling loop)
+        updateBufferedEventsCount()
+        isModelDownloadedState.value = LocalFallbackEngine.isModelDownloaded(this)
+        isDownloadingModel.value = LocalFallbackEngine.isDownloading()
 
         val filter = IntentFilter().apply {
             addAction("com.friday.node.APP_SWITCH_DETECTED")
@@ -366,32 +364,49 @@ class MainActivity : ComponentActivity() {
                     OnboardingScreen(viewModel = vm, deviceId = deviceId, onOnboardingFinished = {
                         userName.value = configManager.getUserName().ifEmpty { userName.value }
                         showOnboarding.value = false
-                        LocalFallbackEngine.downloadModel(
-                            context = this@MainActivity,
-                            hubIp = if (hubIp.value.isNotEmpty()) hubIp.value else DiscoveryManager.getResolvedHubIp(),
-                            onProgress = { progress ->
-                                Log.d("FRIDAY", "Model download progress: ${(progress * 100).toInt()}%")
-                            },
-                            onComplete = {
-                                LocalFallbackEngine.initializeEngine(this@MainActivity)
-                                startFridayServices(fromOnboarding = true)
-                                checkPermissionsState()
-                                recalculateLocalStress()
-                            },
-                            onError = { error ->
-                                Log.e("FRIDAY", "Model download failed: $error. Starting services with rule-based fallback.")
-                                LocalFallbackEngine.initializeEngine(this@MainActivity)
-                                startFridayServices(fromOnboarding = true)
-                                checkPermissionsState()
-                                recalculateLocalStress()
-                            }
-                        )
+                        // Onboarding complete: launch services immediately using instant heuristic fallback (<10ms, 0MB)
+                        startFridayServices(fromOnboarding = true)
+                        checkPermissionsState()
+                        recalculateLocalStress()
+                        updateBufferedEventsCount()
                     })
                 } else {
                     MainContainer()
                     RenderSettingsDialogs()
                 }
             }
+        }
+    }
+
+    private var sessionTimerJob: kotlinx.coroutines.Job? = null
+
+    private fun startSessionTimer() {
+        sessionTimerJob?.cancel()
+        sessionTimerJob = CoroutineScope(Dispatchers.Main).launch {
+            while (isActive) {
+                val ms = System.currentTimeMillis() - sessionStartTimeMs
+                val mins = (ms / 60000).toInt()
+                val secs = ((ms / 1000) % 60).toInt()
+                focusTimeDisplay.value = if (mins > 0) "${mins}m ${secs}s" else "${secs}s"
+                delay(1000)
+            }
+        }
+    }
+
+    private fun stopSessionTimer() {
+        sessionTimerJob?.cancel()
+        sessionTimerJob = null
+    }
+
+    private fun updateBufferedEventsCount() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val db = RoomDatabase.getInstance(this@MainActivity)
+                val count = db.getEventCount()
+                withContext(Dispatchers.Main) {
+                    bufferedEventsCount.value = count
+                }
+            } catch (_: Exception) {}
         }
     }
 
@@ -402,9 +417,16 @@ class MainActivity : ComponentActivity() {
         connectionStatus.value = if (connected) "Connected to Hub" else "Searching for Hub..."
         if (connected) triggerTelemetryRefresh {}
         checkPermissionsState()
+        isModelDownloadedState.value = LocalFallbackEngine.isModelDownloaded(this)
+        isDownloadingModel.value = LocalFallbackEngine.isDownloading()
+        updateBufferedEventsCount()
+        startSessionTimer()
     }
 
-    override fun onPause() { super.onPause() }
+    override fun onPause() {
+        super.onPause()
+        stopSessionTimer()
+    }
 
     override fun onDestroy() {
         super.onDestroy()
@@ -1448,6 +1470,75 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // On-Device Neural AI (Optional)
+            item {
+                Card(
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
+                ) {
+                    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text("ON-DEVICE NEURAL AI (OPTIONAL)", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        
+                        val isDownloaded = isModelDownloadedState.value
+                        val isDownloading = isDownloadingModel.value
+
+                        if (isDownloaded) {
+                            Text("Phi-3 Mini INT4 Active", fontSize = 22.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Local neural LLM (2.3 GB) installed in app storage for rich offline reasoning.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            
+                            Button(
+                                onClick = {
+                                    LocalFallbackEngine.deleteModel(this@MainActivity)
+                                    isModelDownloadedState.value = false
+                                    showToast("Model deleted. Reclaimed 2.3 GB of storage.")
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Delete Model & Free Storage (2.3 GB)", color = MaterialTheme.colorScheme.onError, fontWeight = FontWeight.Bold)
+                            }
+                        } else if (isDownloading) {
+                            Text("Downloading Neural Model...", fontSize = 22.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+                            val pct = (downloadProgress.value * 100).toInt()
+                            Text("Progress: $pct% (${String.format(Locale.US, "%.0f", downloadProgress.value * 2300f)} / 2300 MB)", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            
+                            LinearProgressIndicator(
+                                progress = { downloadProgress.value },
+                                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp))
+                            )
+
+                            Button(
+                                onClick = {
+                                    LocalFallbackEngine.cancelDownload(this@MainActivity)
+                                    isDownloadingModel.value = false
+                                    downloadProgress.value = 0f
+                                    showToast("Model download cancelled.")
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Cancel Download", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            Text("Rule Heuristics Active", fontSize = 22.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Using ultra-fast on-device heuristics (<10ms, 0 MB storage). You can optionally download the 2.3 GB Phi-3 Mini INT4 neural model over the internet for local LLM intelligence.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                            Button(
+                                onClick = { showConsentDialog.value = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Download Neural Model (2.3 GB)", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
             // Devices
             item {
                 Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = ColorBlockNavy), modifier = Modifier.fillMaxWidth()) {
@@ -2011,6 +2102,66 @@ class MainActivity : ComponentActivity() {
                     }
                 },
                 confirmButton = { TextButton(onClick = { showExplainStressDialog.value = false }) { Text("Close", fontWeight = FontWeight.Bold) } }
+            )
+        }
+
+        // User Consent Dialog for 2.3 GB Neural Model Download
+        if (showConsentDialog.value) {
+            AlertDialog(
+                onDismissRequest = { showConsentDialog.value = false },
+                title = { Text("Download On-Device Neural AI?", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "The Phi-3 Mini INT4 model requires approximately 2.3 GB of storage. It enables offline generative intelligence when the Compute Hub is unreachable.",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            "A Wi-Fi connection is strongly recommended before downloading to avoid mobile data limits.",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showConsentDialog.value = false
+                            isDownloadingModel.value = true
+                            downloadProgress.value = 0f
+                            val resolvedHub = if (hubIp.value.isNotEmpty()) hubIp.value else DiscoveryManager.getResolvedHubIp()
+                            LocalFallbackEngine.downloadModel(
+                                context = this@MainActivity,
+                                hubIp = resolvedHub,
+                                onProgress = { p ->
+                                    downloadProgress.value = p
+                                },
+                                onComplete = {
+                                    isDownloadingModel.value = false
+                                    isModelDownloadedState.value = true
+                                    CoroutineScope(Dispatchers.IO).launch {
+                                        LocalFallbackEngine.initializeEngine(this@MainActivity)
+                                    }
+                                    showToast("Neural model downloaded and ready!")
+                                },
+                                onError = { err ->
+                                    isDownloadingModel.value = false
+                                    downloadProgress.value = 0f
+                                    showToast("Download failed: $err")
+                                }
+                            )
+                        }
+                    ) {
+                        Text("Agree & Download (2.3 GB)")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showConsentDialog.value = false }) {
+                        Text("Cancel")
+                    }
+                }
             )
         }
     }
