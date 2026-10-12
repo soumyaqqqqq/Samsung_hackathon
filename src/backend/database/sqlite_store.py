@@ -78,6 +78,15 @@ CREATE TABLE IF NOT EXISTS context_snapshots (
 );
 """
 
+_CREATE_HANDOFF_STATES = """
+CREATE TABLE IF NOT EXISTS handoff_states (
+    user_id     TEXT    PRIMARY KEY,
+    status      TEXT    NOT NULL,
+    context     TEXT,
+    updated_at  REAL    NOT NULL
+);
+"""
+
 _INDICES = [
     "CREATE INDEX IF NOT EXISTS idx_kpi_user     ON kpi_logs (user_id, timestamp);",
     "CREATE INDEX IF NOT EXISTS idx_kpi_reaction ON kpi_logs (user_reaction);",
@@ -125,6 +134,7 @@ class SQLiteStore:
             + _CREATE_RECENT_APPS
             + _CREATE_RECENT_TABS
             + _CREATE_CONTEXT_SNAPSHOTS
+            + _CREATE_HANDOFF_STATES
             + "".join(_INDICES)
         )
         self._conn.commit()
@@ -335,6 +345,60 @@ class SQLiteStore:
         )
         row = cur.fetchone()
         return self._decrypt_payload(row[0]) if row else None
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    # Cross-device handoff state
+    # ──────────────────────────────────────────────────────────────────────────────
+
+    BROWSER_PACKAGES = {
+        "com.android.chrome", "com.sec.android.app.sbrowser",
+        "org.mozilla.firefox", "com.google.android.youtube",
+    }
+
+    def get_latest_context(self, user_id: str) -> dict:
+        """Return the last known context for a user, falling back to the most recent snapshot."""
+        import json as _json
+        # Try exact session match first, then fall back to most recent
+        raw = self.get_context_snapshot(user_id) or self.get_latest_context_snapshot()
+        if raw:
+            try:
+                data = _json.loads(raw)
+                sensor = data.get("sensor_data", {})
+                return {
+                    "active_app": sensor.get("focused_app", ""),
+                    "active_page": sensor.get("active_page"),
+                    "active_media": sensor.get("active_media"),
+                    "raw": data,
+                }
+            except Exception:
+                pass
+        return {"active_app": ""}
+
+    def set_handoff_state(self, user_id: str, status: str, context_json: Optional[str] = None):
+        """Upsert a PENDING_HANDOFF (or RESOLVED) flag for a user."""
+        import time as _time
+        self._conn.execute(
+            "INSERT OR REPLACE INTO handoff_states (user_id, status, context, updated_at) VALUES (?, ?, ?, ?)",
+            (user_id, status, context_json, _time.time()),
+        )
+        self._conn.commit()
+
+    def get_handoff_state(self, user_id: str) -> Optional[dict]:
+        """Return the handoff row for a user, or None."""
+        row = self._conn.execute(
+            "SELECT status, context, updated_at FROM handoff_states WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        if row:
+            return {"status": row[0], "context": row[1], "updated_at": row[2]}
+        return None
+
+    def get_pending_handoffs(self) -> list[dict]:
+        """Return all users with PENDING_HANDOFF status."""
+        rows = self._conn.execute(
+            "SELECT user_id, context, updated_at FROM handoff_states WHERE status = 'PENDING_HANDOFF' ORDER BY updated_at DESC"
+        ).fetchall()
+        return [{"user_id": r[0], "context": r[1], "updated_at": r[2]} for r in rows]
 
     # ──────────────────────────────────────────────────────────────────────────────
     # Utilities

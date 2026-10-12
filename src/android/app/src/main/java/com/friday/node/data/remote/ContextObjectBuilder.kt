@@ -178,18 +178,23 @@ class ContextObjectBuilder(private val context: Context) {
 
         val screenOnTimeSeconds = ((now - sessionStartTimeMs) / 1000).toInt()
 
-        // Compute local stress score using existing engine
+        // Compute local stress score using personal baseline engine and contextual flow
+        val domainCategory = activePage?.optString("category")
         val offlineResult = LocalFallbackEngine.evaluateOfflineContext(
             appSwitchesCount = currentSwitches,
             averageTypingCadenceMs = if (typingEventCount > 0) totalTypingDelayMs / typingEventCount else 0L,
-            notificationsPerMin = notificationCount
+            notificationsPerMin = notificationCount,
+            focusedApp = currentFocusedApp,
+            domainCategory = domainCategory,
+            context = context
         )
 
         // Get battery level
         val batteryLevel = getBatteryLevel()
 
-        // Emotion label from stress score
+        // Emotion label from stress score & status
         val emotionLabel = when {
+            offlineResult.cognitiveLoadStatus == "FLOW_STATE" -> "flow"
             offlineResult.stressScore >= 75 -> "stressed"
             offlineResult.stressScore >= 50 -> "focused"
             offlineResult.stressScore >= 30 -> "calm"
@@ -208,6 +213,7 @@ class ContextObjectBuilder(private val context: Context) {
             // user_state
             put("user_state", JSONObject().apply {
                 put("stress_score", offlineResult.stressScore)
+                put("cognitive_load_status", offlineResult.cognitiveLoadStatus)
                 put("emotion_label", emotionLabel)
             })
 

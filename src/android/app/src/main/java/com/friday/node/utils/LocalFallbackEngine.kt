@@ -5,10 +5,19 @@ import android.util.Log
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import ai.onnxruntime.OnnxTensor
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
 import java.nio.FloatBuffer
 
 /**
@@ -27,6 +36,12 @@ import java.nio.FloatBuffer
  *
  * Architecture:
  * ```
+ *   App Install → Download 2.3GB Phi-3 Mini ONNX model
+ *         │
+ *   User completes onboarding + grants permissions
+ *         │
+ *   LocalFallbackEngine.initializeEngine() loads downloaded model
+ *         │
  *   WebSocketManager.sendEvent()
  *         │ (send fails)
  *         ▼
@@ -48,109 +63,252 @@ object LocalFallbackEngine {
     private const val MODEL_FILENAME = "phi3_mini_int4.onnx"
     private const val DATA_FILENAME = "phi3_mini_int4.onnx.data"
 
+    // Public internet fallback model URLs (Microsoft Hugging Face ONNX direct resolve URLs)
+    private const val HF_ONNX_MODEL_URL =
+        "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-onnx/resolve/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/phi3-mini-4k-instruct-cpu-int4-rtn-block-32-acc-level-4.onnx"
+    private const val HF_ONNX_DATA_URL =
+        "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-onnx/resolve/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/phi3-mini-4k-instruct-cpu-int4-rtn-block-32-acc-level-4.onnx.data"
+
+    // OkHttp client for model downloads with full redirect handling
+    private val httpClient = OkHttpClient.Builder()
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(600, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(600, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+
     // ONNX Runtime handles
     private var ortEnv: OrtEnvironment? = null
     private var ortSession: OrtSession? = null
     private var isModelLoaded = false
     private var initAttempted = false
+    private var downloadProgressCallback: ((Float) -> Unit)? = null
+    private var activeCall: Call? = null
+    @Volatile
+    private var isDownloadingState = false
+    @Volatile
+    private var isCancelled = false
 
-    // ────────────────────────────────────────────────────────────────────────
-    // Tier 1: Rule-based offline heuristic (existing, backward-compatible)
-    // ────────────────────────────────────────────────────────────────────────
+    fun isModelLoaded(): Boolean = isModelLoaded
+
+    fun isDownloading(): Boolean = isDownloadingState
 
     /**
-     * Executes local rule-based inference simulating the Phi-3 Mini model
-     * when the backend compute hub is offline.
+     * Checks if the Phi-3 Mini ONNX model files are downloaded and valid in internal app storage.
      */
-    fun evaluateOfflineContext(
-        appSwitchesCount: Int,
-        averageTypingCadenceMs: Long,
-        notificationsPerMin: Int
-    ): OfflineEvaluationResult {
-        var computedStress = 50.0f
+    fun isModelDownloaded(context: Context): Boolean {
+        val modelDir = File(context.filesDir, "models")
+        val modelFile = File(modelDir, MODEL_FILENAME)
+        val dataFile = File(modelDir, DATA_FILENAME)
+        return (modelFile.exists() && modelFile.length() > 50_000L) &&
+               (dataFile.exists() && dataFile.length() > 1_000_000L)
+    }
 
-        if (appSwitchesCount > 5) {
-            computedStress += (appSwitchesCount * 2.5f).coerceAtMost(20f)
+    /**
+     * Deletes downloaded model files from internal app storage to reclaim space.
+     */
+    fun deleteModel(context: Context): Boolean {
+        releaseEngine()
+        val modelDir = File(context.filesDir, "models")
+        val modelFile = File(modelDir, MODEL_FILENAME)
+        val dataFile = File(modelDir, DATA_FILENAME)
+        var deleted = false
+        if (modelFile.exists()) {
+            deleted = modelFile.delete() || deleted
+        }
+        if (dataFile.exists()) {
+            deleted = dataFile.delete() || deleted
+        }
+        initAttempted = false
+        Log.i(TAG, "Deleted on-device model files from storage to reclaim ~2.3GB.")
+        return deleted
+    }
+
+    /**
+     * Cancels an ongoing download and deletes temporary partial files.
+     */
+    fun cancelDownload(context: Context) {
+        isCancelled = true
+        try {
+            activeCall?.cancel()
+        } catch (_: Exception) {}
+        activeCall = null
+        isDownloadingState = false
+        // Clean up any temp files
+        val modelDir = File(context.filesDir, "models")
+        File(modelDir, "$MODEL_FILENAME.tmp").delete()
+        File(modelDir, "$DATA_FILENAME.tmp").delete()
+        Log.i(TAG, "Model download cancelled by user.")
+    }
+
+    /**
+     * Downloads the Phi-3 Mini INT4 ONNX model and its weight tensor file
+     * on demand with explicit user consent.
+     *
+     * Hybrid strategy: tries the local compute hub first (fast, private LAN),
+     * and automatically falls back to public Hugging Face if the hub returns 404
+     * or is not reachable.
+     *
+     * @param context Application context
+     * @param hubIp Optional local hub IP address (from DiscoveryManager.getResolvedHubIp()).
+     * @param onProgress Optional callback for download progress (0.0 to 1.0)
+     * @param onComplete Callback invoked when download completes successfully
+     * @param onError Callback invoked if download fails
+     */
+    fun downloadModel(
+        context: Context,
+        hubIp: String? = null,
+        onProgress: ((Float) -> Unit)? = null,
+        onComplete: () -> Unit,
+        onError: (String) -> Unit = { Log.e(TAG, "Model download failed: $it") }
+    ) {
+        if (isDownloadingState) {
+            Log.w(TAG, "Model download already in progress.")
+            return
         }
 
-        if (notificationsPerMin > 4) {
-            computedStress += (notificationsPerMin * 1.5f).coerceAtMost(15f)
+        val modelDir = File(context.filesDir, "models")
+        if (!modelDir.exists()) {
+            modelDir.mkdirs()
         }
 
-        if (averageTypingCadenceMs in 10..180) {
-            computedStress += 10.0f
-        } else if (averageTypingCadenceMs > 600) {
-            computedStress += 5.0f
+        val modelFile = File(modelDir, MODEL_FILENAME)
+        val dataFile = File(modelDir, DATA_FILENAME)
+
+        // Check if model already exists and is valid
+        if (isModelDownloaded(context)) {
+            Log.i(TAG, "Model already exists locally. Skipping download.")
+            onComplete()
+            return
         }
 
-        computedStress = computedStress.coerceIn(0.0f, 100.0f)
+        isCancelled = false
+        isDownloadingState = true
+        downloadProgressCallback = onProgress
 
-        val cognitiveLoadStatus = when {
-            computedStress > 75f -> "CRITICAL_OVERLOAD"
-            computedStress > 50f -> "ELEVATED_STRESS"
-            else -> "STABLE"
+        val modelUrl = if (!hubIp.isNullOrBlank()) "http://$hubIp:8000/api/model/phi3-mini-onnx" else HF_ONNX_MODEL_URL
+        val dataUrl = if (!hubIp.isNullOrBlank()) "http://$hubIp:8000/api/model/phi3-mini-onnx-data" else HF_ONNX_DATA_URL
+
+        Log.i(TAG, "Initiating consent-approved on-demand model download from $modelUrl and $dataUrl")
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                if (!modelFile.exists() || modelFile.length() < 100) {
+                    val tmpModel = File(modelDir, "$MODEL_FILENAME.tmp")
+                    downloadFile(modelUrl, HF_ONNX_MODEL_URL, tmpModel) { progress ->
+                        // Model topology is ~1% of total size
+                        onProgress?.invoke(progress * 0.02f)
+                    }
+                    if (isCancelled) throw java.io.IOException("Download cancelled")
+                    tmpModel.renameTo(modelFile)
+                }
+
+                if (!dataFile.exists() || dataFile.length() < 100) {
+                    val tmpData = File(modelDir, "$DATA_FILENAME.tmp")
+                    downloadFile(dataUrl, HF_ONNX_DATA_URL, tmpData) { progress ->
+                        // Weight tensor is ~98% of total size
+                        onProgress?.invoke(0.02f + progress * 0.98f)
+                    }
+                    if (isCancelled) throw java.io.IOException("Download cancelled")
+                    tmpData.renameTo(dataFile)
+                }
+
+                isDownloadingState = false
+                activeCall = null
+                withContext(Dispatchers.Main) {
+                    onComplete()
+                }
+            } catch (e: Exception) {
+                isDownloadingState = false
+                activeCall = null
+                if (isCancelled) {
+                    withContext(Dispatchers.Main) {
+                        onError("Download cancelled")
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        onError("Failed to download model: ${e.message}")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun downloadFile(
+        primaryUrl: String,
+        fallbackUrl: String? = null,
+        outputFile: File,
+        onProgress: ((Float) -> Unit)? = null
+    ) {
+        var urlToUse = primaryUrl
+        var request = Request.Builder().url(urlToUse).build()
+        var call = httpClient.newCall(request)
+        activeCall = call
+        var response = call.execute()
+
+        // If hub returns 404 (not cached on laptop hub) and fallback is provided, switch to Hugging Face
+        if (!response.isSuccessful && response.code == 404 && fallbackUrl != null && primaryUrl != fallbackUrl) {
+            response.close()
+            Log.w(TAG, "Primary URL $primaryUrl returned 404. Falling back to public Hugging Face CDN: $fallbackUrl")
+            urlToUse = fallbackUrl
+            request = Request.Builder().url(urlToUse).build()
+            call = httpClient.newCall(request)
+            activeCall = call
+            response = call.execute()
         }
 
-        val recommendation = when (cognitiveLoadStatus) {
-            "CRITICAL_OVERLOAD" -> "We detected rapid task switching and notification spikes. We recommend silencing alerts for 25 minutes to restore focus."
-            "ELEVATED_STRESS" -> "Cognitive load is rising. Take a brief micro-break or focus on a single application."
-            else -> "Context stable. Your current workflow pacing is optimal."
+        if (!response.isSuccessful) {
+            throw java.io.IOException("Download HTTP error: ${response.code} from $urlToUse")
         }
 
-        return OfflineEvaluationResult(
-            stressScore = computedStress.toInt(),
-            cognitiveLoadStatus = cognitiveLoadStatus,
-            empatheticRecommendation = recommendation
-        )
+        val totalBytes = response.body?.contentLength() ?: -1L
+        var downloadedBytes = 0L
+
+        response.body?.byteStream()?.use { input ->
+            FileOutputStream(outputFile).use { output ->
+                val buffer = ByteArray(65536)
+                var bytesRead: Int
+                while (input.read(buffer).also { bytesRead = it } != -1) {
+                    if (isCancelled) {
+                        throw java.io.IOException("Download cancelled by user")
+                    }
+                    output.write(buffer, 0, bytesRead)
+                    downloadedBytes += bytesRead
+                    if (totalBytes > 0 && onProgress != null) {
+                        val progress = downloadedBytes.toFloat() / totalBytes
+                        onProgress(progress.coerceIn(0f, 1f))
+                    }
+                }
+            }
+        }
+        response.close()
     }
 
     // ────────────────────────────────────────────────────────────────────────
-    // Tier 2: ONNX Runtime Neural Inference (Phi-3 Mini INT4)
+    // Initialization
     // ────────────────────────────────────────────────────────────────────────
 
     /**
      * Initializes the ONNX Runtime environment and loads the quantized
-     * Phi-3 Mini INT4 model along with its external weights tensor file (.onnx.data)
-     * from the app's assets directory.
+     * Phi-3 Mini INT4 model from internal storage ONLY if previously downloaded.
+     * If the model files are not found, skips neural initialization and
+     * allows the app to operate in zero-overhead rule-based fallback mode.
      */
     suspend fun initializeEngine(context: Context) = withContext(Dispatchers.IO) {
         if (isModelLoaded || initAttempted) return@withContext
         initAttempted = true
 
+        val modelDir = File(context.filesDir, "models")
+        val modelFile = File(modelDir, MODEL_FILENAME)
+        val dataFile = File(modelDir, DATA_FILENAME)
+
+        if (!modelFile.exists() || !dataFile.exists() || modelFile.length() < 1000 || dataFile.length() < 1000) {
+            Log.i(TAG, "Neural model files not present in storage. Using ultra-fast rule-based heuristic fallback (<10ms, 0MB).")
+            return@withContext
+        }
+
         try {
-            val modelFile = File(context.filesDir, MODEL_FILENAME)
-            val dataFile = File(context.filesDir, DATA_FILENAME)
-
-            if (!modelFile.exists()) {
-                try {
-                    Log.i(TAG, "Extracting Phi-3 Mini INT4 model topology asset to internal storage...")
-                    context.assets.open(MODEL_FILENAME).use { inputStream ->
-                        modelFile.outputStream().use { outputStream ->
-                            inputStream.copyTo(outputStream, bufferSize = 8192)
-                        }
-                    }
-                    Log.i(TAG, "Model structural shell extracted: ${modelFile.length()} bytes")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Model topology asset '$MODEL_FILENAME' not found in APK assets. Neural fallback disabled.", e)
-                    return@withContext
-                }
-            }
-
-            if (!dataFile.exists()) {
-                try {
-                    Log.i(TAG, "Extracting Phi-3 Mini INT4 tensor weight assets (.onnx.data) to internal storage...")
-                    context.assets.open(DATA_FILENAME).use { inputStream ->
-                        dataFile.outputStream().use { outputStream ->
-                            inputStream.copyTo(outputStream, bufferSize = 16384)
-                        }
-                    }
-                    Log.i(TAG, "Model weight tensor block extracted: ${dataFile.length()} bytes")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Critical: Weight sheet asset '$DATA_FILENAME' missing. Secondary fallback required.", e)
-                    return@withContext
-                }
-            }
-
             val env = OrtEnvironment.getEnvironment()
             val options = OrtSession.SessionOptions().apply {
                 setIntraOpNumThreads(2)
@@ -162,10 +320,10 @@ object LocalFallbackEngine {
             ortSession = session
             isModelLoaded = true
 
-            Log.i(TAG, "ONNX Runtime Phi-3 Mini INT4 fallback engine initialized successfully. " +
-                    "Input names: ${session.inputNames}, Output names: ${session.outputNames}")
+            Log.i(TAG, "ONNX Runtime Phi-3 Mini INT4 fallback engine initialized successfully from user-downloaded storage.")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize ONNX fallback engine. Rule-based inference will be used as safety net.", e)
+            Log.e(TAG, "Error initializing ONNX runtime session: ${e.message}. Using rule-based fallback.", e)
+            releaseEngine()
         }
     }
 
@@ -215,7 +373,14 @@ object LocalFallbackEngine {
         }
 
         val typingCadence = if (typoRate > 0.05) 120L else if (typoRate > 0.03) 300L else 400L
-        val ruleResult = evaluateOfflineContext(appSwitches, typingCadence, notificationCount)
+        val domainCategory = activePage?.optString("category")
+        val ruleResult = evaluateOfflineContext(
+            appSwitchesCount = appSwitches,
+            averageTypingCadenceMs = typingCadence,
+            notificationsPerMin = notificationCount,
+            focusedApp = focusedApp,
+            domainCategory = domainCategory
+        )
 
         val enrichedMessage = buildString {
             append(ruleResult.empatheticRecommendation)
@@ -335,7 +500,7 @@ object LocalFallbackEngine {
         else "Focus mode active. Maintain your current workflow rhythm."
     }
 
-    private object LlamaTokenizer {
+    object LlamaTokenizer {
         private val vocab = mutableMapOf<String, Long>()
         private val reverseVocab = mutableMapOf<Long, String>()
 
@@ -421,6 +586,110 @@ object LocalFallbackEngine {
             }
             return sb.toString()
         }
+    }
+
+    /**
+     * Executes empathetic context evaluation incorporating Personal Baseline Z-Scores
+     * (Welford's algorithm) and Contextual Ambiguity handling when the compute hub is offline.
+     */
+    fun evaluateOfflineContext(
+        appSwitchesCount: Int,
+        averageTypingCadenceMs: Long,
+        notificationsPerMin: Int,
+        focusedApp: String? = null,
+        domainCategory: String? = null,
+        context: Context? = null
+    ): OfflineEvaluationResult {
+        val db = context?.let { com.friday.node.data.local.RoomDatabase.getInstance(it) }
+
+        // 1. Record live telemetry sample into Personal Baseline Engine (Welford's algorithm)
+        if (db != null) {
+            if (appSwitchesCount > 0) db.recordMetricSample("metric_app_switches", appSwitchesCount.toDouble())
+            if (averageTypingCadenceMs in 10..3000) db.recordMetricSample("metric_typing_cadence", averageTypingCadenceMs.toDouble())
+            if (notificationsPerMin > 0) db.recordMetricSample("metric_notifications", notificationsPerMin.toDouble())
+        }
+
+        // 2. Compute statistical deviations (Z-scores) against personal baseline
+        val zSwitches = db?.calculateZScore("metric_app_switches", appSwitchesCount.toDouble()) ?: 0.0
+        val zCadence = if (averageTypingCadenceMs > 0) db?.calculateZScore("metric_typing_cadence", averageTypingCadenceMs.toDouble()) ?: 0.0 else 0.0
+        val zNotifs = db?.calculateZScore("metric_notifications", notificationsPerMin.toDouble()) ?: 0.0
+        val baseline = db?.getPersonalBaseline("metric_app_switches")
+        val hasBaseline = baseline != null && baseline.sampleCount >= 5
+
+        // Neutral baseline resting stress starts at 30
+        var computedStress = 30.0f
+
+        if (hasBaseline) {
+            // Empathetic personal deviation: only score above personal norm
+            if (zSwitches > 1.0) {
+                computedStress += ((zSwitches - 1.0) * 15.0).toFloat().coerceAtMost(30f)
+            }
+            if (zNotifs > 1.0) {
+                computedStress += ((zNotifs - 1.0) * 12.0).toFloat().coerceAtMost(25f)
+            }
+            if (zCadence < -1.5) {
+                // Rushing / fast typing relative to personal baseline
+                computedStress += 10.0f
+            } else if (zCadence > 2.0) {
+                // Noticeable latency / hesitation relative to personal baseline
+                computedStress += 8.0f
+            }
+        } else {
+            // Adaptive heuristics while personal baseline warms up
+            if (appSwitchesCount > 6) {
+                computedStress += ((appSwitchesCount - 6) * 2.5f).coerceAtMost(25f)
+            }
+            if (notificationsPerMin > 4) {
+                computedStress += ((notificationsPerMin - 4) * 2.0f).coerceAtMost(20f)
+            }
+            if (averageTypingCadenceMs in 10..180) {
+                computedStress += 10.0f
+            } else if (averageTypingCadenceMs > 600) {
+                computedStress += 6.0f
+            }
+        }
+
+        // 3. Contextual Ambiguity Engine:
+        // Distinguish between stressful context switching vs productive deep-focus flow state (e.g., coding, research)
+        val isDevFlow = (domainCategory == "DEVELOPMENT" ||
+                focusedApp?.contains("github", ignoreCase = true) == true ||
+                focusedApp?.contains("termux", ignoreCase = true) == true ||
+                focusedApp?.contains("android.studio", ignoreCase = true) == true ||
+                focusedApp?.contains("code", ignoreCase = true) == true)
+
+        val isProductiveFlow = (domainCategory == "PRODUCTIVITY" || domainCategory == "RESEARCH_EDUCATION" ||
+                focusedApp?.contains("docs", ignoreCase = true) == true ||
+                focusedApp?.contains("notion", ignoreCase = true) == true)
+
+        val isFlowState = (isDevFlow || isProductiveFlow) && notificationsPerMin <= 5
+
+        if (isFlowState) {
+            // High task switching in dev/research is positive flow, not anxiety
+            computedStress = (computedStress * 0.45f).coerceAtMost(40.0f)
+        }
+
+        // Cap final stress score within [0, 100]
+        computedStress = computedStress.coerceIn(0.0f, 100.0f)
+
+        val cognitiveLoadStatus = when {
+            isFlowState && appSwitchesCount > 3 -> "FLOW_STATE"
+            computedStress > 75f -> "CRITICAL_OVERLOAD"
+            computedStress > 50f -> "ELEVATED_STRESS"
+            else -> "STABLE"
+        }
+
+        val recommendation = when (cognitiveLoadStatus) {
+            "FLOW_STATE" -> "Flow state detected. Task switching aligns with active development and research."
+            "CRITICAL_OVERLOAD" -> "Activity levels exceed your personal baseline. We recommend a 20-minute notification shield."
+            "ELEVATED_STRESS" -> "Cognitive load is rising above your baseline. Pacing your current task may help maintain focus."
+            else -> "Context stable. Your workflow pacing is aligned with your personal baseline."
+        }
+
+        return OfflineEvaluationResult(
+            stressScore = computedStress.toInt(),
+            cognitiveLoadStatus = cognitiveLoadStatus,
+            empatheticRecommendation = recommendation
+        )
     }
 
     /**

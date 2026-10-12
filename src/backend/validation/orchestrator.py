@@ -40,8 +40,8 @@ class Orchestrator:
     """Routes ContextObjects to the right agent chains and assembles responses."""
 
     def __init__(self, db, chroma, laptop_connections: dict):
-        self.db                = db
-        self.chroma            = chroma
+        self.db = db
+        self.chroma = chroma
         self.laptop_connections = laptop_connections
 
         # Lazy-loaded agent cache: name → agent instance
@@ -53,6 +53,9 @@ class Orchestrator:
         # Interaction counter per user for weight renormalisation
         self._interaction_counter: dict[str, int] = {}
 
+        # Lock for thread-safe access to shared state
+        self._lock = asyncio.Lock()
+
     # ──────────────────────────────────────────────────────────────────────────
     # Public API
     # ──────────────────────────────────────────────────────────────────────────
@@ -63,9 +66,9 @@ class Orchestrator:
         Returns a response dict to send to Android (may be None if silenced).
         """
         session_id = ctx["metadata"]["session_id"]
-        user_id    = ctx["metadata"].get("device_id", "unknown")
-        battery    = ctx["sensor_data"].get("battery_level", 100)
-        mode       = BatteryMode.from_level(battery)
+        user_id = ctx["metadata"].get("device_id", "unknown")
+        battery = ctx["sensor_data"].get("battery_level", 100)
+        mode = BatteryMode.from_level(battery)
 
         # Push real-time telemetry updates to laptop if connected
         ws = self.laptop_connections.get(session_id)
@@ -73,11 +76,12 @@ class Orchestrator:
             # 1. Interruption Shield (focus preservation)
             stress_score = ctx.get("user_state", {}).get("stress_score", 0)
             try:
-                await ws.send_json({
-                    "type": "INTERRUPTION_SHIELD",
-                    "stress_score": stress_score
-                })
-                logger.info(f"Pushed interruption shield (stress: {stress_score}) to laptop session: {session_id}")
+                await ws.send_json(
+                    {"type": "INTERRUPTION_SHIELD", "stress_score": stress_score}
+                )
+                logger.info(
+                    f"Pushed interruption shield (stress: {stress_score}) to laptop session: {session_id}"
+                )
             except Exception as e:
                 logger.warning(f"Failed to push interruption shield: {e}")
 
@@ -85,10 +89,9 @@ class Orchestrator:
             active_media = ctx.get("sensor_data", {}).get("active_media")
             if active_media:
                 try:
-                    await ws.send_json({
-                        "type": "MEDIA_HANDOFF",
-                        "active_media": active_media
-                    })
+                    await ws.send_json(
+                        {"type": "MEDIA_HANDOFF", "active_media": active_media}
+                    )
                     logger.info(f"Pushed media handoff to laptop session: {session_id}")
                 except Exception as e:
                     logger.warning(f"Failed to push media handoff: {e}")
@@ -97,10 +100,9 @@ class Orchestrator:
             active_page = ctx.get("sensor_data", {}).get("active_page")
             if active_page:
                 try:
-                    await ws.send_json({
-                        "type": "PAGE_HANDOFF",
-                        "active_page": active_page
-                    })
+                    await ws.send_json(
+                        {"type": "PAGE_HANDOFF", "active_page": active_page}
+                    )
                     logger.info(f"Pushed page handoff to laptop session: {session_id}")
                 except Exception as e:
                     logger.warning(f"Failed to push page handoff: {e}")
@@ -120,14 +122,16 @@ class Orchestrator:
         # Score the candidate response
         score, response_text, agent_used = self._assemble(ctx, agent_results, condition)
 
-        logger.info(f"Response score: {score:.1f} / 100 (threshold {settings.RESPONSE_SCORE_THRESHOLD})")
+        logger.info(
+            f"Response score: {score:.1f} / 100 (threshold {settings.RESPONSE_SCORE_THRESHOLD})"
+        )
 
         if score < settings.RESPONSE_SCORE_THRESHOLD:
             logger.info("Score below threshold → SILENCE")
             # Still log the silenced decision
             self.db.log_kpi(
                 user_id=user_id,
-                stress_score=ctx["user_state"].get("stress_score", 0) ,
+                stress_score=ctx["user_state"].get("stress_score", 0),
                 suggested_action="[SILENCED]",
                 response_score=score,
                 user_reaction=None,
@@ -137,13 +141,13 @@ class Orchestrator:
 
         # Build action
         action_id = str(uuid.uuid4())
-        response  = {
-            "type":      "FRIDAY_CARD",
+        response = {
+            "type": "FRIDAY_CARD",
             "action_id": action_id,
-            "score":     round(score, 1),
+            "score": round(score, 1),
             "condition": condition,
-            "message":   response_text,
-            "agent":     agent_used,
+            "message": response_text,
+            "agent": agent_used,
             "timestamp": ctx["metadata"]["timestamp"],
             "laptop_active": len(self.laptop_connections) > 0,
         }
@@ -151,7 +155,7 @@ class Orchestrator:
         # Persist KPI log
         log_id = self.db.log_kpi(
             user_id=user_id,
-            stress_score=ctx["user_state"].get("stress_score", 0) ,
+            stress_score=ctx["user_state"].get("stress_score", 0),
             suggested_action=response_text,
             response_score=score,
             user_reaction=None,
@@ -167,32 +171,47 @@ class Orchestrator:
 
         return response
 
-    def record_feedback(self, action_id: str, reaction: str):
+    async def record_feedback(self, action_id: str, reaction: str):
         """
         Called when user responds to a FRIDAY card (helpful / dismissed / ignored).
         Updates the KPI log and adjusts scoring weights (RLHF).
         """
-        log_id = self._pending_actions.pop(action_id, None)
-        if log_id:
-            self.db.update_reaction(log_id=log_id, reaction=reaction)
+        async with self._lock:
+            log_id = self._pending_actions.pop(action_id, None)
+            if log_id:
+                self.db.update_reaction(log_id=log_id, reaction=reaction)
 
-        # RLHF weight adjustment
-        step = settings.RLHF_STEP
-        if reaction == "helpful":
-            # Positive: reinforce emotional relevance and memory
-            scoring_weights.w_emotion += step * 0.5
-            scoring_weights.w_memory  += step * 0.5
-        elif reaction == "dismissed":
-            scoring_weights.w_intrusive = max(
-        0.01,
-        scoring_weights.w_intrusive - step
-        )
+            # Capture old weights for delta tracking
+            old_w = scoring_weights.as_dict()
 
-        # Renormalise every 10 interactions (approximate, not per-user here)
-        self._global_counter = getattr(self, "_global_counter", 0) + 1
-        if self._global_counter % 10 == 0:
+            # RLHF weight adjustment
+            step = settings.RLHF_STEP
+            delta_str = ""
+            if reaction == "helpful":
+                # Positive: reinforce emotional relevance and memory
+                scoring_weights.w_emotion += step * 0.5
+                scoring_weights.w_memory += step * 0.5
+                delta_str = f"+{step * 0.5} to w_emotion, +{step * 0.5} to w_memory"
+            elif reaction == "dismissed":
+                scoring_weights.w_intrusive = max(0.01, scoring_weights.w_intrusive - step)
+                delta_str = f"-{step} to w_intrusive"
+
+            # Renormalize immediately for immediate demonstration feedback
             scoring_weights.renormalize()
-            logger.info(f"Weights renormalised: {scoring_weights.as_dict()}")
+            new_w = scoring_weights.as_dict()
+
+        # Calculate actual normalized delta
+        normalized_deltas = {k: new_w[k] - old_w[k] for k in old_w}
+
+        # Detailed terminal logs for the Samsung ennovateX judges
+        print(f"\n================ [RLHF WEIGHTS UPDATE] ================", flush=True)
+        print(f"User Reaction: {reaction}", flush=True)
+        print(f"Adjustment Delta Applied: {delta_str}", flush=True)
+        print(f"Normalized Weight Changes: {normalized_deltas}", flush=True)
+        print(f"Resulting Renormalized Weights: {new_w}", flush=True)
+        print(f"=======================================================\n", flush=True)
+
+        logger.info(f"RLHF Feedback recorded: reaction={reaction}, new_weights={new_w}")
 
     def agent_status(self) -> dict:
         """Return which agents are loaded."""
@@ -208,24 +227,24 @@ class Orchestrator:
     def _route(self, ctx: dict) -> tuple[str, list[str]]:
         """Determine the highest-priority matching condition and its agent chain."""
         sensor = ctx.get("sensor_data", {})
-        state  = ctx.get("user_state",  {})
+        state = ctx.get("user_state", {})
 
-        stress      = state.get("stress_score", 0)
+        stress = state.get("stress_score", 0)
         notif_count = sensor.get("notification_count", 0)
         app_switches = sensor.get("app_switches", 0)
-        typo_rate   = sensor.get("typo_rate", 0.0)
+        typo_rate = sensor.get("typo_rate", 0.0)
         active_task = ctx.get("active_task")
 
         # Evaluate conditions
         flags: dict[str, bool] = {
-            "high_stress":          stress >= 65,
+            "high_stress": stress >= 65,
             "notification_overload": notif_count >= NOTIF_OVERLOAD_THRESHOLD
-                                     or app_switches >= APP_SWITCH_OVERLOAD
-                                     or typo_rate >= TYPO_RATE_THRESHOLD,
-            "burnout_risk":         stress >= 80 and app_switches >= 20,
-            "task_active":          active_task is not None,
-            "context_shift":        sensor.get("location") is not None,
-            "default":              True,
+            or app_switches >= APP_SWITCH_OVERLOAD
+            or typo_rate >= TYPO_RATE_THRESHOLD,
+            "burnout_risk": stress >= 80 and app_switches >= 20,
+            "task_active": active_task is not None,
+            "context_shift": sensor.get("location") is not None,
+            "default": True,
         }
 
         # Pick highest-priority matching rule
@@ -267,7 +286,7 @@ class Orchestrator:
 
         try:
             module = importlib.import_module(spec["module"])
-            cls    = getattr(module, spec["class"])
+            cls = getattr(module, spec["class"])
             instance = cls()
             self._agents[name] = instance
             logger.info(f"Lazy-loaded agent: {name}")
@@ -292,26 +311,28 @@ class Orchestrator:
         """
         # Gather candidate texts from decision agent (or fallback to emotion)
         decision_result = results.get("decision", {})
-        candidates      = decision_result.get("candidates", [])
+        candidates = decision_result.get("candidates", [])
 
         if not candidates:
             # Fallback: use emotion agent summary
             emotion_result = results.get("emotion", {})
-            fallback_text  = emotion_result.get("summary", "I noticed something. How are you holding up?")
-            candidates     = [{"text": fallback_text, "agent": "emotion"}]
+            fallback_text = emotion_result.get(
+                "summary", "I noticed something. How are you holding up?"
+            )
+            candidates = [{"text": fallback_text, "agent": "emotion"}]
 
-        best_score    = -1.0
-        best_text     = candidates[0]["text"]
-        best_agent    = candidates[0].get("agent", "decision")
+        best_score = -1.0
+        best_text = candidates[0]["text"]
+        best_agent = candidates[0].get("agent", "decision")
 
-        state  = ctx.get("user_state",  {})
+        state = ctx.get("user_state", {})
         sensor = ctx.get("sensor_data", {})
 
         for cand in candidates:
             score = self._score_candidate(cand, state, sensor, results)
             if score > best_score:
                 best_score = score
-                best_text  = cand["text"]
+                best_text = cand["text"]
                 best_agent = cand.get("agent", "decision")
 
         return best_score, best_text, best_agent
@@ -338,20 +359,20 @@ class Orchestrator:
 
         timing_score = self._compute_timing(sensor)
 
-        memory_data    = results.get("memory", {})
-        memory_score   = memory_data.get("alignment_score", 50.0)
+        memory_data = results.get("memory", {})
+        memory_score = memory_data.get("alignment_score", 50.0)
 
         action_quality = candidate.get("action_quality", 60.0)
 
         # Intrusiveness is inverse: high intrusiveness → lower score
-        intrusiveness_raw     = candidate.get("intrusiveness", 50.0)
+        intrusiveness_raw = candidate.get("intrusiveness", 50.0)
         intrusiveness_penalty = 100 - intrusiveness_raw
 
         score = (
             emotional_relevance * w.w_emotion
-            + timing_score      * w.w_timing
-            + memory_score      * w.w_memory
-            + action_quality    * w.w_action
+            + timing_score * w.w_timing
+            + memory_score * w.w_memory
+            + action_quality * w.w_action
             + intrusiveness_penalty * w.w_intrusive
         )
         return round(score, 2)
@@ -361,7 +382,7 @@ class Orchestrator:
         Timing score (0–100): penalise if battery is low or screen has been
         on for a very long time (user likely fatigued).
         """
-        battery    = sensor.get("battery_level", 100)
+        battery = sensor.get("battery_level", 100)
         screen_min = sensor.get("screen_on_time", 0) / 60  # seconds → minutes
 
         battery_factor = battery / 100  # 0.0 – 1.0
@@ -380,13 +401,13 @@ class Orchestrator:
             return
 
         ui_command = {
-            "type":      "SHOW_CONTINUITY",
+            "type": "SHOW_CONTINUITY",
             "action_id": response["action_id"],
             "content": {
-                "title":         "FRIDAY",
-                "message":       response["message"],
-                "score":         response["score"],
-                "condition":     response["condition"],
+                "title": "FRIDAY",
+                "message": response["message"],
+                "score": response["score"],
+                "condition": response["condition"],
                 "source_device": "android",
             },
         }
@@ -403,11 +424,13 @@ class Orchestrator:
     async def _store_memory(self, ctx: dict, response_text: str, agent_used: str = ""):
         """Compress and store a memory episode in ChromaDB."""
         if agent_used == "memory" or "I remember" in response_text:
-            logger.info("Skipping memory storage for recall prompt to prevent recursion")
+            logger.info(
+                "Skipping memory storage for recall prompt to prevent recursion"
+            )
             return
         try:
             meta = ctx["metadata"]
-            state  = ctx.get("user_state", {})
+            state = ctx.get("user_state", {})
             sensor = ctx.get("sensor_data", {})
 
             summary = (
@@ -422,13 +445,13 @@ class Orchestrator:
                 doc_id=meta["message_id"],
                 text=summary,
                 metadata={
-                    "timestamp":    meta["timestamp"],
-                    "session_id":   meta["session_id"],
-                    "device_id":    meta["device_id"],
-                    "emotion":      state.get("emotion_label", "unknown"),
+                    "timestamp": meta["timestamp"],
+                    "session_id": meta["session_id"],
+                    "device_id": meta["device_id"],
+                    "emotion": state.get("emotion_label", "unknown"),
                     "stress_score": str(state.get("stress_score", 0)),
-                    "location":     sensor.get("location", "unknown"),
-                    "action":       response_text,
+                    "location": sensor.get("location", "unknown"),
+                    "action": response_text,
                 },
             )
         except Exception as exc:

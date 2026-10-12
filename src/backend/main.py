@@ -15,8 +15,17 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Request as FastAPIRequest
+from fastapi import (
+    FastAPI,
+    WebSocket,
+    WebSocketDisconnect,
+    HTTPException,
+    Query,
+    Request as FastAPIRequest,
+)
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 import os
 import sys
@@ -28,6 +37,7 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from config import settings
+from state import _ollama_lock, _voice_active
 from database.sqlite_store import SQLiteStore
 from database.chroma_store import ChromaStore
 from validation.orchestrator import Orchestrator
@@ -46,12 +56,14 @@ logger = logging.getLogger("friday.main")
 # Connection Manager (thread-safe singleton)
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class ConnectionManager:
     """
     Singleton that wraps all active WebSocket connections and shared session
     state behind asyncio.Lock() guards.  Persistent state (recent apps, tabs,
     context snapshots) is backed by SQLite so nothing is lost on restart.
     """
+
     _instance: Optional["ConnectionManager"] = None
 
     def __new__(cls):
@@ -67,7 +79,7 @@ class ConnectionManager:
 
         # Live connection maps (inherently ephemeral — websockets die on restart)
         self.android_connections: dict[str, WebSocket] = {}
-        self.laptop_connections:  dict[str, WebSocket] = {}
+        self.laptop_connections: dict[str, WebSocket] = {}
         self._conn_lock = asyncio.Lock()
 
         # In-memory caches (hydrated from SQLite on startup)
@@ -84,6 +96,7 @@ class ConnectionManager:
         self.recent_tabs_history = db_store.get_recent_tabs(limit=3)
         # Hydrate latest contexts from persisted snapshots
         import json as _json
+
         for row in db_store._conn.execute(
             "SELECT session_id, payload FROM context_snapshots ORDER BY updated_at DESC LIMIT 10"
         ).fetchall():
@@ -117,23 +130,21 @@ conn_mgr = ConnectionManager()
 
 # Backward-compatible module-level aliases so existing code keeps working
 android_connections = conn_mgr.android_connections
-laptop_connections  = conn_mgr.laptop_connections
-latest_contexts     = conn_mgr.latest_contexts
+laptop_connections = conn_mgr.laptop_connections
+latest_contexts = conn_mgr.latest_contexts
 recent_apps_history = conn_mgr.recent_apps_history
 recent_tabs_history = conn_mgr.recent_tabs_history
+
 
 async def broadcast_laptop_status():
     status_payload = {
         "type": "LAPTOP_STATUS",
         "laptop_active": len(laptop_connections) > 0,
         "recent_tabs": [
-            {
-                "title": tab["title"],
-                "url": tab["url"],
-                "link": tab["link"]
-            } for tab in recent_tabs_history[:3]
+            {"title": tab["title"], "url": tab["url"], "link": tab["link"]}
+            for tab in recent_tabs_history[:3]
         ],
-        "timestamp": int(time.time() * 1000)
+        "timestamp": int(time.time() * 1000),
     }
     for dev_id, android_ws in list(android_connections.items()):
         try:
@@ -141,24 +152,50 @@ async def broadcast_laptop_status():
         except Exception:
             pass
 
+
 def get_app_details(package_name: str) -> dict:
     mapping = {
-        "com.android.chrome": {"name": "Chrome", "icon": "language", "color": "#4285F4"},
-        "com.sec.android.app.sbrowser": {"name": "Samsung Internet", "icon": "language", "color": "#0c32cf"},
-        "org.mozilla.firefox": {"name": "Firefox", "icon": "language", "color": "#FF7139"},
-        "com.google.android.youtube": {"name": "YouTube", "icon": "play_circle", "color": "#FF0000"},
-        "com.google.android.gm": {"name": "Gmail", "icon": "drafts", "color": "#EA4335"},
+        "com.android.chrome": {
+            "name": "Chrome",
+            "icon": "language",
+            "color": "#4285F4",
+        },
+        "com.sec.android.app.sbrowser": {
+            "name": "Samsung Internet",
+            "icon": "language",
+            "color": "#0c32cf",
+        },
+        "org.mozilla.firefox": {
+            "name": "Firefox",
+            "icon": "language",
+            "color": "#FF7139",
+        },
+        "com.google.android.youtube": {
+            "name": "YouTube",
+            "icon": "play_circle",
+            "color": "#FF0000",
+        },
+        "com.google.android.gm": {
+            "name": "Gmail",
+            "icon": "drafts",
+            "color": "#EA4335",
+        },
         "com.whatsapp": {"name": "WhatsApp", "icon": "messages", "color": "#25D366"},
         "com.slack": {"name": "Slack", "icon": "category", "color": "#4A154B"},
-        "com.android.settings": {"name": "Settings", "icon": "settings", "color": "#757575"},
-        "com.friday.node": {"name": "FRIDAY", "icon": "category", "color": "#00E676"}
+        "com.android.settings": {
+            "name": "Settings",
+            "icon": "settings",
+            "color": "#757575",
+        },
+        "com.friday.node": {"name": "FRIDAY", "icon": "category", "color": "#00E676"},
     }
     if package_name in mapping:
         return mapping[package_name].copy()
-    
+
     # Generic fallback
     name = package_name.split(".")[-1].capitalize()
     return {"name": name, "icon": "category", "color": "#757575"}
+
 
 def update_recent_apps(package_name: str):
     if not package_name:
@@ -180,12 +217,14 @@ def update_recent_apps(package_name: str):
             timestamp=details["timestamp"],
         )
 
+
 def update_recent_tabs(title: str, url: str):
     if not url or not title:
         return
     # Clean up url format for display: e.g. remove protocol and long path
     try:
         from urllib.parse import urlparse
+
         parsed = urlparse(url)
         display_url = parsed.netloc + parsed.path
         if len(display_url) > 40:
@@ -197,7 +236,7 @@ def update_recent_tabs(title: str, url: str):
         "title": title,
         "url": display_url,
         "link": url,
-        "timestamp": time.time()
+        "timestamp": time.time(),
     }
     # Update in-memory cache
     conn_mgr.recent_tabs_history[:] = [
@@ -214,10 +253,11 @@ def update_recent_tabs(title: str, url: str):
             timestamp=details["timestamp"],
         )
 
+
 async def push_laptop_leftover_notification(device_id: str, android_ws: WebSocket):
     lm = getattr(orchestrator, "last_laptop_media", None)
     lp = getattr(orchestrator, "last_laptop_page", None)
-    
+
     tasks = []
     if lm:
         vid = lm.get("video_id", "")
@@ -225,24 +265,26 @@ async def push_laptop_leftover_notification(device_id: str, android_ws: WebSocke
         tasks.append((lm.get("timestamp", 0), "media", lm, m_url))
     if lp:
         tasks.append((lp.get("timestamp", 0), "page", lp, lp.get("url", "")))
-        
+
     if not tasks:
         return
-        
+
     tasks.sort(key=lambda x: x[0], reverse=True)
     ts, task_type, task_data, target_url = tasks[0]
-    
+
     if target_url == conn_mgr.last_notified_laptop_url:
         return
-        
+
     conn_mgr.last_notified_laptop_url = target_url
     conn_mgr.last_notified_laptop_timestamp = ts
-    
-    title = task_data.get("title", "YouTube Video" if task_type == "media" else "Webpage")
+
+    title = task_data.get(
+        "title", "YouTube Video" if task_type == "media" else "Webpage"
+    )
     update_recent_tabs(title, target_url)
-    
+
     await broadcast_laptop_status()
-    
+
     if task_type == "media":
         try:
             payload = {
@@ -253,11 +295,15 @@ async def push_laptop_leftover_notification(device_id: str, android_ws: WebSocke
                 "score": 95.0,
                 "provider": "youtube",
                 "video_id": task_data.get("video_id", ""),
-                "playback_timestamp_seconds": task_data.get("playback_timestamp_seconds", 0),
-                "timestamp": int(time.time() * 1000)
+                "playback_timestamp_seconds": task_data.get(
+                    "playback_timestamp_seconds", 0
+                ),
+                "timestamp": int(time.time() * 1000),
             }
             await android_ws.send_json(payload)
-            logger.info(f"Pushed laptop media handoff to Android {device_id} on device switch")
+            logger.info(
+                f"Pushed laptop media handoff to Android {device_id} on device switch"
+            )
         except Exception as e:
             logger.warning(f"Failed to push media handoff on device switch: {e}")
     else:
@@ -269,101 +315,128 @@ async def push_laptop_leftover_notification(device_id: str, android_ws: WebSocke
                 "agent": "Continuity",
                 "score": 95.0,
                 "url": target_url,
-                "timestamp": int(time.time() * 1000)
+                "timestamp": int(time.time() * 1000),
             }
             await android_ws.send_json(payload)
-            logger.info(f"Pushed laptop page handoff to Android {device_id} on device switch")
+            logger.info(
+                f"Pushed laptop page handoff to Android {device_id} on device switch"
+            )
         except Exception as e:
             logger.warning(f"Failed to push page handoff on device switch: {e}")
+
 
 def get_dynamic_pending_states(ctx: Optional[dict]) -> list[dict]:
     pending = []
     sensor = ctx.get("sensor_data", {}) if ctx else {}
-    
+
     # 1. Last Phone Page (if present)
-    last_phone_page = getattr(orchestrator, "last_phone_page", None) if orchestrator else None
+    last_phone_page = (
+        getattr(orchestrator, "last_phone_page", None) if orchestrator else None
+    )
     if last_phone_page:
-        pending.append({
-            "type": "drafts",
-            "name": last_phone_page.get("title", "Active Webpage"),
-            "status": "Left off on Phone",
-            "link": last_phone_page.get("url", "")
-        })
-        
+        pending.append(
+            {
+                "type": "drafts",
+                "name": last_phone_page.get("title", "Active Webpage"),
+                "status": "Left off on Phone",
+                "link": last_phone_page.get("url", ""),
+            }
+        )
+
     # 2. Last Phone Media (if present)
-    last_phone_media = getattr(orchestrator, "last_phone_media", None) if orchestrator else None
+    last_phone_media = (
+        getattr(orchestrator, "last_phone_media", None) if orchestrator else None
+    )
     if last_phone_media:
         vid = last_phone_media.get("video_id")
         t = last_phone_media.get("playback_timestamp_seconds", 0)
         link = f"https://www.youtube.com/watch?v={vid}&t={t}s" if vid else ""
         time_str = f"Paused at {t // 60}:{t % 60:02d}" if t > 0 else "Ready to play"
-        pending.append({
-            "type": "play_circle",
-            "name": last_phone_media.get("title", "YouTube video"),
-            "status": f"Left off on Phone • {time_str}",
-            "link": link
-        })
-        
+        pending.append(
+            {
+                "type": "play_circle",
+                "name": last_phone_media.get("title", "YouTube video"),
+                "status": f"Left off on Phone • {time_str}",
+                "link": link,
+            }
+        )
+
     # 3. Last Laptop Page (if present and not already in pending)
-    last_laptop_page = getattr(orchestrator, "last_laptop_page", None) if orchestrator else None
+    last_laptop_page = (
+        getattr(orchestrator, "last_laptop_page", None) if orchestrator else None
+    )
     if last_laptop_page:
         url = last_laptop_page.get("url")
         if url and not any(p["link"] == url for p in pending):
-            pending.append({
-                "type": "language",
-                "name": last_laptop_page.get("title", "Laptop Webpage"),
-                "status": "Left off on Laptop",
-                "link": url
-            })
-            
+            pending.append(
+                {
+                    "type": "language",
+                    "name": last_laptop_page.get("title", "Laptop Webpage"),
+                    "status": "Left off on Laptop",
+                    "link": url,
+                }
+            )
+
     # 4. Last Laptop Media (if present and not already in pending)
-    last_laptop_media = getattr(orchestrator, "last_laptop_media", None) if orchestrator else None
+    last_laptop_media = (
+        getattr(orchestrator, "last_laptop_media", None) if orchestrator else None
+    )
     if last_laptop_media:
         vid = last_laptop_media.get("video_id")
         t = last_laptop_media.get("playback_timestamp_seconds", 0)
         link = f"https://www.youtube.com/watch?v={vid}&t={t}s" if vid else ""
         if link and not any(p["link"] == link for p in pending):
             time_str = f"Paused at {t // 60}:{t % 60:02d}" if t > 0 else "Ready to play"
-            pending.append({
-                "type": "play_circle",
-                "name": last_laptop_media.get("title", "YouTube Video"),
-                "status": f"Left off on Laptop • {time_str}",
-                "link": link
-            })
-    
+            pending.append(
+                {
+                    "type": "play_circle",
+                    "name": last_laptop_media.get("title", "YouTube Video"),
+                    "status": f"Left off on Laptop • {time_str}",
+                    "link": link,
+                }
+            )
+
     # 5. Active workspace task in progress (if present)
     active_task = ctx.get("active_task") if ctx else None
     if active_task:
         desc = active_task.get("description", "Active Task")
-        pending.append({
-            "type": "terminal",
-            "name": desc,
-            "status": "In progress",
-            "link": "https://github.com/friday-ecosystem"
-        })
+        pending.append(
+            {
+                "type": "terminal",
+                "name": desc,
+                "status": "In progress",
+                "link": "https://github.com/friday-ecosystem",
+            }
+        )
 
     return pending
 
-db:           Optional[SQLiteStore]  = None
-chroma:       Optional[ChromaStore]  = None
+
+db: Optional[SQLiteStore] = None
+chroma: Optional[ChromaStore] = None
 orchestrator: Optional[Orchestrator] = None
-voice_agent   = None  # Initialized in lifespan
+voice_agent = None  # Initialized in lifespan
 zeroconf_instance = None
 zeroconf_info = None
+_ollama_lock = None
+_voice_active = False
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Lifespan (startup / shutdown)
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global db, chroma, orchestrator, voice_agent, zeroconf_instance, zeroconf_info
 
     logger.info("FRIDAY backend starting up …")
-    db      = SQLiteStore(settings.SQLITE_PATH)
-    chroma  = ChromaStore(settings.CHROMA_PATH)
-    orchestrator = Orchestrator(db=db, chroma=chroma, laptop_connections=laptop_connections)
+    db = SQLiteStore(settings.SQLITE_PATH)
+    chroma = ChromaStore(settings.CHROMA_PATH)
+    orchestrator = Orchestrator(
+        db=db, chroma=chroma, laptop_connections=laptop_connections
+    )
     orchestrator.last_laptop_media = None
     orchestrator.last_laptop_page = None
     orchestrator.last_phone_media = None
@@ -375,6 +448,7 @@ async def lifespan(app: FastAPI):
     # Initialize voice transcription agent (whisper.cpp)
     try:
         from agents.voice import VoiceAgent
+
         voice_agent = VoiceAgent()
         logger.info("VoiceAgent initialized successfully.")
     except Exception as e:
@@ -387,12 +461,15 @@ async def lifespan(app: FastAPI):
         zeroconf_instance, zeroconf_info = await start_discovery_service(settings.PORT)
     except Exception as e:
         import traceback
-        logger.warning(f"Failed to start Zeroconf discovery: {e}\n{traceback.format_exc()}")
+
+        logger.warning(
+            f"Failed to start Zeroconf discovery: {e}\n{traceback.format_exc()}"
+        )
 
     yield
 
     logger.info("FRIDAY backend shutting down …")
-    
+
     if zeroconf_instance and zeroconf_info:
         try:
             logger.info("Stopping Zeroconf service discovery …")
@@ -422,10 +499,113 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Serve static demo files (assignment_submit.html etc.)
+_static_dir = Path(__file__).resolve().parent / "static"
+if _static_dir.is_dir():
+    app.mount(
+        "/static", StaticFiles(directory=str(_static_dir), html=True), name="static"
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Model Download Endpoint — serves ONNX model to Android clients
+# ──────────────────────────────────────────────────────────────────────────────
+
+MODEL_CACHE_DIR = Path(__file__).resolve().parent / "models" / "phi3-mini-onnx"
+MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+async def _download_from_huggingface():
+    """Download Phi-3 Mini ONNX model from Hugging Face using huggingface_hub."""
+    try:
+        from huggingface_hub import hf_hub_download
+        from optimum.onnxruntime import ORTModelForCausalLM
+        import torch
+        import logging
+
+        logger.info("Downloading Phi-3 Mini from Hugging Face...")
+
+        # Download the model from Hugging Face
+        model_id = "microsoft/Phi-3-mini-4k-instruct"
+
+        # Download Safetensors model and convert to ONNX
+        model = ORTModelForCausalLM.from_pretrained(model_id, export=True, device="cpu")
+
+        # Save the ONNX model
+        onnx_path = MODEL_CACHE_DIR / "phi3_mini_int4.onnx"
+        model.save_pretrained(str(MODEL_CACHE_DIR))
+
+        logger.info(f"ONNX model saved to {onnx_path}")
+        return str(onnx_path)
+    except Exception as e:
+        logger.error(f"Failed to download/convert model from Hugging Face: {e}")
+        raise
+
+
+@app.on_event("startup")
+async def download_model_on_startup():
+    """Download the ONNX model from Hugging Face on startup if not already cached."""
+    onnx_file = MODEL_CACHE_DIR / "phi3_mini_int4.onnx"
+    data_file = MODEL_CACHE_DIR / "phi3_mini_int4.onnx.data"
+
+    if not onnx_file.exists() or onnx_file.stat().st_size < 1_000 or not data_file.exists() or data_file.stat().st_size < 1_000_000:
+        logger.info("ONNX model not cached. Downloading from Hugging Face...")
+        try:
+            await _download_from_huggingface()
+            logger.info("ONNX model download and conversion complete.")
+        except Exception as e:
+            logger.warning(f"Could not download ONNX model: {e}")
+    else:
+        logger.info(f"ONNX model already cached at {onnx_file}")
+
+
+@app.get("/api/model/phi3-mini-onnx")
+async def download_onnx_model(request: FastAPIRequest, info: bool = False):
+    """
+    Serve the ONNX model files to Android clients, or return metadata.
+    """
+    onnx_file = MODEL_CACHE_DIR / "phi3_mini_int4.onnx"
+    data_file = MODEL_CACHE_DIR / "phi3_mini_int4.onnx.data"
+
+    if not onnx_file.exists():
+        return JSONResponse(status_code=404, content={"error": "Model not available. Check backend logs."})
+
+    accept = request.headers.get("accept", "")
+    if info or ("application/json" in accept and "application/octet-stream" not in accept and "*/*" not in accept):
+        return {
+            "model_url": "/api/model/phi3-mini-onnx",
+            "model_size": onnx_file.stat().st_size if onnx_file.exists() else 0,
+            "data_url": "/api/model/phi3-mini-onnx-data",
+            "data_size": data_file.stat().st_size if data_file.exists() else 0,
+        }
+
+    return FileResponse(
+        path=str(onnx_file.resolve()),
+        media_type="application/octet-stream",
+        filename="phi3_mini_int4.onnx",
+    )
+
+
+@app.get("/api/model/phi3-mini-onnx-data")
+async def download_onnx_model_data():
+    """
+    Serve the ONNX model tensor weight data file to Android clients.
+    """
+    data_file = MODEL_CACHE_DIR / "phi3_mini_int4.onnx.data"
+    if not data_file.exists():
+        return JSONResponse(status_code=404, content={"error": "Model data not available. Check backend logs."})
+
+    return FileResponse(
+        path=str(data_file.resolve()),
+        media_type="application/octet-stream",
+        filename="phi3_mini_int4.onnx.data",
+    )
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def verify_hmac(payload_bytes: bytes, signature: str) -> bool:
     """Verify HMAC-SHA256 signature on incoming Android payloads."""
@@ -456,6 +636,7 @@ def validate_context_object(data: dict) -> tuple[bool, str]:
 # REST Endpoints
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 @app.get("/health", tags=["system"])
 async def health_check():
     """Server liveness check."""
@@ -463,7 +644,7 @@ async def health_check():
         "status": "ok",
         "version": "1.0.0",
         "android_connections": len(android_connections),
-        "laptop_connections":  len(laptop_connections),
+        "laptop_connections": len(laptop_connections),
     }
 
 
@@ -471,16 +652,18 @@ async def health_check():
 async def agent_status():
     """Return agent availability and memory store sizes."""
     return {
-        "agents":        orchestrator.agent_status() if orchestrator else {},
-        "memory_count":  chroma.count() if chroma else 0,
+        "agents": orchestrator.agent_status() if orchestrator else {},
+        "memory_count": chroma.count() if chroma else 0,
         "kpi_log_count": db.count_logs() if db else 0,
     }
 
 
 @app.get("/api/logs", tags=["kpi"])
 async def export_logs(
-    start_date: Optional[str] = Query(None, description="ISO date filter e.g. 2026-01-01"),
-    limit:      int           = Query(1000, le=10000),
+    start_date: Optional[str] = Query(
+        None, description="ISO date filter e.g. 2026-01-01"
+    ),
+    limit: int = Query(1000, le=10000),
 ):
     """
     Export KPI logs as JSON for judge verification.
@@ -532,6 +715,127 @@ async def onboarding_complete(request: FastAPIRequest):
     }
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Cross-Device Handoff
+# ──────────────────────────────────────────────────────────────────────────────
+
+BROWSER_PACKAGES = {
+    "com.android.chrome",
+    "com.sec.android.app.sbrowser",
+    "org.mozilla.firefox",
+    "com.google.android.youtube",
+}
+
+
+async def handle_device_disconnect(device_id: str):
+    """
+    Called when an Android device drops its WebSocket.
+    Queries the last persisted context snapshot and, if the user was mid-browser
+    session or has pending items, flags a PENDING_HANDOFF.
+    """
+    if not db:
+        return
+
+    last_ctx = db.get_latest_context(device_id)
+    active_app = last_ctx.get("active_app", "")
+    active_page = last_ctx.get("active_page")
+    raw_data = last_ctx.get("raw", {})
+    items = raw_data.get("sensor_data", {}).get("items", [])
+
+    if active_app in BROWSER_PACKAGES or active_page or items:
+        context_summary = json.dumps(
+            {
+                "active_app": active_app,
+                "active_page": active_page,
+                "active_media": last_ctx.get("active_media"),
+                "items": items,
+                "device_id": device_id,
+                "disconnect_ts": int(time.time() * 1000),
+            }
+        )
+        db.set_handoff_state(
+            device_id, status="PENDING_HANDOFF", context_json=context_summary
+        )
+        logger.info(
+            f"PENDING_HANDOFF flagged for {device_id} (app={active_app}, items_count={len(items)})"
+        )
+
+        # Push instant notification to every connected laptop
+        handoff_payload = {
+            "type": "PENDING_HANDOFF",
+            "user_id": device_id,
+            "active_app": active_app,
+            "active_page": active_page,
+            "items": items,
+            "timestamp": int(time.time() * 1000),
+        }
+        for l_sid, l_ws in list(laptop_connections.items()):
+            try:
+                await l_ws.send_json(handoff_payload)
+            except Exception:
+                pass
+
+
+@app.post("/api/handoff/simulate_disconnect", tags=["continuity"])
+async def simulate_disconnect():
+    """
+    Demo-only endpoint: pretends the Android device just dropped offline
+    with a browser session and multiple background tasks active.
+    """
+    demo_id = "demo_samsung_phone"
+    mock_ctx = {
+        "metadata": {
+            "session_id": demo_id,
+            "device_id": demo_id,
+            "message_id": f"msg_sim_{int(time.time())}",
+            "timestamp": int(time.time() * 1000),
+        },
+        "sensor_data": {
+            "focused_app": "com.android.chrome",
+            "active_page": {
+                "title": "DBMS Assignment Submission",
+                "url": f"http://localhost:{settings.PORT}/static/assignment_submit.html",
+            },
+            "items": [
+                {
+                    "title": "DBMS Assignment Submission",
+                    "url": f"http://localhost:{settings.PORT}/static/assignment_submit.html",
+                    "app": "com.android.chrome",
+                    "type": "Assignment Submission",
+                },
+                {
+                    "title": "WhatsApp Web",
+                    "url": "https://web.whatsapp.com",
+                    "app": "com.whatsapp",
+                    "type": "Messaging",
+                },
+                {
+                    "title": "Gmail Inbox",
+                    "url": "https://mail.google.com",
+                    "app": "com.google.android.gm",
+                    "type": "Email",
+                },
+                {
+                    "title": "Samsung InnovaeX Portal",
+                    "url": "https://innovaeX.samsung.com",
+                    "app": "com.sec.android.app.sbrowser",
+                    "type": "InnovaeX Portal",
+                },
+            ],
+        },
+        "user_state": {"stress_score": 42},
+    }
+    if db:
+        db.save_context_snapshot(demo_id, json.dumps(mock_ctx), time.time())
+
+    # Reuse the real disconnect handler
+    await handle_device_disconnect(demo_id)
+    return {
+        "status": "simulated",
+        "message": "PENDING_HANDOFF with multiple mock sites flagged and broadcast.",
+    }
+
+
 @app.get("/api/telemetry", tags=["telemetry"])
 async def get_telemetry(session_id: Optional[str] = Query(None)):
     """
@@ -553,7 +857,9 @@ async def get_telemetry(session_id: Optional[str] = Query(None)):
         # Focus efficiency calculation based on app switches and typo rate
         app_switches = sensor.get("app_switches", 0)
         typo_rate = sensor.get("typo_rate", 0.0)
-        focus_efficiency = 100 - min(int((app_switches / 15 * 40) + (typo_rate * 300)), 90)
+        focus_efficiency = 100 - min(
+            int((app_switches / 15 * 40) + (typo_rate * 300)), 90
+        )
 
         # Map active task
         active_task_payload = None
@@ -563,7 +869,10 @@ async def get_telemetry(session_id: Optional[str] = Query(None)):
             if deadline_str:
                 try:
                     from datetime import datetime, timezone
-                    deadline = datetime.fromisoformat(deadline_str.replace("Z", "+00:00"))
+
+                    deadline = datetime.fromisoformat(
+                        deadline_str.replace("Z", "+00:00")
+                    )
                     now = datetime.now(timezone.utc)
                     diff = deadline - now
                     if diff.total_seconds() < 0:
@@ -584,34 +893,41 @@ async def get_telemetry(session_id: Optional[str] = Query(None)):
                 "completionPct": int(progress * 100),
                 "totalSegments": 5,
                 "activeSegments": int(progress * 5),
-                "checklist": active_task.get("checklist") or [
+                "checklist": active_task.get("checklist")
+                or [
                     {"name": "Understand requirements", "completed": progress >= 0.25},
                     {"name": "Draft implementation", "completed": progress >= 0.5},
                     {"name": "Refine and integrate", "completed": progress >= 0.75},
-                    {"name": "Final review", "completed": progress >= 0.95}
-                ]
+                    {"name": "Final review", "completed": progress >= 0.95},
+                ],
             }
 
         # Map media handoff
         media_handoff_payload = None
-        last_phone_media = getattr(orchestrator, "last_phone_media", None) if orchestrator else None
+        last_phone_media = (
+            getattr(orchestrator, "last_phone_media", None) if orchestrator else None
+        )
         if last_phone_media:
             media_handoff_payload = {
                 "provider": last_phone_media.get("provider", "youtube"),
                 "video_id": last_phone_media.get("video_id", ""),
                 "title": last_phone_media.get("title", "YouTube Video"),
-                "playback_timestamp_seconds": int(last_phone_media.get("playback_timestamp_seconds", 0))
+                "playback_timestamp_seconds": int(
+                    last_phone_media.get("playback_timestamp_seconds", 0)
+                ),
             }
 
         # Map active reading (page handoff from phone)
         active_reading_payload = None
-        last_phone_page = getattr(orchestrator, "last_phone_page", None) if orchestrator else None
+        last_phone_page = (
+            getattr(orchestrator, "last_phone_page", None) if orchestrator else None
+        )
         if last_phone_page:
             active_reading_payload = {
                 "title": last_phone_page.get("title", "Active Webpage"),
                 "timeLabel": "Resume reading",
                 "completionPct": 50,
-                "url": last_phone_page.get("url", "")
+                "url": last_phone_page.get("url", ""),
             }
 
         # Format recent apps list from history with relative times
@@ -624,21 +940,21 @@ async def get_telemetry(session_id: Optional[str] = Query(None)):
                 time_str = f"{elapsed // 60}m ago"
             else:
                 time_str = f"{elapsed // 3600}h ago"
-            recent_apps.append({
-                "name": app["name"],
-                "icon": app["icon"],
-                "time": time_str,
-                "color": app["color"]
-            })
+            recent_apps.append(
+                {
+                    "name": app["name"],
+                    "icon": app["icon"],
+                    "time": time_str,
+                    "color": app["color"],
+                }
+            )
 
         # Format recent tabs
         recent_tabs = []
         for tab in recent_tabs_history:
-            recent_tabs.append({
-                "title": tab["title"],
-                "url": tab["url"],
-                "link": tab["link"]
-            })
+            recent_tabs.append(
+                {"title": tab["title"], "url": tab["url"], "link": tab["link"]}
+            )
 
         payload = {
             "stressScore": int(user_state.get("stress_score", 42)),
@@ -648,7 +964,7 @@ async def get_telemetry(session_id: Optional[str] = Query(None)):
             "activeReading": active_reading_payload,
             "pendingStates": get_dynamic_pending_states(ctx),
             "recentApps": recent_apps,
-            "recentTabs": recent_tabs
+            "recentTabs": recent_tabs,
         }
         return payload
     else:
@@ -660,7 +976,7 @@ async def get_telemetry(session_id: Optional[str] = Query(None)):
             "activeReading": None,
             "pendingStates": [],
             "recentApps": [],
-            "recentTabs": []
+            "recentTabs": [],
         }
 
 
@@ -670,13 +986,14 @@ async def get_telemetry(session_id: Optional[str] = Query(None)):
 # Inactivity summary generation helper
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 async def execute_hub_context_summary_generation(raw_payload: str) -> str:
     """
     Run Ollama to summarize the batch of notifications missed during inactivity.
     If Ollama is not running/unreachable, falls back to a rule-based summary helper.
     """
     import httpx
-    
+
     system_prompt = (
         "You are FRIDAY, an empathetic AI assistant. "
         "The user has been away from their device. Below is a batch of notifications they missed. "
@@ -685,7 +1002,7 @@ async def execute_hub_context_summary_generation(raw_payload: str) -> str:
         "Do not repeat details if they are not important."
     )
     user_prompt = f"Missed notifications:\n{raw_payload}"
-    
+
     try:
         async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT) as client:
             resp = await client.post(
@@ -702,13 +1019,15 @@ async def execute_hub_context_summary_generation(raw_payload: str) -> str:
             if summary:
                 return summary
     except Exception as e:
-        logger.warning(f"Ollama digest generation failed: {e}. Using local rule-based fallback.")
-    
+        logger.warning(
+            f"Ollama digest generation failed: {e}. Using local rule-based fallback."
+        )
+
     # Rule-based fallback summary logic
     lines = [line.strip() for line in raw_payload.split("\n") if line.strip()]
     if not lines:
         return "You had no notifications during this period of inactivity."
-        
+
     app_counts = {}
     for line in lines:
         if line.startswith("[App: ") and "]" in line:
@@ -716,11 +1035,17 @@ async def execute_hub_context_summary_generation(raw_payload: str) -> str:
             # Get simpler app name
             app_name = app_name.split(".")[-1]
             app_counts[app_name] = app_counts.get(app_name, 0) + 1
-            
+
     summary_parts = [f"{count} from {app}" for app, count in app_counts.items()]
-    return f"While you were away, you missed {len(lines)} updates: " + ", ".join(summary_parts) + "."
+    return (
+        f"While you were away, you missed {len(lines)} updates: "
+        + ", ".join(summary_parts)
+        + "."
+    )
+
 
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 @app.websocket("/ws/android")
 async def android_ws(websocket: WebSocket):
@@ -733,7 +1058,7 @@ async def android_ws(websocket: WebSocket):
       Backend → Android : ACK every 100 messages
     """
     await websocket.accept()
-    device_id   = None
+    device_id = None
     msg_counter = 0
 
     logger.info("Android WebSocket connected")
@@ -741,15 +1066,17 @@ async def android_ws(websocket: WebSocket):
     # On connect: send enriched LAPTOP_STATUS with last 3 recent_tabs so phone
     # immediately knows what the user left open on the laptop (device switch moment).
     try:
-        await websocket.send_json({
-            "type": "LAPTOP_STATUS",
-            "laptop_active": len(laptop_connections) > 0,
-            "recent_tabs": [
-                {"title": tab["title"], "url": tab["url"], "link": tab["link"]}
-                for tab in recent_tabs_history[:3]
-            ],
-            "timestamp": int(time.time() * 1000)
-        })
+        await websocket.send_json(
+            {
+                "type": "LAPTOP_STATUS",
+                "laptop_active": len(laptop_connections) > 0,
+                "recent_tabs": [
+                    {"title": tab["title"], "url": tab["url"], "link": tab["link"]}
+                    for tab in recent_tabs_history[:3]
+                ],
+                "timestamp": int(time.time() * 1000),
+            }
+        )
     except Exception:
         pass
 
@@ -779,11 +1106,15 @@ async def android_ws(websocket: WebSocket):
             msg_type = data.get("type", "")
             if msg_type == "feedback":
                 action_id = data.get("action_id")
-                user_reaction = data.get("user_reaction")  # helpful / dismissed / ignored
+                user_reaction = data.get(
+                    "user_reaction"
+                )  # helpful / dismissed / ignored
                 if action_id and user_reaction and orchestrator:
-                    orchestrator.record_feedback(action_id=action_id, reaction=user_reaction)
+                    await orchestrator.record_feedback(
+                        action_id=action_id, reaction=user_reaction
+                    )
                     logger.info(f"Android RLHF feedback: {action_id} → {user_reaction}")
-                    
+
                     if action_id.startswith("act_media_handoff"):
                         for sid, ctx in list(latest_contexts.items()):
                             sensor = ctx.get("sensor_data", {})
@@ -799,16 +1130,20 @@ async def android_ws(websocket: WebSocket):
                 continue
 
             if msg_type == "LIVE_TRACKER_SIGNAL":
-                logger.info(f"Live tracker update: app={data.get('package_id')} title={data.get('title')}")
+                logger.info(
+                    f"Live tracker update: app={data.get('package_id')} title={data.get('title')}"
+                )
                 continue
 
             if msg_type == "BATCH_SUMMARY_REQUEST":
                 raw_payload = data.get("raw_payload", "")
-                logger.info(f"Batch summary request received. Length={len(raw_payload)}")
+                logger.info(
+                    f"Batch summary request received. Length={len(raw_payload)}"
+                )
                 summary = await execute_hub_context_summary_generation(raw_payload)
                 response_frame = {
                     "type": "INACTIVITY_DIGEST_RESPONSE",
-                    "summary": summary
+                    "summary": summary,
                 }
                 await websocket.send_json(response_frame)
                 continue
@@ -817,17 +1152,17 @@ async def android_ws(websocket: WebSocket):
                 logger.info("Sync request received from Android app")
                 lm = getattr(orchestrator, "last_laptop_media", None)
                 lp = getattr(orchestrator, "last_laptop_page", None)
-                
+
                 tasks = []
                 if lm:
                     tasks.append((lm.get("timestamp", 0), "media", lm))
                 if lp:
                     tasks.append((lp.get("timestamp", 0), "page", lp))
-                
+
                 if tasks:
                     tasks.sort(key=lambda x: x[0], reverse=True)
                     most_recent = tasks[0]
-                    
+
                     if most_recent[1] == "media":
                         lm = most_recent[2]
                         try:
@@ -839,13 +1174,19 @@ async def android_ws(websocket: WebSocket):
                                 "score": 95.0,
                                 "provider": "youtube",
                                 "video_id": lm.get("video_id", ""),
-                                "playback_timestamp_seconds": lm.get("playback_timestamp_seconds", 0),
-                                "timestamp": int(time.time() * 1000)
+                                "playback_timestamp_seconds": lm.get(
+                                    "playback_timestamp_seconds", 0
+                                ),
+                                "timestamp": int(time.time() * 1000),
                             }
                             await websocket.send_json(payload)
-                            logger.info("Sent last laptop media to Android sync request (most recent)")
+                            logger.info(
+                                "Sent last laptop media to Android sync request (most recent)"
+                            )
                         except Exception as e:
-                            logger.warning(f"Failed to send media handoff during sync: {e}")
+                            logger.warning(
+                                f"Failed to send media handoff during sync: {e}"
+                            )
                     else:
                         lp = most_recent[2]
                         try:
@@ -856,23 +1197,57 @@ async def android_ws(websocket: WebSocket):
                                 "agent": "Continuity",
                                 "score": 95.0,
                                 "url": lp.get("url", ""),
-                                "timestamp": int(time.time() * 1000)
+                                "timestamp": int(time.time() * 1000),
                             }
                             await websocket.send_json(payload)
-                            logger.info("Sent last laptop page to Android sync request (most recent)")
+                            logger.info(
+                                "Sent last laptop page to Android sync request (most recent)"
+                            )
                         except Exception as e:
-                            logger.warning(f"Failed to send page handoff during sync: {e}")
+                            logger.warning(
+                                f"Failed to send page handoff during sync: {e}"
+                            )
                 continue
 
             # ── Handle individual sensor events (not full ContextObjects) ──
             # The Android side also sends raw events like app_switch,
             # typing_metrics, notification. Log them but don't orchestrate.
-            if msg_type in ("app_switch", "typing_metrics", "notification", "biometric_baseline"):
+            if msg_type in (
+                "app_switch",
+                "typing_metrics",
+                "notification",
+                "biometric_baseline",
+            ):
                 logger.debug(f"Individual sensor event received: {msg_type}")
                 if msg_type == "app_switch":
                     package_name = data.get("package_name") or data.get("package_id")
                     if package_name:
                         update_recent_apps(package_name)
+                continue
+
+            # ── Handle AMBIENT_CONTEXT_UPDATE (lightweight state heartbeat) ──
+            if msg_type == "AMBIENT_CONTEXT_UPDATE":
+                payload = data.get("payload", {})
+                active_app = payload.get("active_app", "")
+                device_state = payload.get("device_state", "ACTIVE")
+                logger.debug(f"Ambient context: app={active_app}, state={device_state}")
+                if active_app:
+                    update_recent_apps(active_app)
+                # Persist as a lightweight snapshot so disconnect handler can read it
+                if db and device_id:
+                    ambient_snapshot = {
+                        "metadata": {
+                            "session_id": device_id,
+                            "device_id": device_id,
+                            "message_id": f"ambient_{int(time.time())}",
+                            "timestamp": int(time.time() * 1000),
+                        },
+                        "sensor_data": {"focused_app": active_app},
+                        "user_state": {"stress_score": 0},
+                    }
+                    db.save_context_snapshot(
+                        device_id, json.dumps(ambient_snapshot), time.time()
+                    )
                 continue
 
             # HMAC verification (optional; skip if sig absent for dev)
@@ -891,13 +1266,14 @@ async def android_ws(websocket: WebSocket):
             device_id = data["metadata"]["device_id"]
             await conn_mgr.add_android(device_id, websocket)
             session_id = data["metadata"]["session_id"]
-            
+
             prev_context = latest_contexts.get(session_id)
             latest_contexts[session_id] = data
 
             # Persist incoming context snapshot to SQLite
             if db:
                 import json as _json
+
                 db.save_context_snapshot(session_id, _json.dumps(data), time.time())
 
             # Extract focused app and active page/media from the context to keep recent histories up-to-date
@@ -918,16 +1294,18 @@ async def android_ws(websocket: WebSocket):
             # Notify all connected laptops to refresh their UI
             for l_sid, l_ws in list(laptop_connections.items()):
                 try:
-                    await l_ws.send_json({
-                        "type": "TELEMETRY_UPDATE",
-                        "timestamp": int(time.time() * 1000)
-                    })
+                    await l_ws.send_json(
+                        {
+                            "type": "TELEMETRY_UPDATE",
+                            "timestamp": int(time.time() * 1000),
+                        }
+                    )
                 except Exception:
                     pass
 
             prev_sensor = prev_context.get("sensor_data", {}) if prev_context else {}
             prev_page = prev_sensor.get("active_page")
-            
+
             # Transition: left a page on phone
             if prev_page and not active_page:
                 title = prev_page.get("title", "Active Page")
@@ -942,13 +1320,15 @@ async def android_ws(websocket: WebSocket):
                             "url": url,
                             "content": {
                                 "title": "Leftover Task on Phone",
-                                "message": f"Resume reading: {title}"
+                                "message": f"Resume reading: {title}",
                             },
-                            "timestamp": int(time.time() * 1000)
+                            "timestamp": int(time.time() * 1000),
                         }
                         await l_ws.send_json(payload)
                     except Exception as e:
-                        logger.warning(f"Failed to push page handoff to laptop {l_sid}: {e}")
+                        logger.warning(
+                            f"Failed to push page handoff to laptop {l_sid}: {e}"
+                        )
 
             # Transition: left a video/media on phone
             prev_media = prev_sensor.get("active_media")
@@ -957,7 +1337,11 @@ async def android_ws(websocket: WebSocket):
                 title = prev_media.get("title", "Active Video")
                 vid = prev_media.get("video_id", "")
                 playback_time = prev_media.get("playback_timestamp_seconds", 0)
-                url = f"https://www.youtube.com/watch?v={vid}&t={playback_time}s" if vid else "https://www.youtube.com"
+                url = (
+                    f"https://www.youtube.com/watch?v={vid}&t={playback_time}s"
+                    if vid
+                    else "https://www.youtube.com"
+                )
                 action_id = f"act_media_handoff_{int(time.time())}"
                 logger.info(f"Phone left media: {title} -> Pushing handoff to laptops")
                 for l_sid, l_ws in list(laptop_connections.items()):
@@ -968,13 +1352,15 @@ async def android_ws(websocket: WebSocket):
                             "url": url,
                             "content": {
                                 "title": "Leftover Video on Phone",
-                                "message": f"Resume watching: {title}"
+                                "message": f"Resume watching: {title}",
                             },
-                            "timestamp": int(time.time() * 1000)
+                            "timestamp": int(time.time() * 1000),
                         }
                         await l_ws.send_json(payload)
                     except Exception as e:
-                        logger.warning(f"Failed to push media handoff to laptop {l_sid}: {e}")
+                        logger.warning(
+                            f"Failed to push media handoff to laptop {l_sid}: {e}"
+                        )
 
             # Track offline replays
             is_offline_replay = data.get("is_offline_replay", False)
@@ -991,7 +1377,7 @@ async def android_ws(websocket: WebSocket):
             # Orchestrate
             t0 = time.time()
             response = await orchestrator.process(data)
-            latency  = int((time.time() - t0) * 1000)
+            latency = int((time.time() - t0) * 1000)
 
             # Update latency in session log
             db.log_session_event(
@@ -1019,12 +1405,14 @@ async def android_ws(websocket: WebSocket):
         logger.exception(f"Android WS error: {exc}")
     finally:
         if device_id:
+            await handle_device_disconnect(device_id)
             await conn_mgr.remove_android(device_id)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # WebSocket — Laptop
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 @app.websocket("/ws/laptop")
 async def laptop_ws(websocket: WebSocket):
@@ -1072,8 +1460,10 @@ async def laptop_ws(websocket: WebSocket):
             elif msg_type == "USER_FEEDBACK_LOOP":
                 event_name = reaction.get("event")
                 metadata = reaction.get("metadata") or {}
-                logger.info(f"User feedback loop: event={event_name}, metadata={metadata}")
-                
+                logger.info(
+                    f"User feedback loop: event={event_name}, metadata={metadata}"
+                )
+
                 if event_name == "MEDIA_HANDOFF_EXECUTED":
                     vid = metadata.get("video_id")
                     for sid, ctx in list(latest_contexts.items()):
@@ -1081,11 +1471,17 @@ async def laptop_ws(websocket: WebSocket):
                         am = sensor.get("active_media")
                         if am and am.get("video_id") == vid:
                             sensor["active_media"] = None
-                    if getattr(orchestrator, "last_laptop_media", None) and orchestrator.last_laptop_media.get("video_id") == vid:
+                    if (
+                        getattr(orchestrator, "last_laptop_media", None)
+                        and orchestrator.last_laptop_media.get("video_id") == vid
+                    ):
                         orchestrator.last_laptop_media = None
-                    if getattr(orchestrator, "last_phone_media", None) and orchestrator.last_phone_media.get("video_id") == vid:
+                    if (
+                        getattr(orchestrator, "last_phone_media", None)
+                        and orchestrator.last_phone_media.get("video_id") == vid
+                    ):
                         orchestrator.last_phone_media = None
-                        
+
                 elif event_name == "PAGE_HANDOFF_EXECUTED":
                     url = metadata.get("url")
                     for sid, ctx in list(latest_contexts.items()):
@@ -1093,19 +1489,29 @@ async def laptop_ws(websocket: WebSocket):
                         ap = sensor.get("active_page")
                         if ap and ap.get("url") == url:
                             sensor["active_page"] = None
-                    if getattr(orchestrator, "last_laptop_page", None) and orchestrator.last_laptop_page.get("url") == url:
+                    if (
+                        getattr(orchestrator, "last_laptop_page", None)
+                        and orchestrator.last_laptop_page.get("url") == url
+                    ):
                         orchestrator.last_laptop_page = None
-                    if getattr(orchestrator, "last_phone_page", None) and orchestrator.last_phone_page.get("url") == url:
+                    if (
+                        getattr(orchestrator, "last_phone_page", None)
+                        and orchestrator.last_phone_page.get("url") == url
+                    ):
                         orchestrator.last_phone_page = None
 
             # Handle user feedback / RLHF
-            action_id    = reaction.get("action_id")
-            user_reaction = reaction.get("user_reaction")  # helpful / dismissed / ignored
+            action_id = reaction.get("action_id")
+            user_reaction = reaction.get(
+                "user_reaction"
+            )  # helpful / dismissed / ignored
 
             if action_id and user_reaction:
-                orchestrator.record_feedback(action_id=action_id, reaction=user_reaction)
+                await orchestrator.record_feedback(
+                    action_id=action_id, reaction=user_reaction
+                )
                 logger.info(f"Feedback recorded: {action_id} → {user_reaction}")
-                
+
                 # Clear active phone tasks on reaction
                 if action_id.startswith("act_media_handoff"):
                     if getattr(orchestrator, "last_phone_media", None):
@@ -1130,6 +1536,7 @@ async def laptop_ws(websocket: WebSocket):
 # WebSocket — Voice Transcription
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 @app.websocket("/ws/voice")
 async def voice_ws(websocket: WebSocket):
     """
@@ -1147,7 +1554,9 @@ async def voice_ws(websocket: WebSocket):
     logger.info("Voice WebSocket connected")
 
     if voice_agent is None:
-        await websocket.send_json({"type": "VOICE_ERROR", "error": "Voice transcription unavailable"})
+        await websocket.send_json(
+            {"type": "VOICE_ERROR", "error": "Voice transcription unavailable"}
+        )
         await websocket.close(1011, "VoiceAgent not initialized")
         return
 
@@ -1188,22 +1597,26 @@ async def voice_ws(websocket: WebSocket):
                         result = {"text": text_val, "duration_ms": 0}
                     else:
                         if len(audio_buffer) == 0:
-                            await websocket.send_json({
-                                "type": "VOICE_TRANSCRIPTION",
-                                "text": "",
-                                "duration_ms": 0,
-                                "error": "Empty audio buffer"
-                            })
+                            await websocket.send_json(
+                                {
+                                    "type": "VOICE_TRANSCRIPTION",
+                                    "text": "",
+                                    "duration_ms": 0,
+                                    "error": "Empty audio buffer",
+                                }
+                            )
                             continue
 
-                        logger.info(f"Voice recording ended ({len(audio_buffer)} bytes). Transcribing...")
+                        logger.info(
+                            f"Voice recording ended ({len(audio_buffer)} bytes). Transcribing..."
+                        )
                         result = await voice_agent.transcribe_bytes(
                             bytes(audio_buffer), source_format=source_format
                         )
 
                     voice_response = ""
                     if result["text"]:
-                        logger.info(f"Voice text: \"{result['text'][:80]}...\"")
+                        logger.info(f'Voice text: "{result["text"][:80]}..."')
                         voice_response = await generate_voice_response(result["text"])
 
                     response = {
@@ -1233,7 +1646,7 @@ async def generate_voice_response(text: str) -> str:
     for a Jarvis-like experience.
     """
     import httpx
-    
+
     # 1. Compile active telemetry context
     context_str = "No active telemetry context available."
     loc = "home"
@@ -1243,14 +1656,14 @@ async def generate_voice_response(text: str) -> str:
     apps = 0
     typos = 0.0
     task_name = "None"
-    
+
     if latest_contexts:
         try:
             ctx = list(latest_contexts.values())[-1]
             sensor = ctx.get("sensor_data", {})
             user_state = ctx.get("user_state", {})
             active_task = ctx.get("active_task")
-            
+
             loc = sensor.get("location", "home")
             stress = user_state.get("stress_score", 42)
             noise = sensor.get("ambient_noise_db", 40)
@@ -1258,7 +1671,7 @@ async def generate_voice_response(text: str) -> str:
             apps = sensor.get("app_switches", 0)
             typos = sensor.get("typo_rate", 0.0)
             task_name = active_task.get("name") if active_task else "None"
-            
+
             context_str = (
                 f"- User Current Location: {loc}\n"
                 f"- User Stress Score: {stress}/100\n"
@@ -1273,20 +1686,39 @@ async def generate_voice_response(text: str) -> str:
 
     # 2. Check if the voice command is asking to retrieve memories
     text_lower = text.lower()
-    is_memory_query = any(kw in text_lower for kw in ["memory", "remember", "recall", "history", "past", "episodes", "what did i do", "what was i doing", "last time"])
-    
+    is_memory_query = any(
+        kw in text_lower
+        for kw in [
+            "memory",
+            "remember",
+            "recall",
+            "history",
+            "past",
+            "episodes",
+            "what did i do",
+            "what was i doing",
+            "last time",
+        ]
+    )
+
     memories_str = "No relevant memory episodes found."
     retrieved_memories = []
     if is_memory_query and chroma:
         try:
             # We clean up common request phrases to perform a better semantic query
             query_term = text
-            for kw in ["fetch data from memory", "fetch from memory", "query memory", "tell me my memory", "retrieve memory"]:
+            for kw in [
+                "fetch data from memory",
+                "fetch from memory",
+                "query memory",
+                "tell me my memory",
+                "retrieve memory",
+            ]:
                 if kw in query_term.lower():
                     query_term = query_term.lower().replace(kw, "").strip()
             if not query_term:
                 query_term = "work stress tasks activities"
-            
+
             logger.info(f"Querying Chroma for voice assistant: '{query_term}'")
             results = chroma.query_memories(query_text=query_term, n_results=3)
             if results:
@@ -1312,7 +1744,7 @@ async def generate_voice_response(text: str) -> str:
     )
     if is_memory_query:
         system_prompt += f"\n\nUSER RETRIEVED MEMORIES:\n{memories_str}"
-    
+
     response_text = None
     try:
         async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT) as client:
@@ -1329,10 +1761,10 @@ async def generate_voice_response(text: str) -> str:
             response_text = resp.json().get("response", "").strip()
     except Exception as e:
         logger.warning(f"Ollama voice response generation failed: {e}")
-        
+
     if response_text:
         return response_text
-    
+
     # 4. Smart, high-fidelity fallback responder (No robotic "I heard you say... I'm processing it now")
     if is_memory_query:
         if retrieved_memories:
@@ -1345,24 +1777,38 @@ async def generate_voice_response(text: str) -> str:
         else:
             return "I searched your past memory records but did not find any relevant episodes matching that query."
 
-    is_status_query = any(kw in text_lower for kw in ["status", "stress", "how am i", "current state", "how is it going", "active task", "metric"])
+    is_status_query = any(
+        kw in text_lower
+        for kw in [
+            "status",
+            "stress",
+            "how am i",
+            "current state",
+            "how is it going",
+            "active task",
+            "metric",
+        ]
+    )
     if is_status_query:
         if task_name and task_name != "None":
             task_desc = f"focusing on your task '{task_name}'"
         else:
             task_desc = "not currently working on a specific task"
-            
+
         if stress > 60:
             return f"Your current stress is elevated at {stress}/100 while at {loc}. I suggest pausing for a moment to take a deep breath."
         else:
             return f"You are currently at {loc} with a healthy stress score of {stress}/100, and you are {task_desc}."
 
-    if any(kw in text_lower for kw in ["silence", "quiet", "mute", "block", "do not disturb"]):
+    if any(
+        kw in text_lower
+        for kw in ["silence", "quiet", "mute", "block", "do not disturb"]
+    ):
         return "Muting alerts and notifications now. I'll make sure you can work without distractions."
-        
+
     if "focus" in text_lower:
         return "Workspace optimized for focus mode. I've minimized noise and interruptions to help you concentrate."
-        
+
     if any(kw in text_lower for kw in ["evening", "brief", "summary"]):
         return f"Evening brief is ready: you spent your session at {loc} with average stress at {stress}/100 and minimal interruptions."
 
@@ -1375,6 +1821,7 @@ async def generate_voice_response(text: str) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 
 from fastapi import UploadFile, File
+
 
 @app.post("/api/transcribe", tags=["voice"])
 async def transcribe_audio(file: UploadFile = File(...)):

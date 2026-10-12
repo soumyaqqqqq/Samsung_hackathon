@@ -631,6 +631,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case "CONNECTION_STATUS":
             updateConnectionUI(message.status);
             break;
+        case "PENDING_HANDOFF":
+            injectHandoffPrompt(message);
+            break;
         default:
             console.log("[FRIDAY Content] Unrecognized packet received:", message.type);
     }
@@ -827,6 +830,249 @@ function executePageHandoff(pageData) {
     }, 12000);
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Cross-Device Handoff Recovery Card
+// ──────────────────────────────────────────────────────────────────────────────
+
+function injectHandoffPrompt(handoffData) {
+    if (!shadowRoot) return;
+
+    // Remove any existing handoff card to avoid duplicates
+    const existing = shadowRoot.querySelector(".friday-handoff-overlay");
+    if (existing) existing.remove();
+
+    const userId = handoffData.user_id || "device";
+    
+    // Support multiple items from handoff payload, default to single page if none
+    const items = handoffData.items && handoffData.items.length > 0 ? handoffData.items : [
+        {
+            title: handoffData.active_page?.title || "Active Web Session",
+            url: handoffData.active_page?.url || "",
+            app: handoffData.active_app || "com.android.chrome",
+            type: "Web Session"
+        }
+    ];
+
+    const overlay = document.createElement("div");
+    overlay.className = "friday-handoff-overlay";
+    overlay.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 2147483647;
+        width: 390px;
+        animation: fridayHandoffSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        opacity: 0;
+        transform: translateX(40px) scale(0.96);
+        font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    `;
+
+    let itemsHtml = "";
+    items.forEach((item, idx) => {
+        let iconBg = "#4285F4"; // Default Chrome blue
+        let iconSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="#fff"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>`;
+        
+        const app = item.app || "";
+        if (app.includes("whatsapp")) {
+            iconBg = "#25D366";
+            iconSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="#fff"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.717-1.458L0 24zm6.59-4.846c1.6.95 3.16 1.449 4.825 1.451 5.436 0 9.859-4.42 9.863-9.86.002-2.634-1.02-5.111-2.88-6.973-1.86-1.863-4.337-2.887-6.971-2.889-5.442 0-9.866 4.422-9.87 9.862-.001 1.761.472 3.482 1.368 5.021L1.87 21.057l5.223-1.378c.007-.005.01-.005.018-.01-.013.003-.02.007-.022.012z"/></svg>`;
+        } else if (app.includes("gmail") || app.includes("gm")) {
+            iconBg = "#EA4335";
+            iconSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="#fff"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>`;
+        } else if (app.includes("sbrowser") || app.includes("samsung")) {
+            iconBg = "#0A84FF";
+            iconSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="#fff"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15.5h-2v-2h2v2zm0-4h-2V7h2v6.5z"/></svg>`;
+        }
+
+        const title = item.title || "Untitled Session";
+        const url = item.url || "";
+        const itemType = item.type || "Application";
+
+        itemsHtml += `
+            <div class="fh-item" data-url="${url}" style="display: flex; align-items: center; justify-content: space-between; border: 2px solid #000; padding: 10px; margin-bottom: 8px; background: #fff; border-radius: 4px; box-shadow: 2px 2px 0 #000;">
+                <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; flex: 1;">
+                    <div style="background: ${iconBg}; width: 26px; height: 26px; border: 1.5px solid #000; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 4px;">
+                        ${iconSvg}
+                    </div>
+                    <div style="display: flex; flex-direction: column; overflow: hidden; text-align: left;">
+                        <span style="font-size: 9px; font-weight: 700; color: #666; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1;">${itemType}</span>
+                        <span style="font-size: 12px; font-weight: 800; color: #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; margin-top: 2px;">${title}</span>
+                    </div>
+                </div>
+                <button class="fh-item-open-btn" data-url="${url}" style="background: #eef1f6; border: 1.5px solid #000; font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700; padding: 4px 8px; cursor: pointer; border-radius: 2px; box-shadow: 1.5px 1.5px 0 #000; transition: transform 80ms, box-shadow 80ms;">OPEN</button>
+            </div>
+        `;
+    });
+
+    overlay.innerHTML = `
+        <style>
+            @keyframes fridayHandoffSlideIn {
+                to { opacity: 1; transform: translateX(0) scale(1); }
+            }
+            @keyframes fridayHandoffPulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.5; }
+            }
+            .fh-card {
+                background: #FFFFFF;
+                border: 3px solid #000000;
+                box-shadow: 6px 6px 0px #000000;
+                padding: 0;
+                overflow: hidden;
+            }
+            .fh-header {
+                background: #1a1a1a;
+                padding: 10px 16px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .fh-pulse {
+                width: 8px; height: 8px;
+                background: #D6FF3D;
+                border-radius: 50%;
+                animation: fridayHandoffPulse 1.5s infinite;
+            }
+            .fh-header-text {
+                font-family: 'JetBrains Mono', 'Fira Code', monospace;
+                font-size: 11px;
+                font-weight: 700;
+                color: #D6FF3D;
+                letter-spacing: 0.8px;
+                text-transform: uppercase;
+            }
+            .fh-body {
+                padding: 16px;
+            }
+            .fh-tag {
+                display: inline-block;
+                background: #C6BFFF;
+                border: 1.5px solid #000000;
+                padding: 3px 8px;
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 0.5px;
+                margin-bottom: 10px;
+            }
+            .fh-title {
+                margin: 0 0 6px 0;
+                font-size: 16px;
+                font-weight: 800;
+                color: #000000;
+                line-height: 1.25;
+            }
+            .fh-desc {
+                margin: 0 0 14px 0;
+                font-size: 13px;
+                color: #555555;
+                line-height: 1.45;
+            }
+            .fh-actions {
+                display: flex;
+                gap: 10px;
+            }
+            .fh-btn {
+                flex: 1;
+                font-family: 'JetBrains Mono', monospace;
+                font-weight: 700;
+                font-size: 12px;
+                padding: 10px 8px;
+                border: 2.5px solid #000000;
+                cursor: pointer;
+                text-align: center;
+                transition: transform 80ms, box-shadow 80ms;
+                box-shadow: 3px 3px 0px #000;
+                text-transform: uppercase;
+                letter-spacing: 0.3px;
+            }
+            .fh-btn:active {
+                transform: translate(2px, 2px);
+                box-shadow: 1px 1px 0px #000;
+            }
+            .fh-btn-restore {
+                background: #D6FF3D;
+                color: #000;
+            }
+            .fh-btn-dismiss {
+                background: #f0f0f0;
+                color: #000;
+            }
+            .fh-item-open-btn:active {
+                transform: translate(1px, 1px);
+                box-shadow: 0.5px 0.5px 0 #000;
+            }
+        </style>
+
+        <div class="fh-card">
+            <div class="fh-header">
+                <div class="fh-pulse"></div>
+                <span class="fh-header-text">Cross-Device Handoff Primed</span>
+            </div>
+            <div class="fh-body">
+                <div class="fh-tag">SAMSUNG WORKSPACE CONTINUITY</div>
+                <h3 class="fh-title">Resume Active Workspaces?</h3>
+                <p class="fh-desc">FRIDAY detected that your Samsung phone went offline. Pick a workflow or restore the entire session.</p>
+
+                <div class="fh-items-container" style="max-height: 240px; overflow-y: auto; margin-bottom: 16px; padding-right: 4px;">
+                    ${itemsHtml}
+                </div>
+
+                <div class="fh-actions">
+                    <button class="fh-btn fh-btn-dismiss" id="friday-handoff-dismiss">Dismiss</button>
+                    <button class="fh-btn fh-btn-restore" id="friday-handoff-restore">✔ Restore All</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    shadowRoot.appendChild(overlay);
+
+    // Individual "OPEN" buttons
+    shadowRoot.querySelectorAll(".fh-item-open-btn").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const url = btn.getAttribute("data-url");
+            if (url) {
+                window.open(url, "_blank");
+            }
+            sendFeedback("HANDOFF_ITEM_RESTORED", { url: url, user_id: userId });
+        });
+    });
+
+    // Restore All button → opens all saved pages
+    shadowRoot.getElementById("friday-handoff-restore").addEventListener("click", () => {
+        items.forEach(item => {
+            if (item.url) {
+                window.open(item.url, "_blank");
+            }
+        });
+        sendFeedback("HANDOFF_ALL_RESTORED", { count: items.length, user_id: userId });
+        dismissHandoffCard(overlay);
+    });
+
+    // Dismiss button
+    shadowRoot.getElementById("friday-handoff-dismiss").addEventListener("click", () => {
+        sendFeedback("HANDOFF_DISMISSED", { user_id: userId });
+        dismissHandoffCard(overlay);
+    });
+
+    // Auto-dismiss after 30 seconds
+    setTimeout(() => {
+        if (overlay.parentNode) {
+            sendFeedback("HANDOFF_IGNORED", { user_id: userId });
+            dismissHandoffCard(overlay);
+        }
+    }, 30000);
+}
+
+function dismissHandoffCard(overlay) {
+    overlay.style.transition = "opacity 0.3s, transform 0.3s";
+    overlay.style.opacity = "0";
+    overlay.style.transform = "translateX(40px) scale(0.96)";
+    setTimeout(() => overlay.remove(), 350);
+}
+
 function toggleFocusShield(stressScore) {
     FRIDAY_STATE.stressScore = stressScore;
 
@@ -846,10 +1092,76 @@ function toggleFocusShield(stressScore) {
 
         shadowRoot.appendChild(shieldBanner);
         document.body.classList.add("friday-desaturate-mode");
+
+        // Drop the interactive focus banner card over the active workspace
+        const existingCard = shadowRoot.getElementById("friday-cognitive-fatigue-card");
+        if (!existingCard) {
+            const card = document.createElement("div");
+            card.id = "friday-cognitive-fatigue-card";
+            card.style.cssText = `
+                position: fixed;
+                top: 60px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 420px;
+                background: #FFF9E3;
+                border: 3px solid #000;
+                box-shadow: 6px 6px 0px #000;
+                padding: 20px;
+                z-index: 2147483647;
+                font-family: 'Inter', 'Segoe UI', sans-serif;
+                animation: fridayHandoffSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            `;
+
+            card.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                    <div style="background: #FF8C70; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid #000;"></div>
+                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 800; text-transform: uppercase; color: #000;">Cognitive Overload Warning</span>
+                </div>
+                <div style="font-size: 18px; font-weight: 900; color: #000; margin-bottom: 8px; letter-spacing: -0.5px;">Cognitive Fatigue Detected (E > 0.85)</div>
+                <p style="font-size: 13px; color: #333; margin: 0 0 16px 0; line-height: 1.45; font-weight: 500;">
+                    Your stress index is elevated at ${stressScore}%. Let's activate the Interruption Shield to auto-mute alerts and desaturate screen colors to restore focus.
+                </p>
+                <div style="display: flex; gap: 12px;">
+                    <button id="focus-btn-dismiss" style="flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; padding: 10px; border: 2.5px solid #000; background: #fff; cursor: pointer; box-shadow: 3px 3px 0px #000; transition: transform 80ms, box-shadow 80ms;">DISMISS (Irrelevant)</button>
+                    <button id="focus-btn-optin" style="flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; padding: 10px; border: 2.5px solid #000; background: #D6FF3D; cursor: pointer; box-shadow: 3px 3px 0px #000; transition: transform 80ms, box-shadow 80ms;">OPT-IN (Helpful)</button>
+                </div>
+            `;
+            shadowRoot.appendChild(card);
+
+            const optInBtn = shadowRoot.getElementById("focus-btn-optin");
+            const dismissBtn = shadowRoot.getElementById("focus-btn-dismiss");
+
+            optInBtn.onclick = () => {
+                chrome.runtime.sendMessage({
+                    action: "send_to_backend",
+                    data: {
+                        action_id: "focus_shield_auto",
+                        user_reaction: "helpful"
+                    }
+                });
+                card.remove();
+            };
+
+            dismissBtn.onclick = () => {
+                chrome.runtime.sendMessage({
+                    action: "send_to_backend",
+                    data: {
+                        action_id: "focus_shield_auto",
+                        user_reaction: "dismissed"
+                    }
+                });
+                card.remove();
+            };
+        }
     } else {
         if (shieldBanner) {
             shieldBanner.remove();
             shieldBanner = null;
+        }
+        const existingCard = shadowRoot.getElementById("friday-cognitive-fatigue-card");
+        if (existingCard) {
+            existingCard.remove();
         }
         document.body.classList.remove("friday-desaturate-mode");
     }

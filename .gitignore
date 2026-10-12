@@ -2,6 +2,10 @@
 .venv/
 venv/
 env/
+backend/.venv/
+
+# Graphify
+graphify-out/
 
 # Python
 __pycache__/
@@ -33,18 +37,29 @@ pip-delete-this-directory.txt
 chroma/
 data/chroma/
 data/chroma_backup/
-backend/data/audio/
+src/backend/data/audio/
 *.wav
 *.aac
 *.pcm
 
-# Large model files
-*.onnx
+# Large data assets (Android app ONNX model weights)
 *.onnx.data
-*.bin
-*.model 
+src/android/app/src/main/assets/*.onnx.data
 
-# VS Code
+# Large model files (backend only — Android assets must NOT be ignored)
+src/backend/phi3-mini-onnx/
+src/backend/models/roberta-burnout-lora/
+src/backend/models/*.safetensors
+*.bin
+*.model
+src/backend/whisper.cpp/build
+src/backend/whisper.cpp/
+
+# Datasets and models
+src/backend/data/datasets/
+src/backend/models/
+src/backend/quantized_models/
+src/backend/scripts/
 .vscode/
 *.code-workspace
 
@@ -91,10 +106,3 @@ logs/
 # IDE
 *.sublime-workspace
 .vscode-remote/
-
-backend/whisper.cpp/build
-backend/data/audio/
-backend/data/datasets/
-backend/models/
-backend/quantized_models/
-backend/scripts/

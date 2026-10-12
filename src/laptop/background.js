@@ -46,11 +46,20 @@ function connectWebSocket() {
                 });
             }
 
-            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                if (tabs[0] && tabs[0].id) {
-                    chrome.tabs.sendMessage(tabs[0].id, payload);
-                }
-            });
+            // PENDING_HANDOFF must reach all tabs so the recovery card always appears
+            if (payload.type === "PENDING_HANDOFF") {
+                chrome.tabs.query({}, (tabs) => {
+                    tabs.forEach((t) => {
+                        if (t.id) chrome.tabs.sendMessage(t.id, payload).catch(() => {});
+                    });
+                });
+            } else {
+                chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                    if (tabs[0] && tabs[0].id) {
+                        chrome.tabs.sendMessage(tabs[0].id, payload);
+                    }
+                });
+            }
         } catch (err) {
             console.error("[FRIDAY Background] Error parsing frame message:", err);
         }

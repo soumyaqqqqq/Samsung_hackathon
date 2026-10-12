@@ -1058,3 +1058,14 @@
 .friday-toast-header svg.friday-svg-icon {
     margin-right: 8px;
 }
+
+@keyframes fridayHandoffSlideIn {
+    from {
+        transform: translate(-50%, -40px) scale(0.95);
+        opacity: 0;
+    }
+    to {
+        transform: translate(-50%, 0) scale(1);
+        opacity: 1;
+    }
+}

@@ -28,7 +28,22 @@ The Emotion Agent estimates a real-time stress score using behavioral signals co
 6. On-Device Stress Model Output
 
 ### Weighted Stress Formula:
-Stress Score =0.20 × App Switches +0.20 × Notifications +0.20 × Typo Rate +0.15 × Typing Cadence +0.15 × Screen Time +0.10 × On-Device Model
+Stress Score = 0.20 × App Switches + 0.20 × Notifications + 0.20 × Typo Rate + 0.15 × Typing Cadence + 0.15 × Screen Time + 0.10 × On-Device Model
+
+### 4.1 Personal Baseline & Contextual Ambiguity Engine
+Rather than relying solely on global static thresholds, FRIDAY continuously computes the user's personal baseline using **Welford's Algorithm**:
+- **Rolling Mean ($\mu$) and Variance ($M2$) in $O(1)$ Space**:
+  $$\mu_k = \mu_{k-1} + \frac{x_k - \mu_{k-1}}{k}, \quad M2_k = M2_{k-1} + (x_k - \mu_{k-1})(x_k - \mu_k), \quad \sigma_k = \sqrt{\frac{M2_k}{k-1}}$$
+- **Z-Score Deviation Evaluation**:
+  $$Z = \frac{x - \mu}{\sigma}$$
+  Stress elevation is triggered only when metrics deviate significantly from personal baselines ($Z > +1.0$), eliminating false alarms for naturally fast typists or frequent app switchers.
+- **Contextual Ambiguity (Flow State Detection)**:
+  When active in `DEVELOPMENT` or `PRODUCTIVITY` categories with low external interruptions, rapid switching is classified as `FLOW_STATE`, preventing erroneous stress alerts.
+
+### 4.2 Privacy Sanitizer Guard
+- **Sensitive App Suppression**: Banking, UPI, 2FA authenticators, and medical notifications are completely suppressed (`[Private Notification]`).
+- **OTP / Pin Redaction**: 4-8 digit security codes across all notifications are replaced with `[REDACTED_SECURITY_CODE]`.
+- **Domain-Only Web Trimming**: All paths, session tokens, and query parameters are stripped; address bar searches are suppressed to protect user privacy.
 
 ![alt text](images/image8.png)
 
@@ -41,6 +56,7 @@ The Context Agent enriches raw sensor information.
 3. Battery Status
 4. Charging State
 5. Device Usage Pattern
+6. Active Domain Category (`DEVELOPMENT`, `PRODUCTIVITY`, `COMMUNICATION`, etc.)
 
 ![alt text](images/image9.png)
 

@@ -10,13 +10,22 @@ class RoomDatabase private constructor(private val context: Context) : SQLiteOpe
 
     companion object {
         private const val DATABASE_NAME = "friday_local.db"
-        private const val DATABASE_VERSION = 1
+        private const val DATABASE_VERSION = 2
         private const val TABLE_EVENTS = "events"
+        private const val TABLE_PERSONAL_BASELINE = "personal_baseline"
 
         private const val KEY_MESSAGE_ID = "message_id"
         private const val KEY_TYPE = "type"
         private const val KEY_PAYLOAD = "payload"
         private const val KEY_TIMESTAMP = "timestamp"
+
+        // Baseline schema keys
+        private const val KEY_METRIC_NAME = "metric_name"
+        private const val KEY_ROLLING_MEAN = "rolling_mean"
+        private const val KEY_ROLLING_M2 = "rolling_m2"
+        private const val KEY_ROLLING_STD = "rolling_std"
+        private const val KEY_SAMPLE_COUNT = "sample_count"
+        private const val KEY_LAST_UPDATED = "last_updated"
 
         @Volatile
         private var instance: RoomDatabase? = null
@@ -29,20 +38,43 @@ class RoomDatabase private constructor(private val context: Context) : SQLiteOpe
     }
 
     override fun onCreate(db: SQLiteDatabase) {
-        val createTableQuery = """
-            CREATE TABLE $TABLE_EVENTS (
+        val createEventsTableQuery = """
+            CREATE TABLE IF NOT EXISTS $TABLE_EVENTS (
                 $KEY_MESSAGE_ID TEXT PRIMARY KEY,
                 $KEY_TYPE TEXT,
                 $KEY_PAYLOAD TEXT,
                 $KEY_TIMESTAMP INTEGER
             )
         """.trimIndent()
-        db.execSQL(createTableQuery)
+        db.execSQL(createEventsTableQuery)
+
+        val createBaselineTableQuery = """
+            CREATE TABLE IF NOT EXISTS $TABLE_PERSONAL_BASELINE (
+                $KEY_METRIC_NAME TEXT PRIMARY KEY,
+                $KEY_ROLLING_MEAN REAL,
+                $KEY_ROLLING_M2 REAL,
+                $KEY_ROLLING_STD REAL,
+                $KEY_SAMPLE_COUNT INTEGER,
+                $KEY_LAST_UPDATED INTEGER
+            )
+        """.trimIndent()
+        db.execSQL(createBaselineTableQuery)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_EVENTS")
-        onCreate(db)
+        if (oldVersion < 2) {
+            val createBaselineTableQuery = """
+                CREATE TABLE IF NOT EXISTS $TABLE_PERSONAL_BASELINE (
+                    $KEY_METRIC_NAME TEXT PRIMARY KEY,
+                    $KEY_ROLLING_MEAN REAL,
+                    $KEY_ROLLING_M2 REAL,
+                    $KEY_ROLLING_STD REAL,
+                    $KEY_SAMPLE_COUNT INTEGER,
+                    $KEY_LAST_UPDATED INTEGER
+                )
+            """.trimIndent()
+            db.execSQL(createBaselineTableQuery)
+        }
     }
 
     @Synchronized
@@ -111,4 +143,135 @@ class RoomDatabase private constructor(private val context: Context) : SQLiteOpe
         cursor.close()
         return count
     }
+
+    // ────────────────────────────────────────────────────────────────
+    // Personal Baseline Engine (Welford's Algorithm)
+    // ────────────────────────────────────────────────────────────────
+
+    /**
+     * Records a new numeric metric sample (e.g. app switch count, typing delay ms,
+     * notification frequency) and updates the rolling mean, M2, and standard deviation
+     * in O(1) time and O(1) space using Welford's algorithm.
+     */
+    @Synchronized
+    fun recordMetricSample(metricName: String, value: Double): PersonalBaseline {
+        val db = writableDatabase
+        var current: PersonalBaseline? = null
+
+        val cursor = db.rawQuery(
+            "SELECT $KEY_METRIC_NAME, $KEY_ROLLING_MEAN, $KEY_ROLLING_M2, $KEY_ROLLING_STD, $KEY_SAMPLE_COUNT, $KEY_LAST_UPDATED FROM $TABLE_PERSONAL_BASELINE WHERE $KEY_METRIC_NAME = ?",
+            arrayOf(metricName)
+        )
+        if (cursor.moveToFirst()) {
+            current = PersonalBaseline(
+                metricName = cursor.getString(0),
+                rollingMean = cursor.getDouble(1),
+                rollingM2 = cursor.getDouble(2),
+                rollingStd = cursor.getDouble(3),
+                sampleCount = cursor.getLong(4),
+                lastUpdated = cursor.getLong(5)
+            )
+        }
+        cursor.close()
+
+        val count = (current?.sampleCount ?: 0L) + 1L
+        val oldMean = current?.rollingMean ?: 0.0
+        val delta = value - oldMean
+        val newMean = oldMean + (delta / count)
+        val delta2 = value - newMean
+        val newM2 = (current?.rollingM2 ?: 0.0) + (delta * delta2)
+        val newStd = if (count > 1) kotlin.math.sqrt(newM2 / (count - 1)) else 0.0
+        val now = System.currentTimeMillis()
+
+        val values = ContentValues().apply {
+            put(KEY_METRIC_NAME, metricName)
+            put(KEY_ROLLING_MEAN, newMean)
+            put(KEY_ROLLING_M2, newM2)
+            put(KEY_ROLLING_STD, newStd)
+            put(KEY_SAMPLE_COUNT, count)
+            put(KEY_LAST_UPDATED, now)
+        }
+        db.insertWithOnConflict(TABLE_PERSONAL_BASELINE, null, values, SQLiteDatabase.CONFLICT_REPLACE)
+
+        return PersonalBaseline(metricName, newMean, newM2, newStd, count, now)
+    }
+
+    /**
+     * Retrieves the stored personal baseline for a given metric.
+     */
+    @Synchronized
+    fun getPersonalBaseline(metricName: String): PersonalBaseline? {
+        val db = readableDatabase
+        val cursor = db.rawQuery(
+            "SELECT $KEY_METRIC_NAME, $KEY_ROLLING_MEAN, $KEY_ROLLING_M2, $KEY_ROLLING_STD, $KEY_SAMPLE_COUNT, $KEY_LAST_UPDATED FROM $TABLE_PERSONAL_BASELINE WHERE $KEY_METRIC_NAME = ?",
+            arrayOf(metricName)
+        )
+        var baseline: PersonalBaseline? = null
+        if (cursor.moveToFirst()) {
+            baseline = PersonalBaseline(
+                metricName = cursor.getString(0),
+                rollingMean = cursor.getDouble(1),
+                rollingM2 = cursor.getDouble(2),
+                rollingStd = cursor.getDouble(3),
+                sampleCount = cursor.getLong(4),
+                lastUpdated = cursor.getLong(5)
+            )
+        }
+        cursor.close()
+        return baseline
+    }
+
+    /**
+     * Computes the statistical Z-score deviation: Z = (value - μ) / σ.
+     * Returns 0.0 if fewer than 5 samples have been recorded or if std dev is negligible.
+     */
+    @Synchronized
+    fun calculateZScore(metricName: String, value: Double): Double {
+        val baseline = getPersonalBaseline(metricName) ?: return 0.0
+        if (baseline.sampleCount < 5 || baseline.rollingStd <= 0.0001) {
+            return 0.0
+        }
+        return (value - baseline.rollingMean) / baseline.rollingStd
+    }
+
+    /**
+     * Retrieves all recorded baselines for context logging and synchronization.
+     */
+    @Synchronized
+    fun getAllBaselines(): Map<String, PersonalBaseline> {
+        val map = mutableMapOf<String, PersonalBaseline>()
+        val db = readableDatabase
+        val cursor = db.rawQuery("SELECT $KEY_METRIC_NAME, $KEY_ROLLING_MEAN, $KEY_ROLLING_M2, $KEY_ROLLING_STD, $KEY_SAMPLE_COUNT, $KEY_LAST_UPDATED FROM $TABLE_PERSONAL_BASELINE", null)
+        if (cursor.moveToFirst()) {
+            do {
+                val name = cursor.getString(0)
+                map[name] = PersonalBaseline(
+                    metricName = name,
+                    rollingMean = cursor.getDouble(1),
+                    rollingM2 = cursor.getDouble(2),
+                    rollingStd = cursor.getDouble(3),
+                    sampleCount = cursor.getLong(4),
+                    lastUpdated = cursor.getLong(5)
+                )
+            } while (cursor.moveToNext())
+        }
+        cursor.close()
+        return map
+    }
+
+    @Synchronized
+    fun clearBaselines() {
+        val db = writableDatabase
+        db.delete(TABLE_PERSONAL_BASELINE, null, null)
+    }
 }
+
+data class PersonalBaseline(
+    val metricName: String,
+    val rollingMean: Double,
+    val rollingM2: Double,
+    val rollingStd: Double,
+    val sampleCount: Long,
+    val lastUpdated: Long
+)
+

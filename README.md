@@ -64,9 +64,14 @@ A fine-tuned RoBERTa regression model replaces heuristic scoring entirely. Train
 
 FRIDAY is a three-layer distributed system designed so the critical path never leaves the device.
 
-### Layer 1 — Signal capture (Android)
+### Layer 1 — Signal capture & Privacy Guard (Android)
 
-`NotificationListenerService` and `AccessibilityService` collect raw behavioral events. The AccessibilityService uses targeted View ID lookups only (browser URL bars, YouTube titles) — no recursive UI tree traversal. App switch counts are sourced from the system `UsageStatsManager` API. A local Room Database buffers all signals to prevent data loss during network drops. No raw data is ever transmitted off-device.
+`NotificationListenerService` and `AccessibilityService` collect behavioral telemetry under strict on-device privacy guarantees:
+- **Privacy Sanitizer**: Sensitive packages (banking, 2FA authenticators, health/fitness) have notification text completely suppressed (`[Private Notification]`). Real-time regex redaction eliminates OTPs and verification pins (`[REDACTED_SECURITY_CODE]`).
+- **Domain-Only URL Trimming**: Browser telemetry strips all paths, tracking tokens, and query parameters, retaining only root hosts and high-level productivity categories (`DEVELOPMENT`, `PRODUCTIVITY`, `COMMUNICATION`). Raw search queries are never logged.
+- **Personal Baseline Engine**: Local SQLite database tracks rolling mean ($\mu$) and standard deviation ($\sigma$) per user using Welford's algorithm ($O(1)$ space and time). Real-time stress scoring evaluates personal Z-score deviations instead of arbitrary static thresholds.
+- **Contextual Ambiguity Engine**: Differentiates stressful context-switching from productive deep-focus (`FLOW_STATE`) during development and research tasks.
+- **Storage & Battery Optimization**: Base APK is kept strictly under 50 MB (37 MB) via zero-download instant onboarding. The 2.3 GB Phi-3 Mini ONNX neural fallback is downloaded on-demand with explicit user consent over verified Hugging Face CDN channels. Three runtime power states (Ghost, Aware, Active) protect battery longevity.
 
 ### Layer 2 — Intelligence (Compute Hub)
 
@@ -81,6 +86,7 @@ A Chrome Extension connects to the Compute Hub over secure WebSockets. It uses a
 
 | Metric | Result |
 |---|---|
+| Base APK install footprint | < 50 MB (37 MB) |
 | Burnout model inference latency | < 80 ms on-device |
 | Offline fallback activation time | < 200 ms |
 | Cross-device workflow handoff | < 1.2 s |
@@ -92,13 +98,17 @@ A Chrome Extension connects to the Compute Hub over secure WebSockets. It uses a
 
 ## Key features
 
-**Privacy-first by design** — AES-256 encrypted local storage. Behavioral telemetry never leaves the local network. The on-device model means the most sensitive inference path has no network dependency at all.
+**Privacy-first by design** — Strict notification suppression for banking/authenticators, universal OTP redaction, domain-only web context trimming, and AES-256 encrypted local storage. Behavioral telemetry never leaves the local network.
 
-**Empathetic silence engine** — instead of firing another notification, FRIDAY suppresses low-value interruptions when the user's burnout score exceeds a threshold. The system actively reduces cognitive load rather than contributing to it.
+**Empathetic Personal Baseline** — Replaces hardcoded stress assumptions with personalized Z-score deviation tracking using Welford's algorithm. Detects flow states during coding and research without generating false overload alerts.
+
+**Empathetic silence engine** — Instead of firing another notification, FRIDAY suppresses low-value interruptions when the user's burnout score exceeds a threshold. The system actively reduces cognitive load rather than contributing to it.
+
+**Zero-Download Instant Onboarding** — Lightweight installation (<50MB) with rule-based statistical intelligence ready immediately out of the box; heavy 2.3 GB neural weights downloaded on demand with user consent.
 
 **Semantic workspace memory** — ChromaDB stores vectorised session context so FRIDAY can restore a complex multi-tab workflow after a break without asking the user to reconstruct it manually.
 
-**Dynamic power states** — three operating modes (Ghost, Aware, Active) trade capability for battery life based on user activity. Ghost Mode draws negligible power while still logging passive signals.
+**Dynamic power states** — Three operating modes (Ghost, Aware, Active) trade capability for battery life based on user activity. Ghost Mode draws negligible power while still logging passive signals.
 
 ## Innovation and impact
 
